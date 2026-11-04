@@ -54,3 +54,34 @@ M5 deploy as 2nd instance on VPS2 (tailnet only), sync upstream periodically (`g
 ## Risks
 Upstream is very active (13.9k files): keep changes in new files, minimal edits to shared routes/App.tsx.
 Debate costs 3-6x tokens: default 1 round, hard budget caps. Check `rules/*.mdc` before editing matching paths.
+
+## Takeaways from the OmniCouncil draft (Antigravity export)
+Adopt (as behaviours, not code):
+- Per-seat fallback chain: ordered list of {connection, model}; on 429/404/410/503 or timeout, try the next
+  entry and record which one answered. Stored on the seat (`fallbacks` JSON).
+- History auto-compaction: older turns shrink to a short digest (~160 chars each) once the thread exceeds a
+  token budget; the last round stays verbatim. Done at prompt-build time; stored comments stay intact.
+- Archive: freeze a room into a read-only archived state, with dedup by content hash so the same debate is not
+  archived twice. Delete asks for confirmation. War-room numbering ("War Room 7") comes from a per-company
+  counter, not from list length.
+- Status endpoint: which seats/connections are reachable and which fallback tier is active.
+Do NOT copy:
+- SQLite storage (we use Paperclip issues/comments + Drizzle/Postgres).
+- Hard-coded model names: take them from each providers
+
+## Takeaways from the OmniCouncil draft (Antigravity export)
+Adopt (as behaviours, not code):
+- Per-seat fallback chain: ordered list of {connection, model}; on 429/404/410/503 or timeout, try the next
+  entry and record which one answered. Stored on the seat (`fallbacks` JSON).
+- History auto-compaction: older turns shrink to a short digest (~160 chars each) once the thread exceeds a
+  token budget; the last round stays verbatim. Done at prompt-build time; stored comments stay intact.
+- Archive: freeze a room into a read-only archived state, with dedup by content hash so the same debate is not
+  archived twice. Delete asks for confirmation. War-room numbering ("War Room 7") comes from a per-company
+  counter, not from list length.
+- Status endpoint: which seats/connections are reachable and which fallback tier is active.
+
+Do NOT copy:
+- SQLite storage (we use Paperclip issues/comments + Drizzle/Postgres).
+- Hard-coded model names: take them from each provider's model list and verify before use.
+- Keys in app config: all keys go through Paperclip secrets / AI connections.
+- Free-tier = unmetered: budgets and token caps still apply to zero-cost providers (Groq, NIM, Ollama).
