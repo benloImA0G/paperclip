@@ -2,6 +2,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -9,6 +10,13 @@ import {
 } from "drizzle-orm/pg-core";
 import { companies } from "./companies.js";
 import { issues } from "./issues.js";
+
+/** Tried in order when a seat's primary model fails (capacity, timeout, empty answer). */
+export interface CouncilSeatFallback {
+  connectionId: string;
+  grantId: string;
+  model: string;
+}
 
 /**
  * Council Chat seats. A war room is an issue (origin_kind = 'council'); each
@@ -30,6 +38,7 @@ export const councilSeats = pgTable(
     connectionId: uuid("connection_id").notNull(),
     grantId: uuid("grant_id").notNull(),
     model: text("model").notNull(),
+    fallbacks: jsonb("fallbacks").$type<CouncilSeatFallback[]>().notNull().default([]),
     active: boolean("active").notNull().default(true),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

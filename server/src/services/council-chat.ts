@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
 import { and, asc, eq } from "drizzle-orm";
-import { councilSeats, issues, type Db } from "@paperclipai/db";
+import { councilSeats, issues, type CouncilSeatFallback, type Db } from "@paperclipai/db";
 import { aiConnectionCatalogSlug, aiConnectionMetadataSchema } from "@paperclipai/shared";
 import { notFound, unprocessable } from "../errors.js";
 import { withAccountingTransaction } from "./accounting-transaction.js";
@@ -21,6 +21,9 @@ const HISTORY_COMMENTS = 20;
 const DEFAULT_SEAT_MAX_OUTPUT_TOKENS = 1024;
 const MAX_SEAT_MAX_OUTPUT_TOKENS = 4096;
 const SEAT_TIMEOUT_MS = 120_000;
+/** Non-final attempts in a fallback chain give up sooner so the next model still has time. */
+const SEAT_ATTEMPT_TIMEOUT_MS = 45_000;
+const MAX_SEAT_FALLBACKS = 3;
 
 export interface CouncilSeatInput {
   name: string;
@@ -28,11 +31,16 @@ export interface CouncilSeatInput {
   connectionId: string;
   grantId: string;
   model: string;
+  fallbacks?: CouncilSeatFallback[];
 }
 
 export interface CouncilSeatTurnResult {
   seatId: string;
   seatName: string;
+  /** The model that produced this result (the last one tried when the chain failed). */
+  model?: string;
+  /** Earlier models in the chain that failed before this seat answered. */
+  failedAttempts?: Array<{ model: string; error: string }>;
   status: "ok" | "error" | "blocked";
   commentId?: string;
   text?: string;
@@ -101,6 +109,10 @@ export function councilChatService(db: Db) {
     await getRoom(companyId, issueId);
     const name = input.name.trim();
     if (!name) throw unprocessable("A seat needs a name");
+    const fallbacks = input.fallbacks ?? [];
+    if (fallbacks.length > MAX_SEAT_FALLBACKS) {
+      throw unprocessable(`A seat can have at most ${MAX_SEAT_FALLBACKS} fallbacks`);
+    }
     const existing = await listSeats(companyId, issueId);
     const [seat] = await db
       .insert(councilSeats)
@@ -112,6 +124,7 @@ export function councilChatService(db: Db) {
         connectionId: input.connectionId,
         grantId: input.grantId,
         model: input.model,
+        fallbacks,
         position: existing.length,
       })
       .returning();
@@ -133,26 +146,29 @@ export function councilChatService(db: Db) {
   }
 
   /**
-   * One seat's turn: resolve the connection the same way fast responses do, check the budget
-   * admission, call the model with no tools, record the cost receipt, persist the reply as a comment.
+   * One attempt of a seat's turn against one model: resolve the connection the same way fast
+   * responses do, check the budget admission, call the model with no tools, record the cost
+   * receipt, persist the reply as a comment.
    */
-  async function runSeatTurn(input: {
+  async function runSeatAttempt(input: {
     companyId: string;
     issueId: string;
     userId: string;
     roundId: string;
     seat: typeof councilSeats.$inferSelect;
+    target: CouncilSeatFallback;
+    attempt: number;
     prompt: string;
     maxOutputTokens: number;
     signal: AbortSignal;
   }): Promise<CouncilSeatTurnResult> {
-    const { companyId, issueId, userId, seat } = input;
-    const base = { seatId: seat.id, seatName: seat.name };
+    const { companyId, issueId, userId, seat, target } = input;
+    const base = { seatId: seat.id, seatName: seat.name, model: target.model };
     try {
       const selected = await connections.selectFastResponse({
         companyId,
-        connectionId: seat.connectionId,
-        grantId: seat.grantId,
+        connectionId: target.connectionId,
+        grantId: target.grantId,
         userId,
       });
       const metadata = aiConnectionMetadataSchema.parse(selected.connection.config.ai);
@@ -170,7 +186,7 @@ export function councilChatService(db: Db) {
 
       const startedAt = new Date();
       const result = await generateText({
-        model: fastResponseModel({ metadata, credential, model: seat.model }),
+        model: fastResponseModel({ metadata, credential, model: target.model }),
         system: seatSystemPrompt(seat),
         prompt: input.prompt,
         maxOutputTokens: input.maxOutputTokens,
@@ -194,11 +210,11 @@ export function councilChatService(db: Db) {
             issueId,
             projectId: null,
             heartbeatRunId: null,
-            idempotencyKey: `council:${input.roundId}:${seat.id}`,
+            idempotencyKey: `council:${input.roundId}:${seat.id}${input.attempt ? `:${input.attempt}` : ""}`,
             billingCode: `council:${issueId}`,
             provider,
             biller: provider,
-            model: seat.model,
+            model: target.model,
             billingType: "metered_api",
             costStatus: receipt.costStatus,
             inputTokens: receipt.inputTokens ?? 0,
@@ -242,6 +258,45 @@ export function councilChatService(db: Db) {
     }
   }
 
+  /**
+   * A seat's turn: its primary model, then each fallback in order while the previous one errored.
+   * A budget block ends the chain (it applies to the whole company). Each attempt gets its own
+   * timeout so a slow primary leaves time for the fallbacks.
+   */
+  async function runSeatTurn(input: {
+    companyId: string;
+    issueId: string;
+    userId: string;
+    roundId: string;
+    seat: typeof councilSeats.$inferSelect;
+    prompt: string;
+    maxOutputTokens: number;
+    signal?: AbortSignal;
+  }): Promise<CouncilSeatTurnResult> {
+    const { seat } = input;
+    const targets: CouncilSeatFallback[] = [
+      { connectionId: seat.connectionId, grantId: seat.grantId, model: seat.model },
+      ...seat.fallbacks,
+    ];
+    const failed: NonNullable<CouncilSeatTurnResult["failedAttempts"]> = [];
+    let last: CouncilSeatTurnResult | null = null;
+    for (const [attempt, target] of targets.entries()) {
+      const timeout = AbortSignal.timeout(
+        attempt === targets.length - 1 ? SEAT_TIMEOUT_MS : SEAT_ATTEMPT_TIMEOUT_MS,
+      );
+      last = await runSeatAttempt({
+        ...input,
+        target,
+        attempt,
+        signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout,
+      });
+      if (last.status === "ok") break;
+      failed.push({ model: target.model, error: last.error ?? last.status });
+      if (last.status === "blocked" || input.signal?.aborted) break;
+    }
+    return { ...last!, ...(failed.length && last!.status === "ok" ? { failedAttempts: failed } : {}) };
+  }
+
   /** Round 1: post the user's message, then every active seat answers in parallel and blind. */
   async function runRound(input: {
     companyId: string;
@@ -278,8 +333,7 @@ export function councilChatService(db: Db) {
       Math.max(input.maxOutputTokens ?? DEFAULT_SEAT_MAX_OUTPUT_TOKENS, 64),
       MAX_SEAT_MAX_OUTPUT_TOKENS,
     );
-    const timeout = AbortSignal.timeout(SEAT_TIMEOUT_MS);
-    const signal = input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
+    const signal = input.signal;
     const results = await Promise.all(
       seats.map((seat) =>
         runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, maxOutputTokens, signal }),

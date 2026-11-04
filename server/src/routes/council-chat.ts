@@ -15,6 +15,18 @@ const addSeatSchema = z
     connectionId: z.string().uuid(),
     grantId: z.string().uuid(),
     model: z.string().trim().min(1).max(256),
+    fallbacks: z
+      .array(
+        z
+          .object({
+            connectionId: z.string().uuid(),
+            grantId: z.string().uuid(),
+            model: z.string().trim().min(1).max(256),
+          })
+          .strict(),
+      )
+      .max(3)
+      .optional(),
   })
   .strict();
 const roundSchema = z

@@ -1,0 +1,1 @@
+ALTER TABLE "council_seats" ADD COLUMN "fallbacks" jsonb DEFAULT '[]'::jsonb NOT NULL;
