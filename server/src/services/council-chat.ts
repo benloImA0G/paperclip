@@ -32,6 +32,7 @@ export interface CouncilSeatInput {
   grantId: string;
   model: string;
   fallbacks?: CouncilSeatFallback[];
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
 }
 
 export interface CouncilSeatTurnResult {
@@ -125,6 +126,7 @@ export function councilChatService(db: Db) {
         grantId: input.grantId,
         model: input.model,
         fallbacks,
+        reasoningEffort: input.reasoningEffort ?? null,
         position: existing.length,
       })
       .returning();
@@ -191,6 +193,9 @@ export function councilChatService(db: Db) {
         prompt: input.prompt,
         maxOutputTokens: input.maxOutputTokens,
         maxRetries: 0,
+        ...(seat.reasoningEffort
+          ? { providerOptions: { openai: { reasoningEffort: seat.reasoningEffort } } }
+          : {}),
         abortSignal: input.signal,
         telemetry: { isEnabled: false, recordInputs: false, recordOutputs: false },
       });

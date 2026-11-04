@@ -1,0 +1,1 @@
+ALTER TABLE "council_seats" ADD COLUMN "reasoning_effort" text;

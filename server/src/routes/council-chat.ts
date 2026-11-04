@@ -15,6 +15,7 @@ const addSeatSchema = z
     connectionId: z.string().uuid(),
     grantId: z.string().uuid(),
     model: z.string().trim().min(1).max(256),
+    reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high"]).optional(),
     fallbacks: z
       .array(
         z

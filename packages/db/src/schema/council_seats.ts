@@ -38,6 +38,8 @@ export const councilSeats = pgTable(
     connectionId: uuid("connection_id").notNull(),
     grantId: uuid("grant_id").notNull(),
     model: text("model").notNull(),
+    /** OpenAI-style reasoning effort sent with each call; "none" switches thinking off on models that support it. */
+    reasoningEffort: text("reasoning_effort"),
     fallbacks: jsonb("fallbacks").$type<CouncilSeatFallback[]>().notNull().default([]),
     active: boolean("active").notNull().default(true),
     position: integer("position").notNull().default(0),
