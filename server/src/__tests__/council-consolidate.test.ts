@@ -30,6 +30,7 @@ vi.mock("../services/council-export.js", () => ({
   markdownToDocx: vi.fn(),
   PandocUnavailableError: class PandocUnavailableError extends Error {},
 }));
+vi.mock("../middleware/logger.js", () => ({ logger: { warn: vi.fn() } }));
 
 const companyId = "11111111-1111-4111-8111-111111111111";
 const issueId = "22222222-2222-4222-8222-222222222222";
@@ -75,17 +76,62 @@ describe("Council PPTX consolidation", () => {
     expect(mocks.selectFastResponse).toHaveBeenCalledWith(expect.objectContaining({ connectionId: expectedModel.replace("-model", "-connection") }));
   });
 
-  it("falls back on failure and empty output, sanitizes success, and does not persist a seat comment", async () => {
+  it("returns and logs every consolidation fallback reason, sanitizes success, and does not persist a seat comment", async () => {
     const { councilChatService } = await import("../services/council-chat.js");
+    const { logger } = await import("../middleware/logger.js");
     const service = councilChatService(dbFor([seat("s", "Seat", "moderator")]));
     mocks.generateText.mockResolvedValueOnce({ text: `${deck}\n\n![remote](https://example.com/a.png)` });
     const success = await service.consolidateForExport({ companyId, issueId, userId, markdown: source });
     expect(success).toEqual({ markdown: expect.not.stringContaining("https://example.com"), consolidated: true });
     expect(mocks.addComment).not.toHaveBeenCalled();
     mocks.generateText.mockResolvedValueOnce({ text: "" });
-    expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false });
+    expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false, reason: "empty_output" });
     mocks.generateText.mockRejectedValueOnce(new Error("timeout"));
-    expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false });
+    expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false, reason: "model_error:timeout" });
+    mocks.generateText.mockResolvedValueOnce({ text: "not a deck" });
+    expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false, reason: "invalid_deck:not a deck" });
+    const controller = new AbortController();
+    controller.abort();
+    mocks.generateText.mockRejectedValueOnce(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source, signal: controller.signal })).toEqual({ markdown: source, consolidated: false, reason: "timeout/abort" });
+    expect(logger.warn).toHaveBeenCalledWith(expect.any(Object), "Council export consolidation fell back to original markdown");
+  });
+
+  it("accepts realistic decks and rejects malformed deck shapes", async () => {
+    const { councilChatService } = await import("../services/council-chat.js");
+    const service = councilChatService(dbFor([seat("s", "Seat", "moderator")]));
+    const realisticDeck = [
+      "## Title\n*Subtitle*\n- A concise decision summary\n- The customer problem\n- The recommended outcome",
+      "## Evidence\n- `Postgres` supports the current workload\n- SQLite is simpler for local development\n- The migration path stays reversible\n- Adoption risk remains below <5%",
+      "## Tradeoffs\n- Keep the initial architecture small\n- Measure latency and operating cost\n- Revisit the choice after early usage\n- Document the fallback plan\n- Align implementation with the roadmap",
+      "## Next steps\n- Ship the selected approach\n- Add monitoring and migration checks\n- Review results with the team",
+    ].join("\n\n");
+
+    mocks.generateText.mockResolvedValueOnce({ text: realisticDeck });
+    expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({
+      markdown: realisticDeck,
+      consolidated: true,
+    });
+
+    for (const invalidDeck of [
+      "## Only slide\n- One\n- Two\n- Three",
+      "## Too many bullets\n- One\n- Two\n- Three\n- Four\n- Five\n- Six\n- Seven\n- Eight\n- Nine\n\n## Next\n- Done",
+      "## No bullets\nParagraph only\n\n## Next\n- Done",
+      "Text before the first heading\n\n## Title\n- One\n\n## Next\n- Done",
+    ]) {
+      mocks.generateText.mockResolvedValueOnce({ text: invalidDeck });
+      const result = await service.consolidateForExport({ companyId, issueId, userId, markdown: source });
+      expect(result).toEqual(expect.objectContaining({ markdown: source, consolidated: false }));
+      expect(result.reason).toMatch(/^invalid_deck:/);
+    }
+  });
+
+  it("returns and logs no_seat", async () => {
+    const { councilChatService } = await import("../services/council-chat.js");
+    const { logger } = await import("../middleware/logger.js");
+    const result = await councilChatService(dbFor([])).consolidateForExport({ companyId, issueId, userId, markdown: source });
+    expect(result).toEqual({ markdown: source, consolidated: false, reason: "no_seat" });
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ reason: "no_seat" }), expect.any(String));
   });
 
   it("wraps source content as untrusted prompt data", async () => {

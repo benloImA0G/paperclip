@@ -13,6 +13,7 @@ import { issueService } from "./issues.js";
 import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 import { sanitizeMarkdownForPandoc } from "./council-export.js";
+import { logger } from "../middleware/logger.js";
 
 /** Issues that are council war rooms carry this origin kind. */
 export const COUNCIL_ORIGIN_KIND = "council";
@@ -30,14 +31,14 @@ const MAX_SEAT_FALLBACKS = 3;
 const COUNCIL_ROOM_METADATA_VERSION = 1;
 
 function validConsolidatedDeck(markdown: string): boolean {
-  const slides = markdown.trim().split(/(?=^##\s)/m).filter(Boolean);
-  if (slides.length < 3 || slides.length > 6) return false;
-  return slides.every((slide, index) => {
+  const slides = markdown.trim().split(/(?=^##\s)/m).filter((slide) => slide.trim());
+  if (slides.length < 2 || slides.length > 7) return false;
+  return slides.every((slide) => {
     const lines = slide.trim().split("\n");
     if (!/^##\s+\S/.test(lines[0])) return false;
-    const bullets = lines.slice(1).filter((line) => /^[-*+]\s+\S/.test(line));
-    return bullets.length >= 3 && bullets.length <= 5 && !(/[<>{}`]/.test(slide));
-  }) && /next steps|decision|recommendation/i.test(slides.at(-1) ?? "");
+    const bullets = lines.slice(1).filter((line) => /^\s*[-*+]\s+\S/.test(line));
+    return bullets.length >= 1 && bullets.length <= 8;
+  });
 }
 
 type CouncilRoomMetadata = { version: typeof COUNCIL_ROOM_METADATA_VERSION; brief: string; requireApproval: boolean };
@@ -625,12 +626,17 @@ export function councilChatService(db: Db) {
   }
 
   async function consolidateForExport(input: { companyId: string; issueId: string; userId: string; markdown: string; signal?: AbortSignal }) {
+    type ConsolidationFallbackReason = "no_seat" | `model_error:${string}` | "empty_output" | `invalid_deck:${string}` | "timeout/abort";
+    const fallback = (reason: ConsolidationFallbackReason) => {
+      logger.warn({ companyId: input.companyId, issueId: input.issueId, reason }, "Council export consolidation fell back to original markdown");
+      return { markdown: input.markdown, consolidated: false, reason };
+    };
     try {
       const seats = (await listSeats(input.companyId, input.issueId)).filter((seat) => seat.active);
       const seat = seats.find((candidate) => candidate.role === "moderator")
         ?? seats.find((candidate) => candidate.role === "synthesizer")
         ?? seats[0];
-      if (!seat) return { markdown: input.markdown, consolidated: false };
+      if (!seat) return fallback("no_seat");
       const result = await runSeatTurn({
         companyId: input.companyId,
         issueId: input.issueId,
@@ -654,11 +660,18 @@ export function councilChatService(db: Db) {
         persistComment: false,
       });
       const sanitized = result.text ? sanitizeMarkdownForPandoc(result.text.trim()) : "";
-      return result.status === "ok" && sanitized && validConsolidatedDeck(sanitized)
-        ? { markdown: sanitized, consolidated: true }
-        : { markdown: input.markdown, consolidated: false };
-    } catch {
-      return { markdown: input.markdown, consolidated: false };
+      if (result.status !== "ok") {
+        if (input.signal?.aborted) return fallback("timeout/abort");
+        if (result.error?.startsWith("Empty answer")) return fallback("empty_output");
+        return fallback(`model_error:${(result.error ?? result.status).slice(0, 200)}`);
+      }
+      if (!sanitized) return fallback("empty_output");
+      if (!validConsolidatedDeck(sanitized)) return fallback(`invalid_deck:${sanitized.slice(0, 200)}`);
+      return { markdown: sanitized, consolidated: true };
+    } catch (error) {
+      if (input.signal?.aborted || (error instanceof Error && error.name === "AbortError")) return fallback("timeout/abort");
+      const message = error instanceof Error ? error.message : "Seat call failed";
+      return fallback(`model_error:${message.slice(0, 200)}`);
     }
   }
 
