@@ -162,6 +162,15 @@ export function councilChatRoutes(db: Db) {
     res.status(201).json(await council.saveArtifact(companyId, req.params.issueId as string, userId, req.body));
   });
 
+  router.post("/companies/:companyId/council/rooms/:issueId/artifacts/:key/review", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const userId = boardUserId(req);
+    const abort = new AbortController();
+    res.on("close", () => { if (!res.writableFinished) abort.abort(); });
+    res.json(await council.reviewArtifact({ companyId, issueId: req.params.issueId as string, userId, key: req.params.key as string, signal: abort.signal }));
+  });
+
   router.get("/companies/:companyId/council/rooms/:issueId/export-setting", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
