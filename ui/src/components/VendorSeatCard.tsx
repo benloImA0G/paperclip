@@ -109,13 +109,13 @@ export function VendorSeatCard({
 
   return (
     <div
-      className={`flex min-w-0 flex-col gap-1.5 rounded-xl border-2 bg-card p-3 text-sm transition-opacity ${active ? "" : "opacity-60"}`}
-      style={{ borderColor: active ? color : undefined }}
+      className={`flex min-w-0 flex-col gap-1.5 rounded-xl border border-border border-t-[3px] bg-card p-3 text-sm transition-opacity ${active ? "" : "opacity-60"}`}
+      style={{ borderTopColor: color }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color }}>Vendor</div>
-          <div className="font-semibold leading-tight">{vendorIcon(vendor)} {vendor.replace(/\s*\(council\)/i, "")}</div>
+          <div className="truncate font-semibold leading-tight" title={vendor.replace(/\s*\(council\)/i, "")}>{vendorIcon(vendor)} {vendor.replace(/\s*\(council\)/i, "")}</div>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -123,7 +123,7 @@ export function VendorSeatCard({
             aria-pressed={active}
             onClick={() => (seat ? onUpdate({ active: !seat.active }) : onActivate({ ...draft, model }))}
             disabled={!seat && !model}
-            className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-500" : "text-muted-foreground"}`}
+            className={`shrink-0 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-500" : "text-muted-foreground"}`}
             style={active ? { borderColor: color } : undefined}
             title={active ? "Click to leave this vendor out" : "Click to bring this vendor into the council"}
           >
@@ -193,7 +193,9 @@ export function VendorSeatCard({
         <span className="min-h-3 text-[10px]"><span style={{ color }}>●</span> {note ?? (seat?.reasoningEffort === "none" ? "thinking off" : "tested model")}{seat?.acceptsImages && !note?.includes("vision") ? " · vision" : ""}{seat?.fallbacks.length ? ` · ${seat.fallbacks.length} fallback` : ""}</span>
       </label>
 
-      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+      <details className="group rounded-md border border-border/70 px-2">
+        <summary className="cursor-pointer list-none py-1 text-[11px] font-medium text-muted-foreground">Persona</summary>
+      <label className="flex flex-col gap-0.5 pb-2 text-[11px] text-muted-foreground">
         Persona / prompt
         <select
           className="h-7 rounded-md border bg-background px-1 text-xs text-foreground"
@@ -228,6 +230,7 @@ export function VendorSeatCard({
           }}
         />
       </label>
+      </details>
 
       {running && active ? (
         <span className="flex items-center gap-1 text-xs text-muted-foreground">

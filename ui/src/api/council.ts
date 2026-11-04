@@ -1,5 +1,5 @@
 import type { Issue } from "@paperclipai/shared";
-import { api } from "./client";
+import { api, requestResponse } from "./client";
 
 export interface CouncilSeatFallback {
   connectionId: string;
@@ -56,6 +56,8 @@ export interface CouncilRoundResult {
 }
 
 export const councilApi = {
+  exportDocument: async (companyId: string, format: "docx" | "pptx", title: string, markdown: string) =>
+    (await requestResponse(`/companies/${companyId}/council/export`, { method: "POST", body: JSON.stringify({ format, title, markdown }) })).blob(),
   listRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms`),
   listArchivedRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms?archived=1`),
   listModels: (companyId: string, connectionId: string, grantId: string) =>

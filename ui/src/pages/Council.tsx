@@ -14,6 +14,28 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 
 const SEAT_AUTHOR_PREFIX = "council-seat:";
+
+/** Download text as a file in the browser (O1 of the outputs roadmap: no server round trip, no new dependency). */
+function saveTextFile(filename: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.replace(/[^\w.\- ]+/g, "_");
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function saveBlobFile(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.replace(/[^\w.\- ]+/g, "_");
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 const SEAT_COLORS = ["#10b981", "#06b6d4", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#ef4444", "#84cc16"];
 
 const QUICK_PROMPTS = [
@@ -75,10 +97,10 @@ function Toggle({ label, on, onClick, title }: { label: string; on: boolean; onC
       aria-pressed={on}
       onClick={onClick}
       title={title}
-      className={`rounded-lg border px-3 py-1.5 text-left text-xs font-medium leading-tight ${on ? "border-primary bg-accent" : "text-muted-foreground"}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium leading-tight ${on ? "border-primary bg-accent text-foreground" : "border-border text-muted-foreground"}`}
     >
       {label}
-      <div className="font-semibold">{on ? "ON" : "OFF"}</div>
+      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${on ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{on ? "ON" : "OFF"}</span>
     </button>
   );
 }
@@ -106,6 +128,7 @@ export function Council() {
   const [stepIdx, setStepIdx] = useState(0);
   const [compactedTurns, setCompactedTurns] = useState(0);
   const [images, setImages] = useState<Array<{ name: string; mediaType: string; data: string }>>([]);
+  const [exportingReply, setExportingReply] = useState<string | null>(null);
 
   useEffect(() => setBreadcrumbs([{ label: "Council" }]), [setBreadcrumbs]);
   const companyId = selectedCompanyId ?? "";
@@ -331,9 +354,15 @@ export function Council() {
       setCardsOpen(false);
     },
     onSuccess: (results) => {
+      setLastResults(Object.fromEntries(results.map((r) => [r.seatId, r])));
+      // keep the draft when no vendor answered, so the question can be retried
+      if (results.length && results.every((r) => r.status !== "ok")) {
+        setError("No vendor answered. Your message is kept; check the vendor cards, then send again.");
+        setCardsOpen(true);
+        return;
+      }
       setMessage("");
       setImages([]);
-      setLastResults(Object.fromEntries(results.map((r) => [r.seatId, r])));
     },
     onError: (e) => {
       if (!abortRef.current?.signal.aborted) setError(errorText(e));
@@ -362,9 +391,9 @@ export function Council() {
           <p className="text-xs text-muted-foreground">Post an engineering challenge; vendors debate and reconcile into a unified vision.</p>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
-          <Toggle label="2-Way Clarify:" on={clarify} onClick={() => setClarify((v) => !v)} title="Vendors may ask you, or another vendor, one clarifying question before answering" />
-          <Toggle label="1-Page Summary:" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="A vendor writes a short summary at the end" />
-          <label className="flex flex-col justify-center rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <Toggle label="2-Way Clarify:" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" />
+          <Toggle label="1-Page Summary:" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" />
+          <label className="flex flex-col justify-center rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Sets how many rounds vendors comment on each other">
             Debate rounds
             <select
               className="h-7 rounded-md border bg-background px-1 text-xs normal-case text-foreground"
@@ -385,26 +414,27 @@ export function Council() {
               ))}
             </select>
           </label>
-          <Button variant="outline" size="sm" className="h-auto" disabled={!roomId || setArchived.isPending} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground" disabled={!roomId || setArchived.isPending} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}>
             <Archive /> Archive Thread
           </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-auto text-destructive"
-            disabled={!roomId || !room}
+            className="h-7 border-0 px-2 text-xs text-muted-foreground shadow-none hover:bg-destructive/10 hover:text-destructive"
+            disabled={!roomId || !room || running}
+            title={running ? "Stop the running round first" : undefined}
             onClick={() => {
               if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id);
             }}
           >
             <Trash2 /> Delete Thread
           </Button>
-          <Button variant="outline" size="sm" className="h-auto" onClick={() => setShowArchives((v) => !v)}>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground" onClick={() => setShowArchives((v) => !v)}>
             Archives <span className="rounded-full bg-accent px-1.5 text-xs">{archived.data?.length ?? 0}</span>
           </Button>
           <Button
             variant="ghost"
-            className="h-auto"
+            className="h-7 px-2 text-xs text-muted-foreground"
             disabled={!roomId || !comments.data?.length || clearChat.isPending}
             onClick={() => {
               if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate();
@@ -493,7 +523,7 @@ export function Council() {
       ) : (
         <>
           <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold uppercase tracking-wide text-rose-400">
+            <span className="font-semibold uppercase tracking-wide text-muted-foreground">
               ● Select participating vendors <span className="font-normal normal-case">· click Active / Inactive to include a vendor · selected vendors respond concurrently</span>
             </span>
             <span className="flex items-center gap-2">
@@ -528,7 +558,7 @@ export function Council() {
               })}
             </div>
           ) : null}
-          <div className={`${cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
+          <div className={`${cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 pb-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
             {connectionOptions.map((conn, i) => {
               const seat = seatOf(conn.id);
               const d = defaultsFor(conn.name);
@@ -601,6 +631,37 @@ export function Council() {
                       <span className="font-normal text-muted-foreground">{clock(c.createdAt)}</span>
                     </div>
                     <MarkdownBody className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
+                    <div className="mt-1 flex justify-end gap-2 text-[10px] text-muted-foreground">
+                      <select
+                        aria-label="Save reply as"
+                        className="h-6 rounded-md border bg-background px-1 text-[10px] text-foreground"
+                        value=""
+                        disabled={!!exportingReply}
+                        onChange={async (e) => {
+                          const format = e.target.value as "md" | "txt" | "docx" | "pptx";
+                          if (!format) return;
+                          const exportKey = `${c.id}:${format}`;
+                          if (format === "md" || format === "txt") {
+                            saveTextFile(`${room?.title ?? "council"}-${name}.${format}`, c.body);
+                            return;
+                          }
+                          setExportingReply(exportKey);
+                          try {
+                            saveBlobFile(`${room?.title ?? "council"}-${name}.${format}`, await councilApi.exportDocument(companyId, format, room?.title ?? "Council reply", c.body));
+                          } catch (err) {
+                            setError(`Could not create the .${format}: ${errorText(err)}`);
+                          } finally {
+                            setExportingReply(null);
+                          }
+                        }}
+                      >
+                        <option value="" disabled>Save as</option>
+                        <option value="md">Markdown (.md)</option>
+                        <option value="txt">Text (.txt)</option>
+                        <option value="docx">Word (.docx)</option>
+                        <option value="pptx">PowerPoint (.pptx)</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               );
@@ -714,6 +775,7 @@ export function Council() {
                 <select
                   className="h-8 rounded-md border bg-background px-2 disabled:opacity-50"
                   aria-label="Discussion depth"
+                  title="Sets how many rounds vendors comment on each other"
                   disabled={!discussion}
                   value={depth}
                   onChange={(e) => setDepth(e.target.value as Depth)}
@@ -737,7 +799,7 @@ export function Council() {
                     </option>
                   ))}
                 </select>
-                <Button type="button" variant="outline" size="sm" className="border-primary/60 bg-primary/10" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>
+                <Button type="button" variant="outline" size="sm" className="border-primary/60 bg-primary/10" title="Creates a concise one-page summary of the discussion" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>
                   Summary
                 </Button>
                 <Button

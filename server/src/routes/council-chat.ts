@@ -6,6 +6,7 @@ import { COUNCIL_ORIGIN_KIND, councilChatService } from "../services/council-cha
 import { forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
+import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../services/council-export.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
 const addSeatSchema = z
@@ -59,6 +60,12 @@ const roundSchema = z
     clarify: z.boolean().optional(),
   })
   .strict();
+const exportSchema = z.object({ format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000) }).strict();
+
+function exportFilename(title: string, format: "docx" | "pptx") {
+  const safe = title.replace(/[^\w. -]+/g, "_").trim().slice(0, 160) || "council-export";
+  return `${safe}.${format}`;
+}
 
 /**
  * Council Chat (multi-vendor war rooms). A room is an issue with origin kind `council`;
@@ -165,6 +172,26 @@ export function councilChatRoutes(db: Db) {
         signal: abort.signal,
       }),
     );
+  });
+
+  router.post("/companies/:companyId/council/export", validate(exportSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    const { format, title, markdown } = req.body;
+    let bytes: Buffer;
+    try {
+      bytes = format === "docx" ? await markdownToDocx(title, markdown) : await markdownToPptx(title, markdown);
+    } catch (error) {
+      if (error instanceof PandocUnavailableError) {
+        res.status(503).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    res.setHeader("Content-Type", format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    res.setHeader("Content-Disposition", `attachment; filename="${exportFilename(title, format)}"`);
+    res.send(bytes);
   });
 
   return router;

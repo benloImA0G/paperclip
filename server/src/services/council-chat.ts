@@ -64,7 +64,9 @@ const MAX_SEAT_QUESTIONS = 3;
 /** Reads a seat reply of the form "QUESTION FOR <name>: <question>" (2-way clarify). */
 function parseSeatQuestion(text: string): { to: string; question: string } | null {
   const m = /^\W*QUESTION FOR\s+@?([^:\n*]+?)\s*\**\s*:\s*\**\s*([\s\S]+)$/i.exec(text.trim());
-  return m && m[2].trim() ? { to: m[1].trim(), question: m[2].trim() } : null;
+  // single line, bounded: model text must not smuggle long instructions into another seat's prompt
+  const question = m?.[2].split("\n")[0].trim().slice(0, 300);
+  return m && question ? { to: m[1].trim(), question } : null;
 }
 
 /** True when `to` (as typed in a question) names the seat: its full name or first word, ignoring case. */
