@@ -14,6 +14,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 
 const SEAT_AUTHOR_PREFIX = "council-seat:";
+const DOCUMENT_EXPORT_REQUEST = /(power ?point|pptx|slides?|deck|word doc|docx|word file)/i;
 
 /** Download text as a file in the browser (O1 of the outputs roadmap: no server round trip, no new dependency). */
 function saveTextFile(filename: string, text: string) {
@@ -380,6 +381,14 @@ export function Council() {
   const canSend = !ask.isPending && !!message.trim() && activeSeats.length > 0;
   const room = rooms.data?.find((r) => r.id === roomId);
   const seatById = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s]));
+  const latestUserMessage = [...(comments.data ?? [])].reverse().find((c) => !c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
+  const finalVendorReply = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
+  const requestedDocumentExport = latestUserMessage?.body.match(DOCUMENT_EXPORT_REQUEST)?.[0] ?? "";
+  const showDocumentExportCta = !running && !!requestedDocumentExport && !!finalVendorReply;
+  const requestedFormats = {
+    pptx: /power ?point|pptx|slides?|deck/i.test(requestedDocumentExport),
+    docx: /word doc|docx|word file/i.test(requestedDocumentExport),
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
@@ -662,6 +671,49 @@ export function Council() {
                         <option value="pptx">PowerPoint (.pptx)</option>
                       </select>
                     </div>
+                    {showDocumentExportCta && c.id === finalVendorReply?.id ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                        <span className="mr-1 text-xs font-medium text-foreground">Ready to download:</span>
+                        {requestedFormats.pptx ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={!!exportingReply}
+                            onClick={async () => {
+                              setExportingReply(`${c.id}:pptx`);
+                              try {
+                                saveBlobFile(`${room?.title ?? "council"}.${"pptx"}`, await councilApi.exportDocument(companyId, "pptx", room?.title ?? "Council reply", c.body));
+                              } catch (err) {
+                                setError(`Could not create the .pptx: ${errorText(err)}`);
+                              } finally {
+                                setExportingReply(null);
+                              }
+                            }}
+                          >
+                            {exportingReply === `${c.id}:pptx` ? <Loader2 className="animate-spin" /> : null} Download PowerPoint
+                          </Button>
+                        ) : null}
+                        {requestedFormats.docx ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={!!exportingReply}
+                            onClick={async () => {
+                              setExportingReply(`${c.id}:docx`);
+                              try {
+                                saveBlobFile(`${room?.title ?? "council"}.${"docx"}`, await councilApi.exportDocument(companyId, "docx", room?.title ?? "Council reply", c.body));
+                              } catch (err) {
+                                setError(`Could not create the .docx: ${errorText(err)}`);
+                              } finally {
+                                setExportingReply(null);
+                              }
+                            }}
+                          >
+                            {exportingReply === `${c.id}:docx` ? <Loader2 className="animate-spin" /> : null} Download Word
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -712,6 +764,7 @@ export function Council() {
                 }
               }}
             />
+            <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p>
             {images.length ? (
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {images.map((img, i) => (

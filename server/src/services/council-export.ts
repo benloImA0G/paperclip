@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 const PANDOC_ARGS = ["-f", "markdown-raw_html-raw_attribute-raw_tex+pipe_tables", "--sandbox"];
 const MAX_BUFFER = 256 * 1024;
 const TIMEOUT_MS = 20_000;
+const SERVICE_DIR = fileURLToPath(new URL(".", import.meta.url));
 let activeExports = 0;
 
 const SLIDE_CHAR_LIMIT = 700;
@@ -166,7 +168,14 @@ async function convert(title: string, markdown: string, format: "docx" | "pptx")
   const output = `${directory}/export.${format}`;
   const args = [...PANDOC_ARGS, "-t", format];
   if (format === "pptx") args.push("--slide-level=2");
-  args.push("-M", `title=${title}`, "-o", output);
+  const reference = `${SERVICE_DIR}/council-reference.${format}`;
+  try {
+    await access(reference);
+    args.push("--reference-doc", reference);
+  } catch {
+    // Development/source checkouts may omit generated reference assets.
+  }
+  args.push("-M", `title=${title}`, "-M", "subtitle=Council Chat", "-M", `date=${new Date().toISOString().slice(0, 10)}`, "-M", "author=Council Chat", "-o", output);
   try {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(process.env.PANDOC_PATH || "pandoc", args, { stdio: ["pipe", "pipe", "pipe"] });
