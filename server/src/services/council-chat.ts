@@ -41,12 +41,24 @@ function validConsolidatedDeck(markdown: string): boolean {
   });
 }
 
-type CouncilRoomMetadata = { version: typeof COUNCIL_ROOM_METADATA_VERSION; brief: string; requireApproval: boolean };
+type CouncilRoomMetadata = {
+  version: typeof COUNCIL_ROOM_METADATA_VERSION;
+  brief: string;
+  requireApproval: boolean;
+  [key: string]: unknown;
+};
 
 export function roomMetadata(description: string | null | undefined): CouncilRoomMetadata {
   if (description) {
     try {
       const parsed = JSON.parse(description) as Partial<CouncilRoomMetadata>;
+      if (
+        parsed.__councilRoom === COUNCIL_ROOM_METADATA_VERSION &&
+        typeof parsed.brief === "string" &&
+        typeof parsed.requireApproval === "boolean"
+      ) {
+        return parsed as CouncilRoomMetadata;
+      }
       if (parsed.version === COUNCIL_ROOM_METADATA_VERSION && typeof parsed.brief === "string" && typeof parsed.requireApproval === "boolean") {
         return parsed as CouncilRoomMetadata;
       }
@@ -57,8 +69,10 @@ export function roomMetadata(description: string | null | undefined): CouncilRoo
   return { version: COUNCIL_ROOM_METADATA_VERSION, brief: normalizeCouncilBrief(description), requireApproval: false };
 }
 
-function roomDescription(metadata: CouncilRoomMetadata) {
-  return metadata.requireApproval ? JSON.stringify(metadata) : metadata.brief;
+export function roomDescription(metadata: CouncilRoomMetadata) {
+  return metadata.requireApproval
+    ? JSON.stringify({ ...metadata, __councilRoom: COUNCIL_ROOM_METADATA_VERSION })
+    : metadata.brief;
 }
 
 export interface CouncilSeatInput {
@@ -75,6 +89,13 @@ export interface CouncilSeatInput {
 
 function seatConfig(value: CouncilSeatStoredConfig | null | undefined) {
   return Array.isArray(value) ? { fallbacks: value, role: "none" as CouncilSeatRole } : { fallbacks: value?.fallbacks ?? [], role: value?.role ?? "none" };
+}
+export function mergeSeatConfig(
+  current: CouncilSeatStoredConfig | null | undefined,
+  patch: Pick<CouncilSeatInput, "role" | "fallbacks">,
+) {
+  const currentConfig = seatConfig(current);
+  return { fallbacks: patch.fallbacks ?? currentConfig.fallbacks, role: patch.role ?? currentConfig.role };
 }
 function publicSeat<T extends { fallbacks: CouncilSeatStoredConfig }>(seat: T) {
   const config = seatConfig(seat.fallbacks);
@@ -401,18 +422,17 @@ export function councilChatService(db: Db) {
     if (patch.persona !== undefined) set.persona = patch.persona.trim();
     if (patch.model !== undefined) set.model = patch.model.trim();
     if (patch.active !== undefined) set.active = patch.active;
-    if (patch.role !== undefined || patch.fallbacks !== undefined) {
-      const [current] = await db.select({ fallbacks: councilSeats.fallbacks }).from(councilSeats).where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId), eq(councilSeats.id, seatId)));
-      if (!current) throw notFound("Seat not found");
-      const currentConfig = seatConfig(current.fallbacks);
-      set.fallbacks = { fallbacks: patch.fallbacks ?? currentConfig.fallbacks, role: patch.role ?? currentConfig.role };
-      if (patch.fallbacks !== undefined) await validateSeatTargets(companyId, patch.fallbacks);
-    }
+    if (patch.fallbacks !== undefined) await validateSeatTargets(companyId, patch.fallbacks);
     if (!Object.keys(set).length) throw unprocessable("Nothing to update");
     const [seat] = await db.transaction(async (tx) => {
       const [room] = await tx.select({ id: issues.id }).from(issues)
         .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId))).for("update");
       if (!room) throw notFound("War room not found");
+      if (patch.role !== undefined || patch.fallbacks !== undefined) {
+        const [current] = await tx.select({ fallbacks: councilSeats.fallbacks }).from(councilSeats).where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId), eq(councilSeats.id, seatId)));
+        if (!current) throw notFound("Seat not found");
+        set.fallbacks = mergeSeatConfig(current.fallbacks, patch);
+      }
       if (patch.role === "moderator") {
         const moderators = await tx.select().from(councilSeats).where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId))).for("update");
         for (const moderator of moderators) {

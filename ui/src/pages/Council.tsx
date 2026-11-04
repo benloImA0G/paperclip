@@ -153,6 +153,7 @@ export function Council() {
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
+  const [pendingDefaultRoomId, setPendingDefaultRoomId] = useState<string | null>(null);
   const [steps, setSteps] = useState<string[]>([]);
   const [stepIdx, setStepIdx] = useState(0);
   const [compactedTurns, setCompactedTurns] = useState(0);
@@ -217,11 +218,9 @@ export function Council() {
     })),
   });
   const allSeats = seats.data ?? [];
-  // one card per vendor connection; extra seats of the same connection are folded away and switched off
+  // Keep every persisted seat visible. A connection can have multiple seats; display is not mutation authority.
   const seatOf = (connectionId: string) => allSeats.find((s) => s.connectionId === connectionId);
-  const primarySeats = connectionOptions.map((c) => seatOf(c.id)).filter((s): s is CouncilSeat => !!s);
-  const foldedSeats = allSeats.filter((s) => !primarySeats.includes(s));
-  const activeSeats = primarySeats.filter((s) => s.active);
+  const activeSeats = allSeats.filter((s) => s.active);
   const vendorOf = (s: CouncilSeat) => connectionOptions.find((c) => c.id === s.connectionId)?.name ?? "";
   const fastSeatId = (activeSeats.find((s) => /^(gemini|groq)/i.test(vendorOf(s))) ?? activeSeats[0])?.id;
   const hasAnswers = !!comments.data?.some((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
@@ -234,6 +233,7 @@ export function Council() {
     queryClient.invalidateQueries({
       queryKey: what === "rooms" || what === "archived" ? ["council", companyId, what] : ["council", companyId, roomId, what],
     });
+  const refreshSeatsFor = (targetRoomId: string) => queryClient.invalidateQueries({ queryKey: ["council", companyId, targetRoomId, "seats"] });
   const addToMessage = (text: string) => setMessage((m) => `${m}${m && !m.endsWith(" ") ? " " : ""}${text} `);
 
   const createSeatFor = (targetRoomId: string, conn: { id: string; grantId: string; name: string }, draft: VendorDraft) => {
@@ -270,7 +270,7 @@ export function Council() {
         if (d?.auto) await createSeatFor(targetRoomId, conn, { name: d.name, model: d.model, persona: d.persona, role: conn.name.startsWith("Groq") ? "moderator" : "none" });
       }
     },
-    onSettled: () => void refresh("seats"),
+    onSettled: (_data, _error, targetRoomId) => void refreshSeatsFor(targetRoomId),
     onError: (e) => setError(errorText(e)),
   });
 
@@ -282,12 +282,19 @@ export function Council() {
       setRoomId(room.id);
       setLastResults((current) => ({ ...current, [room.id]: {} }));
       setRoundDetails((current) => ({ ...current, [room.id]: [] }));
+      setPendingDefaultRoomId(room.id);
       void refresh("rooms");
-      // a new war room starts with the default vendors switched on
-      addDefaults.mutate(room.id);
     },
     onError: (e) => setError(errorText(e)),
   });
+
+  useEffect(() => {
+    if (!pendingDefaultRoomId || !connections.isSuccess || !connectionOptions.length || addDefaults.isPending) return;
+    const targetRoomId = pendingDefaultRoomId;
+    setPendingDefaultRoomId(null);
+    // Wait for the connection query so defaults carry the current grant/model data.
+    addDefaults.mutate(targetRoomId);
+  }, [addDefaults, connectionOptions.length, connections.isSuccess, pendingDefaultRoomId]);
 
   const deleteRoom = useMutation({
     mutationFn: (id: string) => issuesApi.remove(id),
@@ -332,11 +339,6 @@ export function Council() {
     onSuccess: () => void refresh("seats"),
     onError: (e) => setError(errorText(e)),
   });
-
-  useEffect(() => {
-    for (const s of foldedSeats) if (s.active) updateSeat.mutate({ seatId: s.id, patch: { active: false } });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [foldedSeats.map((s) => `${s.id}${s.active}`).join()]);
 
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
@@ -497,10 +499,10 @@ export function Council() {
               <Button variant="ghost" size="sm" className="justify-start sm:hidden" onClick={() => setClarify((v) => !v)}>Clarify <span className="ml-auto text-xs text-muted-foreground">{clarify ? "On" : "Off"}</span></Button>
               <Button variant="ghost" size="sm" className="justify-start sm:hidden" onClick={() => setAutoSummary((v) => !v)}>Summary <span className="ml-auto text-xs text-muted-foreground">{autoSummary ? "On" : "Off"}</span></Button>
               <label className="flex items-center gap-2 px-2 py-1.5 text-sm sm:hidden"><span>Rounds</span><select className="ml-auto h-7 rounded-md border bg-background px-1 text-xs" value={discussion ? depth : "off"} onChange={(e) => { if (e.target.value === "off") setDiscussion(false); else { setDiscussion(true); setDepth(e.target.value as Depth); } }}><option value="off">No debate</option>{(Object.keys(DEPTHS) as Depth[]).map((d) => <option key={d} value={d}>{DEPTHS[d].label}</option>)}</select></label>
-              <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || setArchived.isPending} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}><Archive /> Archive Thread</Button>
-              <Button variant="ghost" size="sm" className="justify-start text-destructive" disabled={!roomId || !room || running} title={running ? "Stop the running round first" : undefined} onClick={() => { if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id); }}><Trash2 /> Delete Thread</Button>
+              <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || setArchived.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Archive Thread unavailable while a round is running" : "Archive Thread"} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}><Archive /> Archive Thread</Button>
+              <Button variant="ghost" size="sm" className="justify-start text-destructive" disabled={!roomId || !room || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Delete Thread unavailable while a round is running" : "Delete Thread"} onClick={() => { if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id); }}><Trash2 /> Delete Thread</Button>
               <Button variant="ghost" size="sm" className="justify-start" onClick={() => { setShowArchives((v) => !v); setMoreOpen(false); }}>Archives <span className="rounded-full bg-accent px-1.5 text-xs">{archived.data?.length ?? 0}</span></Button>
-              <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || !comments.data?.length || clearChat.isPending} onClick={() => { if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate(); }}>Clear Chat</Button>
+              <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || !comments.data?.length || clearChat.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Clear Chat unavailable while a round is running" : "Clear Chat"} onClick={() => { if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate(); }}>Clear Chat</Button>
             </div> : null}
           </div>
         </div>
@@ -665,19 +667,23 @@ export function Council() {
             </div>
           </details>
           <div className={`${cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 pb-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
-            {connectionOptions.map((conn, i) => {
-              const seat = seatOf(conn.id);
+            {[
+              ...allSeats.map((seat) => ({ conn: connectionOptions.find((candidate) => candidate.id === seat.connectionId), seat })),
+              ...connectionOptions.filter((conn) => !allSeats.some((seat) => seat.connectionId === conn.id)).map((conn) => ({ conn, seat: undefined })),
+            ].map(({ conn, seat }) => {
+              if (!conn) return null;
+              const modelIndex = connectionOptions.findIndex((candidate) => candidate.id === conn.id && candidate.grantId === conn.grantId);
               const d = defaultsFor(conn.name);
               return (
                 <VendorSeatCard
-                  key={`${conn.id}:${conn.grantId}`}
+                  key={seat ? seat.id : `${conn.id}:${conn.grantId}`}
                   vendor={conn.name}
                   color={colorOfConnection(conn.id)}
                   roomId={roomId!}
                   seat={seat}
                   draftDefaults={{ name: d?.name ?? conn.name.split(/\s+/)[0], model: d?.model ?? "", persona: d?.persona ?? "", role: "none" }}
-                  models={modelLists[i]?.data ?? []}
-                  modelsLoading={modelLists[i]?.isLoading}
+                  models={modelLists[modelIndex]?.data ?? []}
+                  modelsLoading={modelLists[modelIndex]?.isLoading}
                   result={seat ? lastResults[roomId ?? ""]?.[seat.id] : undefined}
                   running={running}
                   onActivate={(draft) => activateVendor.mutate({ conn, draft })}
