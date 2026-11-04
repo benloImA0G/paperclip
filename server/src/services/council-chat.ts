@@ -39,6 +39,7 @@ export interface CouncilSeatTurnResult {
   error?: string;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  latencyMs?: number;
 }
 
 /** Turn bodies are untrusted: neutralize `<turn` so a body cannot open or close a turn of its own. */
@@ -177,6 +178,7 @@ export function councilChatService(db: Db) {
         abortSignal: input.signal,
         telemetry: { isEnabled: false, recordInputs: false, recordOutputs: false },
       });
+      const latencyMs = Date.now() - startedAt.getTime();
       const receipt = providerUsageReceipt(result);
       const provider = aiConnectionCatalogSlug(selected.provider, metadata.routing);
 
@@ -219,6 +221,7 @@ export function councilChatService(db: Db) {
           error: "Empty answer (the model may have spent its token cap on reasoning)",
           inputTokens: receipt.inputTokens,
           outputTokens: receipt.outputTokens,
+          latencyMs,
         };
       }
       const comment = await issueSvc.addComment(issueId, text, {
@@ -231,6 +234,7 @@ export function councilChatService(db: Db) {
         text,
         inputTokens: receipt.inputTokens,
         outputTokens: receipt.outputTokens,
+        latencyMs,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Seat call failed";
