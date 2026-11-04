@@ -362,7 +362,7 @@ export function Council() {
           <p className="text-xs text-muted-foreground">Post an engineering challenge; vendors debate and reconcile into a unified vision.</p>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
-          <Toggle label="2-Way Clarify:" on={clarify} onClick={() => setClarify((v) => !v)} title="Vendors may ask one clarifying question before answering" />
+          <Toggle label="2-Way Clarify:" on={clarify} onClick={() => setClarify((v) => !v)} title="Vendors may ask you, or another vendor, one clarifying question before answering" />
           <Toggle label="1-Page Summary:" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="A vendor writes a short summary at the end" />
           <label className="flex flex-col justify-center rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Debate rounds

@@ -58,6 +58,21 @@ export interface CouncilSeatTurnResult {
   latencyMs?: number;
 }
 
+/** At most this many seat-to-seat questions are answered in one round (each costs two extra calls). */
+const MAX_SEAT_QUESTIONS = 3;
+
+/** Reads a seat reply of the form "QUESTION FOR <name>: <question>" (2-way clarify). */
+function parseSeatQuestion(text: string): { to: string; question: string } | null {
+  const m = /^\W*QUESTION FOR\s+@?([^:\n*]+?)\s*\**\s*:\s*\**\s*([\s\S]+)$/i.exec(text.trim());
+  return m && m[2].trim() ? { to: m[1].trim(), question: m[2].trim() } : null;
+}
+
+/** True when `to` (as typed in a question) names the seat: its full name or first word, ignoring case. */
+function namesSeat(seat: { name: string }, to: string): boolean {
+  const t = to.toLowerCase();
+  return t === seat.name.toLowerCase() || t === seat.name.toLowerCase().split(/\s+/)[0];
+}
+
 /** Turn bodies are untrusted: neutralize `<turn` so a body cannot open or close a turn of its own. */
 function councilTurn(speaker: string, body: string): string {
   const safeSpeaker = speaker.replace(/["<>\r\n]/g, "");
@@ -425,6 +440,7 @@ export function councilChatService(db: Db) {
     if (mode === "ask" && !message) throw unprocessable("A message is required");
     let seats = (await listSeats(companyId, issueId)).filter((s) => s.active);
     if (!seats.length) throw unprocessable("Add at least one active seat first");
+    const allSeatNames = seats.map((s) => s.name);
     if (summarize) {
       const writer = input.seatId ? seats.find((s) => s.id === input.seatId) : seats[0];
       if (!writer) throw unprocessable("Summary seat not found");
@@ -481,8 +497,11 @@ export function councilChatService(db: Db) {
           ...turns,
           councilTurn("Ben", message),
           input.clarify
-            ? "Answer the latest message from Ben. If it is too ambiguous to answer well, reply with one " +
-              "short clarifying question instead of answering."
+            ? "Answer the latest message from Ben. If you are missing information you need, or Ben asks you to " +
+              "get something from another seat, do not refuse or guess: reply with exactly one line and nothing " +
+              "else, in the form 'QUESTION FOR <name>: <short question>', where <name> is Ben or one of the " +
+              `other seats (${allSeatNames.join(", ")}). Example: 'QUESTION FOR Creative: Which ` +
+              "number did you pick?'. Ask a seat when it can supply the fact; ask Ben when only he knows."
             : "Answer the latest message from Ben.",
         ].join("\n\n");
 
@@ -497,6 +516,48 @@ export function councilChatService(db: Db) {
         runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, images, maxOutputTokens, signal }),
       ),
     );
+
+    // 2-way clarify: a seat that asked another seat gets that seat's answer, then answers Ben.
+    // A question for Ben simply stays in the thread for him to answer. One hop only, so it cannot loop.
+    if (input.clarify && mode === "ask") {
+      const lead = prompt.slice(0, prompt.lastIndexOf("\n\nAnswer the latest message from Ben."));
+      const everyone = (await listSeats(companyId, issueId)).filter((s) => s.active);
+      const asked = results
+        .map((r) => ({ r, q: r.status === "ok" ? parseSeatQuestion(r.text ?? "") : null }))
+        .slice(0, 8)
+        .flatMap(({ r, q }) => {
+          const asker = everyone.find((s) => s.id === r.seatId);
+          const target = q && everyone.find((s) => s.id !== r.seatId && namesSeat(s, q.to));
+          return asker && q && target ? [{ asker, target, question: q.question }] : [];
+        })
+        .slice(0, MAX_SEAT_QUESTIONS);
+      const answers = await Promise.all(
+        asked.map(({ asker, target, question }) =>
+          runSeatTurn({
+            companyId, issueId, userId, seat: target, maxOutputTokens, signal,
+            roundId: randomUUID(),
+            prompt: [lead, councilTurn(asker.name, question), `${asker.name} asked you this. Answer it briefly and directly; do not ask anything back.`].join("\n\n"),
+          }),
+        ),
+      );
+      const finals = await Promise.all(
+        asked.map(({ asker, target, question }, i) =>
+          answers[i].status === "ok"
+            ? runSeatTurn({
+                companyId, issueId, userId, seat: asker, images, maxOutputTokens, signal,
+                roundId: randomUUID(),
+                prompt: [
+                  lead,
+                  councilTurn(asker.name, question),
+                  councilTurn(target.name, answers[i].text ?? ""),
+                  "Now answer Ben's latest message using that reply. Do not ask any more questions.",
+                ].join("\n\n"),
+              })
+            : null,
+        ),
+      );
+      results.push(...answers, ...finals.filter((f): f is CouncilSeatTurnResult => !!f));
+    }
     return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
   }
 
