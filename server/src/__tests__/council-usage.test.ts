@@ -105,5 +105,10 @@ describe("council round usage", () => {
       expect.objectContaining({ seatId: "seat", usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 } }),
       expect.objectContaining({ seatId: "moderator", orchestrator: true, usage: { inputTokens: 15, outputTokens: 7, totalTokens: 22 } }),
     ]);
+    const orchestratorPrompt = mocks.generateText.mock.calls[1][0].prompt as string;
+    expect(orchestratorPrompt).toContain("### Recommendation");
+    expect(orchestratorPrompt).toContain("### Disagreement / dissent");
+    expect(orchestratorPrompt).toContain("---");
+    expect(orchestratorPrompt).toContain("<turn speaker=\"seat\">");
   });
 });

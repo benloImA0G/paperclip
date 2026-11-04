@@ -12,6 +12,7 @@ import { MarkdownBody } from "../components/MarkdownBody";
 import { EmptyState } from "../components/EmptyState";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
+import { parseCouncilDecisionRecord } from "./council-decision-record";
 
 const SEAT_AUTHOR_PREFIX = "council-seat:";
 const DOCUMENT_EXPORT_REQUEST = /(power ?point|pptx|slides?|deck|word doc|docx|word file)/i;
@@ -746,6 +747,7 @@ export function Council() {
               }
               const color = seat ? seatColor(seat.id) : "var(--council-seat-color-fallback)";
               const name = seat?.name ?? "Seat";
+              const decision = seat?.role === "moderator" ? parseCouncilDecisionRecord(c.body) : null;
               return (
                 <div key={c.id} className="flex min-w-0 gap-2">
                   <div
@@ -762,7 +764,27 @@ export function Council() {
                       </span>
                       <span className="font-normal text-muted-foreground">{clock(c.createdAt)}</span>
                     </div>
-                    <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
+                    {decision ? (
+                      <section aria-label="Council decision" className="space-y-3 rounded-md border border-border/70 bg-card p-3">
+                        <div>
+                          <h2 className="text-xs font-semibold text-muted-foreground">Recommendation</h2>
+                          <MarkdownBody className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] [&>*:first-child]:mt-1 [&>*:last-child]:mb-0">{decision.recommendation}</MarkdownBody>
+                        </div>
+                        <span className="inline-flex w-fit rounded-full bg-primary/10 px-2 py-1 text-xs font-semibold text-primary" aria-label={`Confidence: ${decision.confidence}`}>Confidence: {decision.confidence}</span>
+                        <div className="space-y-1">
+                          {[["Where seats agree", decision.agreement], ["Disagreement / dissent", decision.dissent], ["Risks and unknowns", decision.risks]].map(([label, items]) => (
+                            <details key={label as string} className="rounded-md border border-border/60 px-2 py-1.5">
+                              <summary className="cursor-pointer text-xs font-medium">{label as string}</summary>
+                              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-muted-foreground">{(items as string[]).map((item) => <li key={item}>{item}</li>)}</ul>
+                            </details>
+                          ))}
+                        </div>
+                        <div className="border-t border-border/60 pt-2">
+                          <p className="text-xs font-semibold text-muted-foreground">Next question</p>
+                          <Button type="button" variant="outline" size="sm" className="mt-1 w-full justify-start text-left" onClick={() => setMessage(decision.nextQuestion)} aria-label="Ask this next question">Ask this: {decision.nextQuestion}</Button>
+                        </div>
+                      </section>
+                    ) : <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>}
                     <div className="mt-1 flex justify-end gap-2 text-(length:--text-nano) text-muted-foreground">
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
