@@ -228,9 +228,7 @@ export function Council() {
   });
 
   const clearChat = useMutation({
-    mutationFn: async () => {
-      for (const c of comments.data ?? []) await issuesApi.deleteComment(roomId!, c.id);
-    },
+    mutationFn: () => councilApi.clearMessages(companyId, roomId!),
     onSuccess: () => {
       setLastResults({});
       setCompactedTurns(0);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import type { CouncilSeat, CouncilSeatResult } from "../api/council";
 import { Input } from "@/components/ui/input";
@@ -95,6 +95,16 @@ export function VendorSeatCard({
     else setDraft((d) => ({ ...d, ...patch }));
   };
   const presetMatch = PERSONAS.find((p) => p.text === persona.trim())?.label ?? (persona.trim() ? "__custom" : "");
+  // Typed persona text autosaves shortly after the last keystroke, so a reload never loses it.
+  const [text, setText] = useState(persona);
+  useEffect(() => setText(persona), [persona]);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queuePersona = (value: string) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      if (value.trim() !== persona.trim()) change({ persona: value });
+    }, 700);
+  };
 
   return (
     <div
@@ -203,12 +213,18 @@ export function VendorSeatCard({
           </option>
         </select>
         <Textarea
-          key={`p-${persona}`}
-          defaultValue={persona}
+          value={text}
           rows={2}
           className="min-h-0 text-xs"
           placeholder="Type your own persona or instructions for this vendor."
-          onBlur={(e) => e.target.value.trim() !== persona.trim() && change({ persona: e.target.value })}
+          onChange={(e) => {
+            setText(e.target.value);
+            queuePersona(e.target.value);
+          }}
+          onBlur={(e) => {
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            if (e.target.value.trim() !== persona.trim()) change({ persona: e.target.value });
+          }}
         />
       </label>
 

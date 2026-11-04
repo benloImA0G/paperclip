@@ -73,6 +73,8 @@ export const councilApi = {
   ) => api.patch<CouncilSeat>(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`, patch),
   removeSeat: (companyId: string, issueId: string, seatId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),
+  clearMessages: (companyId: string, issueId: string) =>
+    api.delete(`/companies/${companyId}/council/rooms/${issueId}/messages`),
   // A round waits for the slowest seat, so give it far longer than the default request timeout.
   runRound: (
     companyId: string,

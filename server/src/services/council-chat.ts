@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
 import { and, asc, eq, isNotNull } from "drizzle-orm";
-import { councilSeats, issues, type CouncilSeatFallback, type Db } from "@paperclipai/db";
+import { councilSeats, issueComments, issues, type CouncilSeatFallback, type Db } from "@paperclipai/db";
 import { aiConnectionCatalogSlug, aiConnectionMetadataSchema } from "@paperclipai/shared";
 import { notFound, unprocessable } from "../errors.js";
 import { withAccountingTransaction } from "./accounting-transaction.js";
@@ -500,6 +500,12 @@ export function councilChatService(db: Db) {
     return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
   }
 
+  /** Removes every message in a room (the user's and the seats'); seats and the room stay. */
+  async function clearMessages(companyId: string, issueId: string) {
+    await getRoom(companyId, issueId);
+    await db.delete(issueComments).where(eq(issueComments.issueId, issueId));
+  }
+
   /** Rooms the user archived (hidden); they leave the normal room list but keep every message. */
   async function listArchivedRooms(companyId: string) {
     return db
@@ -546,5 +552,5 @@ export function councilChatService(db: Db) {
     return [...new Set(ids)].sort();
   }
 
-  return { getRoom, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, listArchivedRooms, listModels };
+  return { getRoom, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, clearMessages, listArchivedRooms, listModels };
 }

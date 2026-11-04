@@ -127,6 +127,14 @@ export function councilChatRoutes(db: Db) {
     },
   );
 
+  router.delete("/companies/:companyId/council/rooms/:issueId/messages", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    await council.clearMessages(companyId, req.params.issueId as string);
+    res.status(204).end();
+  });
+
   router.delete("/companies/:companyId/council/rooms/:issueId/seats/:seatId", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
