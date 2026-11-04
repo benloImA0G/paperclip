@@ -2997,6 +2997,13 @@
       "when": 1793760539457,
       "tag": "0429_high_freak",
       "breakpoints": true
+    },
+    {
+      "idx": 430,
+      "version": "7",
+      "when": 1793782115636,
+      "tag": "0430_common_klaw",
+      "breakpoints": true
     }
   ]
 }
