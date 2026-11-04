@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, Plus, RotateCcw, Send, Settings2, Square, Trash2, Users, X } from "lucide-react";
+import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, RotateCcw, Send, Settings2, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -13,6 +13,8 @@ import { EmptyState } from "../components/EmptyState";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { parseCouncilDecisionRecord } from "./council-decision-record";
+import { CouncilTemplates } from "../components/CouncilTemplates";
+import { COUNCIL_TEMPLATES, DEFAULT_COUNCIL_TEMPLATE_ID, type CouncilTemplateId } from "./council-templates";
 
 const SEAT_AUTHOR_PREFIX = "council-seat:";
 const DOCUMENT_EXPORT_REQUEST = /(power ?point|pptx|slides?|deck|word doc|docx|word file)/i;
@@ -128,6 +130,7 @@ export function Council() {
   const queryClient = useQueryClient();
   const [roomId, setRoomId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<CouncilTemplateId>(DEFAULT_COUNCIL_TEMPLATE_ID);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
   const [brief, setBrief] = useState("");
@@ -155,6 +158,7 @@ export function Council() {
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
   const [pendingDefaultRoomId, setPendingDefaultRoomId] = useState<string | null>(null);
+  const [pendingTemplateId, setPendingTemplateId] = useState<CouncilTemplateId | null>(null);
   const [steps, setSteps] = useState<string[]>([]);
   const [stepIdx, setStepIdx] = useState(0);
   const [compactedTurns, setCompactedTurns] = useState(0);
@@ -275,6 +279,16 @@ export function Council() {
     onError: (e) => setError(errorText(e)),
   });
 
+  const applyTemplate = (id: CouncilTemplateId) => {
+    const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === id)!;
+    setSelectedTemplate(id);
+    setNewTitle(template.title);
+    setDiscussion(template.discussion);
+    setDepth(template.depth);
+    setAutoSummary(template.autoSummary);
+    setRequireApproval(template.requireApproval);
+  };
+
   const createRoom = useMutation({
     mutationFn: () => councilApi.createRoom(companyId, newTitle.trim()),
     onSuccess: (room) => {
@@ -284,6 +298,7 @@ export function Council() {
       setLastResults((current) => ({ ...current, [room.id]: {} }));
       setRoundDetails((current) => ({ ...current, [room.id]: [] }));
       setPendingDefaultRoomId(room.id);
+      setPendingTemplateId(selectedTemplate);
       void refresh("rooms");
     },
     onError: (e) => setError(errorText(e)),
@@ -296,6 +311,21 @@ export function Council() {
     // Wait for the connection query so defaults carry the current grant/model data.
     addDefaults.mutate(targetRoomId);
   }, [addDefaults, connectionOptions.length, connections.isSuccess, pendingDefaultRoomId]);
+
+  useEffect(() => {
+    if (!pendingTemplateId || !roomId || addDefaults.isPending || !seats.isSuccess) return;
+    const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === pendingTemplateId)!;
+    const roleUpdates = allSeats.filter((seat) => template.roles[seat.name] && seat.role !== template.roles[seat.name]);
+    if (roleUpdates.length) {
+      setPendingTemplateId(null);
+      void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, roomId, seat.id, { role: template.roles[seat.name] })))
+        .then(() => refreshSeatsFor(roomId))
+        .catch((e) => setError(errorText(e)));
+    } else {
+      setPendingTemplateId(null);
+    }
+    if (template.requireApproval !== (exportSettingQuery.data?.requireApproval ?? false)) saveExportSetting.mutate(template.requireApproval);
+  }, [addDefaults.isPending, companyId, exportSettingQuery.data?.requireApproval, pendingTemplateId, refreshSeatsFor, roomId, saveExportSetting, seats.isSuccess]);
 
   const deleteRoom = useMutation({
     mutationFn: (id: string) => issuesApi.remove(id),
@@ -537,7 +567,7 @@ export function Council() {
         </div>
       ) : null}
 
-      <div className="flex min-w-0 flex-col items-stretch gap-2 rounded-lg border p-2 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 items-center gap-2 rounded-lg border p-2">
         <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">War rooms</span>
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto overscroll-x-contain">
           <QueryState label="rooms" loading={rooms.isLoading} error={rooms.isError} onRetry={() => void rooms.refetch()} />
@@ -566,24 +596,27 @@ export function Council() {
             + New
           </button>
         </div>
-        {creating ? (
-          <form
-            className="flex w-full min-w-0 flex-col gap-1 sm:w-auto sm:flex-row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (newTitle.trim()) createRoom.mutate();
-            }}
-          >
-            <Input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Room title" className="h-8 min-w-0 w-full sm:w-44" />
-            <Button type="submit" size="sm" disabled={createRoom.isPending} className="w-full sm:w-auto">Create</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setCreating(false)}><X /></Button>
-          </form>
-        ) : (
-          <Button size="sm" className="shrink-0" onClick={() => setCreating(true)}>
-            <Plus /> New
-          </Button>
-        )}
       </div>
+
+      {creating ? (
+        <form
+          className="min-w-0 shrink-0 rounded-lg border p-3 sm:p-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (newTitle.trim()) createRoom.mutate();
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Room title" className="h-8 min-w-0 flex-1" aria-label="Room title" />
+            <Button type="submit" size="sm" disabled={createRoom.isPending || !newTitle.trim()}>{createRoom.isPending ? "Creating…" : "Create"}</Button>
+            <Button type="button" size="sm" variant="ghost" aria-label="Cancel new war room" onClick={() => setCreating(false)}><X /></Button>
+          </div>
+          <div className="mt-3">
+            <CouncilTemplates selected={selectedTemplate} seatCount={connectionOptions.filter((conn) => defaultsFor(conn.name)?.auto).length} onSelect={applyTemplate} />
+          </div>
+          {createRoom.isError ? <p role="alert" className="mt-2 text-xs text-destructive">Couldn’t create this room. {errorText(createRoom.error)}</p> : null}
+        </form>
+      ) : null}
 
       {!roomId && rooms.isLoading ? (
         <QueryState label="rooms" loading error={false} onRetry={() => void rooms.refetch()} />
@@ -916,7 +949,7 @@ export function Council() {
             </p>
           ) : null}
 
-          <form
+          {!creating ? <form
             className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
             onSubmit={(e) => {
               e.preventDefault();
@@ -1003,10 +1036,10 @@ export function Council() {
                 </div>
               </div>
               </div> : null}</div>
-          </form>
-          <p className="text-xs text-muted-foreground">
+          </form> : null}
+          {!creating ? <p className="text-xs text-muted-foreground">
             Enter sends, Shift+Enter adds a line. Tag one vendor with its @name, or <code>@all</code> for everyone.
-          </p>
+          </p> : null}
           </div>
         </>
       )}
