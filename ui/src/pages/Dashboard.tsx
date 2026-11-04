@@ -73,6 +73,9 @@ export function derivePausedAgentBanner(agents: Agent[] | undefined): PausedAgen
   return null;
 }
 
+// Fork: Council Chat works without agents, so the nudge to create one is off.
+const SHOW_NO_AGENTS_BANNER: boolean = false;
+
 export function Dashboard() {
   const designSandbox = useDesignSandbox();
   const { selectedCompanyId, companies } = useCompany();
@@ -322,8 +325,8 @@ export function Dashboard() {
   // Same rule as the auto-offer above: a list still being refreshed may be the
   // empty one cached before the first hire, and the banner's "Create one here"
   // opens the same agent step the offer does.
-  // Fork: the "You have no agents" banner is hidden (Council Chat works without agents).
-  const hasNoAgents = false && agents !== undefined && !agentsRefreshing && agents.length === 0;
+  // Fork: the "You have no agents" banner is off (see SHOW_NO_AGENTS_BANNER).
+  const hasNoAgents = agents !== undefined && !agentsRefreshing && agents.length === 0;
   const pausedBanner = derivePausedAgentBanner(agents);
   const pausedImportedCount =
     pausedBanner?.kind === "imported" ? pausedBanner.pausedImportedAgentIds.length : 0;
@@ -365,7 +368,7 @@ export function Dashboard() {
         </InlineBanner>
       ) : null}
 
-      {hasNoAgents && (
+      {SHOW_NO_AGENTS_BANNER && hasNoAgents && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/25 dark:bg-amber-950/60">
           <div className="flex items-center gap-2.5">
             <Bot className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
