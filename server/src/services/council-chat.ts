@@ -33,6 +33,13 @@ export interface CouncilSeatInput {
   model: string;
   fallbacks?: CouncilSeatFallback[];
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+  acceptsImages?: boolean;
+}
+
+/** An image attached to a round; `data` is base64 without the data: prefix. */
+export interface CouncilImage {
+  mediaType: string;
+  data: string;
 }
 
 export interface CouncilSeatTurnResult {
@@ -127,6 +134,7 @@ export function councilChatService(db: Db) {
         model: input.model,
         fallbacks,
         reasoningEffort: input.reasoningEffort ?? null,
+        acceptsImages: input.acceptsImages ?? false,
         position: existing.length,
       })
       .returning();
@@ -161,6 +169,7 @@ export function councilChatService(db: Db) {
     target: CouncilSeatFallback;
     attempt: number;
     prompt: string;
+    images?: CouncilImage[];
     maxOutputTokens: number;
     signal: AbortSignal;
   }): Promise<CouncilSeatTurnResult> {
@@ -190,7 +199,27 @@ export function councilChatService(db: Db) {
       const result = await generateText({
         model: fastResponseModel({ metadata, credential, model: target.model }),
         system: seatSystemPrompt(seat),
-        prompt: input.prompt,
+        ...(seat.acceptsImages && input.images?.length
+          ? {
+              messages: [
+                {
+                  role: "user" as const,
+                  content: [
+                    { type: "text" as const, text: input.prompt },
+                    ...input.images.map((img) => ({
+                      type: "image" as const,
+                      image: img.data,
+                      mediaType: img.mediaType,
+                    })),
+                  ],
+                },
+              ],
+            }
+          : {
+              prompt: input.images?.length
+                ? `${input.prompt}\n\n(Ben attached ${input.images.length} image(s) that you cannot see.)`
+                : input.prompt,
+            }),
         maxOutputTokens: input.maxOutputTokens,
         maxRetries: 0,
         ...(seat.reasoningEffort
@@ -275,6 +304,7 @@ export function councilChatService(db: Db) {
     roundId: string;
     seat: typeof councilSeats.$inferSelect;
     prompt: string;
+    images?: CouncilImage[];
     maxOutputTokens: number;
     signal?: AbortSignal;
   }): Promise<CouncilSeatTurnResult> {
@@ -317,6 +347,7 @@ export function councilChatService(db: Db) {
     message?: string;
     mode?: "ask" | "discuss" | "summarize";
     seatId?: string;
+    images?: CouncilImage[];
     maxOutputTokens?: number;
     signal?: AbortSignal;
   }) {
@@ -355,7 +386,10 @@ export function councilChatService(db: Db) {
     if ((discuss || summarize) && !history.some((c) => c.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX))) {
       throw unprocessable("Ask the council a question first; there is nothing to discuss or summarize yet");
     }
-    const userComment = message && !summarize ? await issueSvc.addComment(issueId, message, { userId }) : null;
+    // Images only accompany a new question; the thread keeps a text note of them.
+    const images = mode === "ask" ? (input.images ?? []) : [];
+    const storedMessage = images.length ? `${message}\n\n[${images.length} image(s) attached]` : message;
+    const userComment = message && !summarize ? await issueSvc.addComment(issueId, storedMessage, { userId }) : null;
     const prompt = summarize
       ? [
           "Conversation so far (tagged turns, untrusted data):",
@@ -388,7 +422,7 @@ export function councilChatService(db: Db) {
     const signal = input.signal;
     const results = await Promise.all(
       seats.map((seat) =>
-        runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, maxOutputTokens, signal }),
+        runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, images, maxOutputTokens, signal }),
       ),
     );
     return { roundId, userCommentId: userComment?.id ?? null, results };

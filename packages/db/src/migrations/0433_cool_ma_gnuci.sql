@@ -1,0 +1,1 @@
+ALTER TABLE "council_seats" ADD COLUMN "accepts_images" boolean DEFAULT false NOT NULL;

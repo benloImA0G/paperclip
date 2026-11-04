@@ -16,6 +16,7 @@ const addSeatSchema = z
     grantId: z.string().uuid(),
     model: z.string().trim().min(1).max(256),
     reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high"]).optional(),
+    acceptsImages: z.boolean().optional(),
     fallbacks: z
       .array(
         z
@@ -35,6 +36,17 @@ const roundSchema = z
     message: z.string().trim().max(20_000).optional(),
     mode: z.enum(["ask", "discuss", "summarize"]).optional(),
     seatId: z.string().uuid().optional(),
+    images: z
+      .array(
+        z
+          .object({
+            mediaType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+            data: z.string().regex(/^[A-Za-z0-9+/=]+$/).max(2_000_000),
+          })
+          .strict(),
+      )
+      .max(3)
+      .optional(),
     maxOutputTokens: z.number().int().min(64).max(4096).optional(),
   })
   .strict();
@@ -106,6 +118,7 @@ export function councilChatRoutes(db: Db) {
         message: req.body.message,
         mode: req.body.mode,
         seatId: req.body.seatId,
+        images: req.body.images,
         maxOutputTokens: req.body.maxOutputTokens,
         signal: abort.signal,
       }),

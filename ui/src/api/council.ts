@@ -16,6 +16,7 @@ export interface CouncilSeat {
   grantId: string;
   model: string;
   reasoningEffort: string | null;
+  acceptsImages: boolean;
   fallbacks: CouncilSeatFallback[];
   active: boolean;
   position: number;
@@ -28,6 +29,7 @@ export interface CouncilSeatInput {
   grantId: string;
   model: string;
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+  acceptsImages?: boolean;
   fallbacks?: CouncilSeatFallback[];
 }
 
@@ -64,7 +66,13 @@ export const councilApi = {
   runRound: (
     companyId: string,
     issueId: string,
-    input: { message?: string; mode?: "ask" | "discuss" | "summarize"; seatId?: string; maxOutputTokens?: number },
+    input: {
+      message?: string;
+      mode?: "ask" | "discuss" | "summarize";
+      seatId?: string;
+      images?: Array<{ mediaType: string; data: string }>;
+      maxOutputTokens?: number;
+    },
     signal?: AbortSignal,
   ) =>
     api.post<CouncilRoundResult>(
@@ -73,6 +81,7 @@ export const councilApi = {
         ...(input.message ? { message: input.message } : {}),
         mode: input.mode ?? "ask",
         ...(input.seatId ? { seatId: input.seatId } : {}),
+        ...(input.images?.length ? { images: input.images } : {}),
         ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
       },
       { signal },

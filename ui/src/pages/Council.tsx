@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, MessagesSquare, Plus, Send, Square, Users, X } from "lucide-react";
+import { ImagePlus, Loader2, MessagesSquare, Plus, Send, Square, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -12,6 +12,18 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 
 const SEAT_AUTHOR_PREFIX = "council-seat:";
+
+/** Shrink to at most 1280px and re-encode as JPEG so a round request stays small. */
+async function readImage(file: File): Promise<{ name: string; mediaType: string; data: string }> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const url = canvas.toDataURL("image/jpeg", 0.85);
+  return { name: file.name, mediaType: "image/jpeg", data: url.slice(url.indexOf(",") + 1) };
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -41,6 +53,7 @@ function SeatCard({
       <span className="text-xs text-muted-foreground">{seat.model}</span>
       <span className="text-xs text-muted-foreground">
         {seat.reasoningEffort === "none" ? "thinking off" : "default thinking"}
+        {seat.acceptsImages ? " · vision" : ""}
         {seat.fallbacks.length ? ` · ${seat.fallbacks.length} fallback${seat.fallbacks.length > 1 ? "s" : ""}` : ""}
       </span>
       {result ? (
@@ -66,7 +79,8 @@ export function Council() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [summarySeatId, setSummarySeatId] = useState("");
-  const [seatForm, setSeatForm] = useState({ name: "", grantKey: "", model: "", thinkingOff: false, fallbackKey: "", fallbackModel: "" });
+  const [images, setImages] = useState<Array<{ name: string; mediaType: string; data: string }>>([]);
+  const [seatForm, setSeatForm] = useState({ name: "", grantKey: "", model: "", thinkingOff: false, vision: false, fallbackKey: "", fallbackModel: "" });
 
   useEffect(() => setBreadcrumbs([{ label: "Council" }]), [setBreadcrumbs]);
   const companyId = selectedCompanyId ?? "";
@@ -111,6 +125,7 @@ export function Council() {
         grantId: primary.grantId,
         model: seatForm.model.trim(),
         ...(seatForm.thinkingOff ? { reasoningEffort: "none" as const } : {}),
+        ...(seatForm.vision ? { acceptsImages: true } : {}),
         ...(fallback && seatForm.fallbackModel.trim()
           ? { fallbacks: [{ connectionId: fallback.id, grantId: fallback.grantId, model: seatForm.fallbackModel.trim() }] }
           : {}),
@@ -118,7 +133,7 @@ export function Council() {
     },
     onSuccess: () => {
       setAdding(false);
-      setSeatForm({ name: "", grantKey: "", model: "", thinkingOff: false, fallbackKey: "", fallbackModel: "" });
+      setSeatForm({ name: "", grantKey: "", model: "", thinkingOff: false, vision: false, fallbackKey: "", fallbackModel: "" });
       void refresh("seats");
     },
     onError: (e) => setError(errorText(e)),
@@ -138,13 +153,19 @@ export function Council() {
       return councilApi.runRound(
         companyId,
         roomId!,
-        { message: message.trim(), mode, seatId: mode === "summarize" ? summarySeatId || undefined : undefined },
+        {
+          message: message.trim(),
+          mode,
+          seatId: mode === "summarize" ? summarySeatId || undefined : undefined,
+          images: mode === "ask" ? images.map(({ mediaType, data }) => ({ mediaType, data })) : undefined,
+        },
         controller.signal,
       );
     },
     onMutate: () => setError(null),
     onSuccess: (round) => {
       setMessage("");
+      setImages([]);
       setLastResults(Object.fromEntries(round.results.map((r) => [r.seatId, r])));
       void refresh("comments");
     },
@@ -236,6 +257,10 @@ export function Council() {
                   <input type="checkbox" checked={seatForm.thinkingOff} onChange={(e) => setSeatForm({ ...seatForm, thinkingOff: e.target.checked })} />
                   Thinking off (fast local models)
                 </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={seatForm.vision} onChange={(e) => setSeatForm({ ...seatForm, vision: e.target.checked })} />
+                  Can see images (vision model)
+                </label>
                 <select
                   className="h-9 rounded-md border bg-background px-2"
                   value={seatForm.fallbackKey}
@@ -280,6 +305,36 @@ export function Council() {
             </div>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 hover:bg-accent">
+                <ImagePlus className="h-3.5 w-3.5" /> Attach image
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  className="hidden"
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files ?? []).slice(0, 3 - images.length);
+                    e.target.value = "";
+                    try {
+                      const read = await Promise.all(files.map(readImage));
+                      setImages((prev) => [...prev, ...read].slice(0, 3));
+                    } catch (err) {
+                      setError(errorText(err));
+                    }
+                  }}
+                />
+              </label>
+              {images.map((img, i) => (
+                <span key={i} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1">
+                  {img.name}
+                  <button type="button" aria-label={`Remove ${img.name}`} onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}>
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              {images.length ? <span>Only seats marked "vision" can see them.</span> : null}
+            </div>
             <form
               className="flex items-end gap-2"
               onSubmit={(e) => {

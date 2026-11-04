@@ -3018,6 +3018,13 @@
       "when": 1793785318109,
       "tag": "0432_aromatic_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 433,
+      "version": "7",
+      "when": 1793787742221,
+      "tag": "0433_cool_ma_gnuci",
+      "breakpoints": true
     }
   ]
 }
