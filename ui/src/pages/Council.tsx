@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, MessagesSquare, Plus, Send, Users, X } from "lucide-react";
+import { Loader2, MessagesSquare, Plus, Send, Square, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -17,11 +17,23 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function SeatCard({ seat, result, onRemove }: { seat: CouncilSeat; result?: CouncilSeatResult; onRemove: () => void }) {
+function SeatCard({
+  seat,
+  result,
+  onRemove,
+  onMention,
+}: {
+  seat: CouncilSeat;
+  result?: CouncilSeatResult;
+  onRemove: () => void;
+  onMention: () => void;
+}) {
   return (
     <div className="flex min-w-[11rem] flex-col gap-1 rounded-md border bg-card px-3 py-2 text-sm">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">{seat.name}</span>
+        <button type="button" title="Click to @mention this seat" onClick={onMention} className="text-left font-medium hover:underline">
+          {seat.name}
+        </button>
         <button aria-label={`Remove ${seat.name}`} onClick={onRemove} className="text-muted-foreground hover:text-foreground">
           <X className="h-3.5 w-3.5" />
         </button>
@@ -53,6 +65,7 @@ export function Council() {
   const [lastResults, setLastResults] = useState<Record<string, CouncilSeatResult>>({});
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [summarySeatId, setSummarySeatId] = useState("");
   const [seatForm, setSeatForm] = useState({ name: "", grantKey: "", model: "", thinkingOff: false, fallbackKey: "", fallbackModel: "" });
 
   useEffect(() => setBreadcrumbs([{ label: "Council" }]), [setBreadcrumbs]);
@@ -117,8 +130,18 @@ export function Council() {
     onError: (e) => setError(errorText(e)),
   });
 
+  const abortRef = useRef<AbortController | null>(null);
   const ask = useMutation({
-    mutationFn: (mode: "ask" | "discuss") => councilApi.runRound(companyId, roomId!, message.trim(), mode),
+    mutationFn: (mode: "ask" | "discuss" | "summarize") => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      return councilApi.runRound(
+        companyId,
+        roomId!,
+        { message: message.trim(), mode, seatId: mode === "summarize" ? summarySeatId || undefined : undefined },
+        controller.signal,
+      );
+    },
     onMutate: () => setError(null),
     onSuccess: (round) => {
       setMessage("");
@@ -126,7 +149,7 @@ export function Council() {
       void refresh("comments");
     },
     onError: (e) => {
-      setError(errorText(e));
+      if (!abortRef.current?.signal.aborted) setError(errorText(e));
       void refresh("comments");
     },
   });
@@ -173,7 +196,13 @@ export function Council() {
           <>
             <div className="flex flex-wrap items-start gap-2">
               {(seats.data ?? []).map((seat) => (
-                <SeatCard key={seat.id} seat={seat} result={lastResults[seat.id]} onRemove={() => removeSeat.mutate(seat.id)} />
+                <SeatCard
+                  key={seat.id}
+                  seat={seat}
+                  result={lastResults[seat.id]}
+                  onRemove={() => removeSeat.mutate(seat.id)}
+                  onMention={() => setMessage((m) => `${m}${m && !m.endsWith(" ") ? " " : ""}@${seat.name.split(/\s+/)[0]} `)}
+                />
               ))}
               <Button variant="outline" size="sm" onClick={() => setAdding((v) => !v)}>
                 <Plus /> Add seat
@@ -261,7 +290,7 @@ export function Council() {
               <Textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Ask every seat…"
+                placeholder="Ask every seat… (@Name to ask one seat, click a seat name to mention it)"
                 rows={2}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit();
@@ -280,6 +309,36 @@ export function Council() {
                 >
                   <MessagesSquare /> Discuss
                 </Button>
+                {ask.isPending ? (
+                  <Button type="button" variant="destructive" onClick={() => abortRef.current?.abort()}>
+                    <Square /> Stop
+                  </Button>
+                ) : (
+                  <div className="flex gap-1">
+                    <select
+                      className="h-9 min-w-0 flex-1 rounded-md border bg-background px-1 text-xs"
+                      aria-label="Summary by"
+                      value={summarySeatId}
+                      onChange={(e) => setSummarySeatId(e.target.value)}
+                    >
+                      <option value="">Summary by…</option>
+                      {(seats.data ?? []).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!comments.data?.some((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))}
+                      onClick={() => ask.mutate("summarize")}
+                    >
+                      Summarize
+                    </Button>
+                  </div>
+                )}
               </div>
             </form>
           </>

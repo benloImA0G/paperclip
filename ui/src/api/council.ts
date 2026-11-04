@@ -61,10 +61,20 @@ export const councilApi = {
   removeSeat: (companyId: string, issueId: string, seatId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),
   // A round waits for the slowest seat, so give it far longer than the default request timeout.
-  runRound: (companyId: string, issueId: string, message: string, mode: "ask" | "discuss" = "ask", maxOutputTokens?: number) =>
+  runRound: (
+    companyId: string,
+    issueId: string,
+    input: { message?: string; mode?: "ask" | "discuss" | "summarize"; seatId?: string; maxOutputTokens?: number },
+    signal?: AbortSignal,
+  ) =>
     api.post<CouncilRoundResult>(
       `/companies/${companyId}/council/rooms/${issueId}/rounds`,
-      { ...(message ? { message } : {}), mode, ...(maxOutputTokens ? { maxOutputTokens } : {}) },
-      { timeoutMs: 600_000 },
+      {
+        ...(input.message ? { message: input.message } : {}),
+        mode: input.mode ?? "ask",
+        ...(input.seatId ? { seatId: input.seatId } : {}),
+        ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
+      },
+      { signal },
     ),
 };

@@ -33,7 +33,8 @@ const addSeatSchema = z
 const roundSchema = z
   .object({
     message: z.string().trim().max(20_000).optional(),
-    mode: z.enum(["ask", "discuss"]).optional(),
+    mode: z.enum(["ask", "discuss", "summarize"]).optional(),
+    seatId: z.string().uuid().optional(),
     maxOutputTokens: z.number().int().min(64).max(4096).optional(),
   })
   .strict();
@@ -104,6 +105,7 @@ export function councilChatRoutes(db: Db) {
         userId,
         message: req.body.message,
         mode: req.body.mode,
+        seatId: req.body.seatId,
         maxOutputTokens: req.body.maxOutputTokens,
         signal: abort.signal,
       }),
