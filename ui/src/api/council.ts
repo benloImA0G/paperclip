@@ -6,6 +6,7 @@ export interface CouncilSeatFallback {
   grantId: string;
   model: string;
 }
+export type CouncilSeatRole = "none" | "researcher" | "builder" | "critic" | "synthesizer";
 
 export interface CouncilSeat {
   id: string;
@@ -20,6 +21,7 @@ export interface CouncilSeat {
   fallbacks: CouncilSeatFallback[];
   active: boolean;
   position: number;
+  role: CouncilSeatRole;
 }
 
 export interface CouncilSeatInput {
@@ -30,6 +32,7 @@ export interface CouncilSeatInput {
   model: string;
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
   acceptsImages?: boolean;
+  role?: CouncilSeatRole;
   fallbacks?: CouncilSeatFallback[];
 }
 
@@ -42,6 +45,8 @@ export interface CouncilSeatResult {
   commentId?: string;
   text?: string;
   error?: string;
+  durationMs?: number;
+  fallbackUsed?: boolean;
   inputTokens?: number | null;
   outputTokens?: number | null;
   latencyMs?: number;
@@ -56,8 +61,12 @@ export interface CouncilRoundResult {
 }
 
 export const councilApi = {
-  exportDocument: async (companyId: string, format: "docx" | "pptx", title: string, markdown: string) =>
-    (await requestResponse(`/companies/${companyId}/council/export`, { method: "POST", body: JSON.stringify({ format, title, markdown }) })).blob(),
+  getBrief: (companyId: string, issueId: string) => api.get<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`),
+  updateBrief: (companyId: string, issueId: string, brief: string) => api.put<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`, { brief }),
+  getExportSetting: (companyId: string, issueId: string) => api.get<{ requireApproval: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/export-setting`),
+  updateExportSetting: (companyId: string, issueId: string, requireApproval: boolean) => api.put<{ requireApproval: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/export-setting`, { requireApproval }),
+  exportDocument: async (companyId: string, roomId: string, format: "docx" | "pptx", title: string, markdown: string, approved = false) =>
+    (await requestResponse(`/companies/${companyId}/council/export`, { method: "POST", body: JSON.stringify({ roomId, format, title, markdown, approved }) })).blob(),
   listRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms`),
   listArchivedRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms?archived=1`),
   listModels: (companyId: string, connectionId: string, grantId: string) =>
@@ -71,7 +80,7 @@ export const councilApi = {
     companyId: string,
     issueId: string,
     seatId: string,
-    patch: { name?: string; persona?: string; model?: string; active?: boolean },
+    patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole },
   ) => api.patch<CouncilSeat>(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`, patch),
   removeSeat: (companyId: string, issueId: string, seatId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),

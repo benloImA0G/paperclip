@@ -3,12 +3,15 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import { issueService } from "../services/index.js";
 import { COUNCIL_ORIGIN_KIND, councilChatService } from "../services/council-chat.js";
-import { forbidden } from "../errors.js";
+import { conflict, forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../services/council-export.js";
+import { logActivity } from "../services/activity-log.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
+const briefSchema = z.object({ brief: z.string().max(4000) }).strict();
+const exportSettingSchema = z.object({ requireApproval: z.boolean() }).strict();
 const addSeatSchema = z
   .object({
     name: z.string().trim().min(1).max(80),
@@ -18,6 +21,7 @@ const addSeatSchema = z
     model: z.string().trim().min(1).max(256),
     reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high"]).optional(),
     acceptsImages: z.boolean().optional(),
+    role: z.enum(["none", "researcher", "builder", "critic", "synthesizer"]).optional(),
     fallbacks: z
       .array(
         z
@@ -38,6 +42,7 @@ const updateSeatSchema = z
     persona: z.string().max(2000).optional(),
     model: z.string().trim().min(1).max(256).optional(),
     active: z.boolean().optional(),
+    role: z.enum(["none", "researcher", "builder", "critic", "synthesizer"]).optional(),
   })
   .strict();
 const roundSchema = z
@@ -60,7 +65,7 @@ const roundSchema = z
     clarify: z.boolean().optional(),
   })
   .strict();
-const exportSchema = z.object({ format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000) }).strict();
+const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional() }).strict();
 
 function exportFilename(title: string, format: "docx" | "pptx") {
   const safe = title.replace(/[^\w. -]+/g, "_").trim().slice(0, 160) || "council-export";
@@ -105,6 +110,46 @@ export function councilChatRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     const room = await council.createRoom(companyId, boardUserId(req), req.body);
     res.status(201).json(room);
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId/brief", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(await council.getBrief(companyId, req.params.issueId as string));
+  });
+
+  router.put("/companies/:companyId/council/rooms/:issueId/brief", validate(briefSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(await council.updateBrief(companyId, req.params.issueId as string, req.body.brief));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId/export-setting", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(await council.getExportSetting(companyId, req.params.issueId as string));
+  });
+
+  router.put("/companies/:companyId/council/rooms/:issueId/export-setting", validate(exportSettingSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    const issueId = req.params.issueId as string;
+    const result = await council.updateExportSetting(companyId, issueId, req.body.requireApproval);
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      ...actor,
+      action: "council.export_setting_changed",
+      entityType: "issue",
+      entityId: issueId,
+      issueId,
+      details: { requireApproval: result.requireApproval },
+    });
+    res.json(result);
   });
 
   router.get("/companies/:companyId/council/rooms/:issueId/seats", async (req, res) => {
@@ -178,7 +223,11 @@ export function councilChatRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     boardUserId(req);
-    const { format, title, markdown } = req.body;
+    const { roomId, format, title, markdown, approved } = req.body;
+    // This confirmation is client-asserted for the single board user, not a security boundary.
+    if ((await council.getExportSetting(companyId, roomId)).requireApproval && approved !== true) {
+      throw conflict("This room requires approval before export");
+    }
     let bytes: Buffer;
     try {
       bytes = format === "docx" ? await markdownToDocx(title, markdown) : await markdownToPptx(title, markdown);

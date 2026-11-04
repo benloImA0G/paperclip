@@ -17,6 +17,8 @@ export interface CouncilSeatFallback {
   grantId: string;
   model: string;
 }
+export type CouncilSeatRole = "none" | "researcher" | "builder" | "critic" | "synthesizer";
+export type CouncilSeatStoredConfig = CouncilSeatFallback[] | { fallbacks: CouncilSeatFallback[]; role?: CouncilSeatRole };
 
 /**
  * Council Chat seats. A war room is an issue (origin_kind = 'council'); each
@@ -42,7 +44,7 @@ export const councilSeats = pgTable(
     reasoningEffort: text("reasoning_effort"),
     /** Seat's model can read images; only such seats receive attached images. */
     acceptsImages: boolean("accepts_images").notNull().default(false),
-    fallbacks: jsonb("fallbacks").$type<CouncilSeatFallback[]>().notNull().default([]),
+    fallbacks: jsonb("fallbacks").$type<CouncilSeatStoredConfig>().notNull().default([]),
     active: boolean("active").notNull().default(true),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

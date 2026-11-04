@@ -167,3 +167,14 @@ misleading file.
    to a specific question/draft?
 5. For O6, is local-first processing mandatory, or are named cloud image/audio
    providers acceptable after the room toggle and budget cap?
+
+## VPS2 direction (from Codex review, 2026-11-04)
+
+Council as a controlled workstream, not parallel bots. Priority order:
+1. Run timeline with per-run model, duration, retries, fallback and error (read-only, smallest slice).
+2. Shared brief per room (objective, constraints, accepted facts, open questions, decision, next action) plus roles: Researcher, Builder, Critic, Synthesizer.
+3. Approval gates (Approve / Edit / Reject) before send, delete, spend or publish.
+4. Artifact panel with version, producing seat, sources and promote-to-project.
+5. Moderator that routes who speaks and records disagreement (needs 2).
+6. Layout: Participants drawer on the right; centre is brief, discussion and final decision.
+Contract: normalised run events (message, status, tool call, artifact, evidence, approval request, error); reference AG-UI.

@@ -114,7 +114,11 @@ export function Council() {
   const [newTitle, setNewTitle] = useState("");
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
-  const [lastResults, setLastResults] = useState<Record<string, CouncilSeatResult>>({});
+  const [brief, setBrief] = useState("");
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(false);
+  const [lastResults, setLastResults] = useState<Record<string, Record<string, CouncilSeatResult>>>({});
+  const [roundDetails, setRoundDetails] = useState<Record<string, CouncilSeatResult[][]>>({});
   const [error, setError] = useState<string | null>(null);
   const [discussion, setDiscussion] = useState(false);
   const [depth, setDepth] = useState<Depth>("medium");
@@ -138,6 +142,12 @@ export function Council() {
   const archived = useQuery({ queryKey: ["council", companyId, "archived"], queryFn: () => councilApi.listArchivedRooms(companyId), enabled: !!companyId });
   const connections = useQuery({ queryKey: ["council", companyId, "connections"], queryFn: () => aiConnectionsApi.list(companyId), enabled: !!companyId });
   const seats = useQuery({ queryKey: ["council", companyId, roomId, "seats"], queryFn: () => councilApi.listSeats(companyId, roomId!), enabled: !!companyId && !!roomId });
+  const briefQuery = useQuery({ queryKey: ["council", companyId, roomId, "brief"], queryFn: () => councilApi.getBrief(companyId, roomId!), enabled: !!companyId && !!roomId });
+  const exportSettingQuery = useQuery({ queryKey: ["council", companyId, roomId, "export-setting"], queryFn: () => councilApi.getExportSetting(companyId, roomId!), enabled: !!companyId && !!roomId });
+  useEffect(() => setBrief(briefQuery.data?.brief ?? ""), [briefQuery.data?.brief, roomId]);
+  useEffect(() => setRequireApproval(exportSettingQuery.data?.requireApproval ?? false), [exportSettingQuery.data?.requireApproval, roomId]);
+  const saveBrief = useMutation({ mutationFn: (savedRoomId: string) => councilApi.updateBrief(companyId, savedRoomId, brief), onSuccess: (data, savedRoomId) => { if (savedRoomId === roomId) setBrief(data.brief); void briefQuery.refetch(); } });
+  const saveExportSetting = useMutation({ mutationFn: (value: boolean) => councilApi.updateExportSetting(companyId, roomId!, value), onSuccess: (data) => setRequireApproval(data.requireApproval) });
   const comments = useQuery({
     queryKey: ["council", companyId, roomId, "comments"],
     queryFn: () => issuesApi.listComments(roomId!, { order: "asc" }),
@@ -188,6 +198,7 @@ export function Council() {
       connectionId: conn.id,
       grantId: conn.grantId,
       model: draft.model.trim(),
+      role: draft.role ?? "none",
       ...(d?.thinkingOff && draft.model === d.model ? { reasoningEffort: "none" as const } : {}),
       ...(d?.vision && draft.model === d.model ? { acceptsImages: true } : {}),
       ...(d?.fallback && draft.model === d.model
@@ -223,7 +234,8 @@ export function Council() {
       setNewTitle("");
       setCreating(false);
       setRoomId(room.id);
-      setLastResults({});
+      setLastResults((current) => ({ ...current, [room.id]: {} }));
+      setRoundDetails((current) => ({ ...current, [room.id]: [] }));
       void refresh("rooms");
       // a new war room starts with the default vendors switched on
       addDefaults.mutate(room.id);
@@ -254,7 +266,8 @@ export function Council() {
   const clearChat = useMutation({
     mutationFn: () => councilApi.clearMessages(companyId, roomId!),
     onSuccess: () => {
-      setLastResults({});
+      setLastResults((current) => ({ ...current, [roomId!]: {} }));
+      setRoundDetails((current) => ({ ...current, [roomId!]: [] }));
       setCompactedTurns(0);
     },
     onSettled: () => void refresh("comments"),
@@ -262,7 +275,7 @@ export function Council() {
   });
 
   const updateSeat = useMutation({
-    mutationFn: ({ seatId, patch }: { seatId: string; patch: { name?: string; persona?: string; model?: string; active?: boolean } }) =>
+    mutationFn: ({ seatId, patch }: { seatId: string; patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: import("../api/council").CouncilSeatRole } }) =>
       councilApi.updateSeat(companyId, roomId!, seatId, patch),
     onSuccess: () => void refresh("seats"),
     onError: (e) => setError(errorText(e)),
@@ -288,6 +301,7 @@ export function Council() {
   /** "ask" = answers, then the chosen discussion rounds and summary; the others are one-off rounds. */
   const ask = useMutation({
     mutationFn: async (mode: RoundMode) => {
+      const runRoomId = roomId!;
       const controller = new AbortController();
       abortRef.current = controller;
       const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }>; clarify?: boolean } = {}) =>
@@ -304,9 +318,12 @@ export function Council() {
           controller.signal,
         );
       const merged: CouncilSeatResult[] = [];
+      const details: CouncilSeatResult[][] = [];
       let compacted = 0;
       const collect = (r: { results: CouncilSeatResult[]; compactedTurns?: number }) => {
         merged.push(...r.results);
+        details.push(r.results);
+        setRoundDetails((current) => ({ ...current, [runRoomId]: [...details] }));
         compacted = Math.max(compacted, r.compactedTurns ?? 0);
         setCompactedTurns(compacted);
       };
@@ -346,7 +363,7 @@ export function Council() {
         begin(mode === "discuss" ? "Vendors discussing…" : "Writing summary…");
         collect(await run(mode, { message: mode === "discuss" ? text : undefined }));
       }
-      return merged;
+      return { roomId: runRoomId, results: merged };
     },
     onMutate: () => {
       setError(null);
@@ -354,8 +371,9 @@ export function Council() {
       // fold the vendor cards so the live conversation gets the screen
       setCardsOpen(false);
     },
-    onSuccess: (results) => {
-      setLastResults(Object.fromEntries(results.map((r) => [r.seatId, r])));
+    onSuccess: ({ roomId: runRoomId, results }) => {
+      if (runRoomId !== roomId) return;
+      setLastResults((current) => ({ ...current, [runRoomId]: Object.fromEntries(results.map((r) => [r.seatId, r])) }));
       // keep the draft when no vendor answered, so the question can be retried
       if (results.length && results.every((r) => r.status !== "ok")) {
         setError("No vendor answered. Your message is kept; check the vendor cards, then send again.");
@@ -383,7 +401,7 @@ export function Council() {
   const seatById = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s]));
   const latestUserMessage = [...(comments.data ?? [])].reverse().find((c) => !c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
   const finalVendorReply = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
-  const requestedDocumentExport = latestUserMessage?.body.match(DOCUMENT_EXPORT_REQUEST)?.[0] ?? "";
+  const requestedDocumentExport = DOCUMENT_EXPORT_REQUEST.test(latestUserMessage?.body ?? "") ? latestUserMessage?.body ?? "" : "";
   const showDocumentExportCta = !running && !!requestedDocumentExport && !!finalVendorReply;
   const requestedFormats = {
     pptx: /power ?point|pptx|slides?|deck/i.test(requestedDocumentExport),
@@ -490,7 +508,8 @@ export function Council() {
               key={r.id}
               onClick={() => {
                 setRoomId(r.id);
-                setLastResults({});
+                setLastResults((current) => ({ ...current, [r.id]: {} }));
+                setRoundDetails((current) => ({ ...current, [r.id]: [] }));
                 setCompactedTurns(0);
               }}
               className={`shrink-0 rounded-full border px-3 py-1 text-sm ${r.id === roomId ? "border-primary bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"}`}
@@ -577,10 +596,10 @@ export function Council() {
                   vendor={conn.name}
                   color={colorOfConnection(conn.id)}
                   seat={seat}
-                  draftDefaults={{ name: d?.name ?? conn.name.split(/\s+/)[0], model: d?.model ?? "", persona: d?.persona ?? "" }}
+                  draftDefaults={{ name: d?.name ?? conn.name.split(/\s+/)[0], model: d?.model ?? "", persona: d?.persona ?? "", role: "none" }}
                   models={modelLists[i]?.data ?? []}
                   modelsLoading={modelLists[i]?.isLoading}
-                  result={seat ? lastResults[seat.id] : undefined}
+                  result={seat ? lastResults[roomId ?? ""]?.[seat.id] : undefined}
                   running={running}
                   onActivate={(draft) => activateVendor.mutate({ conn, draft })}
                   onRemove={seat ? () => removeSeat.mutate(seat.id) : undefined}
@@ -650,13 +669,14 @@ export function Council() {
                           const format = e.target.value as "md" | "txt" | "docx" | "pptx";
                           if (!format) return;
                           const exportKey = `${c.id}:${format}`;
+                          if (requireApproval && !window.confirm("Export this reply?")) { e.currentTarget.value = ""; return; }
                           if (format === "md" || format === "txt") {
                             saveTextFile(`${room?.title ?? "council"}-${name}.${format}`, c.body);
                             return;
                           }
                           setExportingReply(exportKey);
                           try {
-                            saveBlobFile(`${room?.title ?? "council"}-${name}.${format}`, await councilApi.exportDocument(companyId, format, room?.title ?? "Council reply", c.body));
+                            saveBlobFile(`${room?.title ?? "council"}-${name}.${format}`, await councilApi.exportDocument(companyId, roomId!, format, room?.title ?? "Council reply", c.body, requireApproval));
                           } catch (err) {
                             setError(`Could not create the .${format}: ${errorText(err)}`);
                           } finally {
@@ -680,9 +700,10 @@ export function Council() {
                             size="sm"
                             disabled={!!exportingReply}
                             onClick={async () => {
+                              if (requireApproval && !window.confirm("Export this reply?")) return;
                               setExportingReply(`${c.id}:pptx`);
                               try {
-                                saveBlobFile(`${room?.title ?? "council"}.${"pptx"}`, await councilApi.exportDocument(companyId, "pptx", room?.title ?? "Council reply", c.body));
+                                saveBlobFile(`${room?.title ?? "council"}.${"pptx"}`, await councilApi.exportDocument(companyId, roomId!, "pptx", room?.title ?? "Council reply", c.body, requireApproval));
                               } catch (err) {
                                 setError(`Could not create the .pptx: ${errorText(err)}`);
                               } finally {
@@ -699,9 +720,10 @@ export function Council() {
                             size="sm"
                             disabled={!!exportingReply}
                             onClick={async () => {
+                              if (requireApproval && !window.confirm("Export this reply?")) return;
                               setExportingReply(`${c.id}:docx`);
                               try {
-                                saveBlobFile(`${room?.title ?? "council"}.${"docx"}`, await councilApi.exportDocument(companyId, "docx", room?.title ?? "Council reply", c.body));
+                                saveBlobFile(`${room?.title ?? "council"}.${"docx"}`, await councilApi.exportDocument(companyId, roomId!, "docx", room?.title ?? "Council reply", c.body, requireApproval));
                               } catch (err) {
                                 setError(`Could not create the .docx: ${errorText(err)}`);
                               } finally {
@@ -718,6 +740,27 @@ export function Council() {
                 </div>
               );
             })}
+            {(roundDetails[roomId ?? ""] ?? []).map((results, index) => (
+              <details key={`round-details-${index}`} className="rounded-md border border-border/60 bg-muted/20 text-xs text-muted-foreground">
+                <summary className="cursor-pointer px-2.5 py-1.5 font-medium hover:text-foreground">Run details · round {index + 1}</summary>
+                <div className="divide-y divide-border/50 border-t border-border/50">
+                  {results.map((result, resultIndex) => {
+                    const seat = allSeats.find((candidate) => candidate.id === result.seatId);
+                    const status = result.status === "ok" ? "ok" : result.status === "blocked" ? "skipped" : "failed";
+                    return (
+                      <div key={`${result.seatId}-${resultIndex}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-1.5">
+                        <span className="font-medium text-foreground">{seat ? vendorOf(seat) : "Unknown vendor"}</span>
+                        <span>{result.model ?? "model unavailable"}</span>
+                        <span>{result.durationMs == null ? "duration unavailable" : `${(result.durationMs / 1000).toFixed(1)}s`}</span>
+                        <span className={status === "ok" ? "text-emerald-600" : status === "failed" ? "text-destructive" : ""}>{status}</span>
+                        {result.fallbackUsed ? <span>fallback used</span> : null}
+                        {result.error ? <span className="min-w-0 truncate" title={result.error}>— {result.error.slice(0, 120)}</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            ))}
             {comments.data && !comments.data.length ? (
               <p className="text-sm text-muted-foreground">
                 {activeSeats.length ? "Ask the council one question, or start from an example below." : "Switch at least one vendor to Active, then ask."}
@@ -751,6 +794,21 @@ export function Council() {
               if (canSend) ask.mutate("ask");
             }}
           >
+            <div className="rounded-lg border bg-muted/20 p-2">
+              <button type="button" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setBriefOpen((v) => !v)}>
+                {briefOpen ? "▾" : "▸"} Brief
+              </button>
+              {briefOpen ? (
+                <div className="mt-2 flex gap-2">
+                  <Textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} rows={3} placeholder="Shared context for every vendor in this room…" className="min-h-0 flex-1" />
+                  <Button type="button" size="sm" onClick={() => roomId && saveBrief.mutate(roomId)} disabled={saveBrief.isPending || brief.length > 4000}>Save</Button>
+                </div>
+              ) : null}
+              <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" checked={requireApproval} onChange={(e) => saveExportSetting.mutate(e.target.checked)} disabled={!roomId || saveExportSetting.isPending} />
+                Require my approval before export
+              </label>
+            </div>
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}

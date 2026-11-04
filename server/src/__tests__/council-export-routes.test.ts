@@ -8,11 +8,15 @@ const mocks = vi.hoisted(() => ({
   markdownToDocx: vi.fn(),
   markdownToPptx: vi.fn(),
   PandocUnavailableError: class PandocUnavailableError extends Error {},
+  getExportSetting: vi.fn(),
 }));
 
 vi.mock("../services/council-export.js", () => mocks);
+vi.mock("../services/council-chat.js", () => ({
+  COUNCIL_ORIGIN_KIND: "council",
+  councilChatService: () => ({ getExportSetting: mocks.getExportSetting }),
+}));
 vi.mock("../services/index.js", () => ({
-  councilChatService: () => ({}),
   issueService: () => ({}),
 }));
 
@@ -38,10 +42,11 @@ async function createApp() {
 }
 
 const path = `/api/companies/${companyId}/council/export`;
-const validRequest = { format: "docx", title: "Quarterly Council", markdown: "# Council\n\nSummary" };
+const validRequest = { roomId: "22222222-2222-4222-8222-222222222222", format: "docx", title: "Quarterly Council", markdown: "# Council\n\nSummary" };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getExportSetting.mockResolvedValue({ requireApproval: false });
   mocks.markdownToDocx.mockResolvedValue(Buffer.from("docx bytes"));
   mocks.markdownToPptx.mockResolvedValue(Buffer.from("pptx bytes"));
 });
@@ -78,6 +83,20 @@ describe("POST /companies/:companyId/council/export", () => {
     expect(response.headers["content-disposition"]).toBe(
       'attachment; filename="Quarterly Council.docx"',
     );
+    expect(mocks.markdownToDocx).toHaveBeenCalledWith(validRequest.title, validRequest.markdown);
+  });
+
+  it("returns 409 when the room requires approval and the request is not approved", async () => {
+    mocks.getExportSetting.mockResolvedValueOnce({ requireApproval: true });
+    const response = await request(await createApp()).post(path).send(validRequest);
+    expect(response.status).toBe(409);
+    expect(mocks.markdownToDocx).not.toHaveBeenCalled();
+  });
+
+  it("exports when the room requires approval and the request is approved", async () => {
+    mocks.getExportSetting.mockResolvedValueOnce({ requireApproval: true });
+    const response = await request(await createApp()).post(path).buffer(true).send({ ...validRequest, approved: true });
+    expect(response.status).toBe(200);
     expect(mocks.markdownToDocx).toHaveBeenCalledWith(validRequest.title, validRequest.markdown);
   });
 });

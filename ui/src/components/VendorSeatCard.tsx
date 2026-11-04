@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, X } from "lucide-react";
-import type { CouncilSeat, CouncilSeatResult } from "../api/council";
+import type { CouncilSeat, CouncilSeatResult, CouncilSeatRole } from "../api/council";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -49,6 +49,7 @@ export interface VendorDraft {
   name: string;
   model: string;
   persona: string;
+  role?: CouncilSeatRole;
 }
 
 /**
@@ -81,7 +82,7 @@ export function VendorSeatCard({
   onActivate: (draft: VendorDraft) => void;
   onRemove?: () => void;
   onMention?: () => void;
-  onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean }) => void;
+  onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole }) => void;
 }) {
   const [draft, setDraft] = useState<VendorDraft>(draftDefaults);
   const active = !!seat?.active;
@@ -91,7 +92,7 @@ export function VendorSeatCard({
   const catalog = catalogFor(vendor);
   const note = catalog.find((m) => m.model === model)?.note;
   const rest = models.filter((m) => !catalog.some((c) => c.model === m || `${c.model}:latest` === m));
-  const change = (patch: Partial<VendorDraft>) => {
+  const change = (patch: Partial<VendorDraft> & { role?: CouncilSeatRole }) => {
     if (seat) onUpdate(patch);
     else setDraft((d) => ({ ...d, ...patch }));
   };
@@ -121,7 +122,7 @@ export function VendorSeatCard({
           <button
             type="button"
             aria-pressed={active}
-            onClick={() => (seat ? onUpdate({ active: !seat.active }) : onActivate({ ...draft, model }))}
+            onClick={() => (seat ? onUpdate({ active: !seat.active }) : onActivate({ ...draft, model, role: draft.role ?? "none" }))}
             disabled={!seat && !model}
             className={`shrink-0 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-500" : "text-muted-foreground"}`}
             style={active ? { borderColor: color } : undefined}
@@ -152,6 +153,13 @@ export function VendorSeatCard({
           className="h-8 text-sm"
           onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== name && change({ name: e.target.value.trim() })}
         />
+      </label>
+
+      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+        <span>Role</span>
+        <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => change({ role: e.target.value as CouncilSeatRole })}>
+          <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option>
+        </select>
       </label>
 
       <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
