@@ -260,7 +260,13 @@ export function councilChatRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     boardUserId(req);
-    res.json(await council.stopRound(companyId, req.params.issueId as string));
+    const issueId = req.params.issueId as string;
+    const result = await council.stopRound(companyId, issueId);
+    if (result.stopped) {
+      const actor = getActorInfo(req);
+      await logActivity(db, { companyId, ...actor, action: "council.round_stopped", entityType: "issue", entityId: issueId, issueId });
+    }
+    res.json(result);
   });
 
   router.post("/companies/:companyId/council/export", validate(exportSchema), async (req, res) => {

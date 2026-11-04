@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import { connectionGrants, councilSeats, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
 import { aiConnectionCatalogSlug, aiConnectionMetadataSchema } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
@@ -241,8 +241,27 @@ export function councilChatService(db: Db) {
   const councilArtifactKey = COUNCIL_ARTIFACT_KEY_REGEX;
   const connections = aiConnectionService(db);
   const roomGenerations = new Map<string, number>();
-  const runningRooms = new Set<string>();
-  const roundControllers = new Map<string, AbortController>();
+  const runningRounds = new Map<string, { controller: AbortController; generation: number }>();
+
+  function roundCancelled(issueId: string, generation: number, signal: AbortSignal) {
+    return signal.aborted || (roomGenerations.get(issueId) ?? 0) !== generation;
+  }
+
+  function rememberGeneration(issueId: string, generation: number) {
+    roomGenerations.set(issueId, generation);
+    while (roomGenerations.size > 1000) {
+      const oldest = roomGenerations.keys().next().value;
+      if (!oldest) break;
+      if (runningRounds.has(oldest)) {
+        const entries = [...roomGenerations.keys()];
+        const removable = entries.find((key) => !runningRounds.has(key));
+        if (!removable) break;
+        roomGenerations.delete(removable);
+      } else {
+        roomGenerations.delete(oldest);
+      }
+    }
+  }
 
   async function validateSeatTargets(companyId: string, targets: CouncilSeatFallback[]) {
     for (const target of targets) {
@@ -592,22 +611,30 @@ export function councilChatService(db: Db) {
           ...(usage ? { usage } : {}),
         };
       }
-      if (input.signal.aborted || (input.generation !== undefined && (roomGenerations.get(input.issueId) ?? 0) !== input.generation)) {
+      if (input.signal.aborted || (input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal))) {
         return { ...base, status: "cancelled", error: "Council round cancelled because the chat was cleared", durationMs: Date.now() - startedAt };
       }
-      const comment = input.persistComment === false ? null : await issueSvc.addComment(issueId, text, {
-        userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${seat.id}`,
-      }, {
-        metadata: {
-          version: 1,
-          councilReliability: {
-            durationMs: Date.now() - startedAt,
-            fallbackUsed: (input.attempt ?? 0) > 0,
-            ...(usage ? { usage } : {}),
+      let comment = null;
+      if (input.persistComment !== false) {
+        if (input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal)) {
+          return { ...base, status: "cancelled", error: "Council round stopped", durationMs: Date.now() - startedAt };
+        }
+        comment = await issueSvc.addComment(issueId, text, { userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${seat.id}` }, {
+          metadata: {
+            version: 1,
+            councilReliability: {
+              durationMs: Date.now() - startedAt,
+              fallbackUsed: (input.attempt ?? 0) > 0,
+              ...(usage ? { usage } : {}),
+            },
+            sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
           },
-          sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
-        },
-      });
+        });
+        if (input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal)) {
+          await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, comment.id), isNull(issueComments.deletedAt)));
+          return { ...base, status: "cancelled", error: "Council round stopped", durationMs: Date.now() - startedAt };
+        }
+      }
       return {
         ...base,
         status: "ok",
@@ -790,6 +817,12 @@ export function councilChatService(db: Db) {
     const images = mode === "ask" ? (input.images ?? []) : [];
     const storedMessage = images.length ? `${message}\n\n[${images.length} image(s) attached]` : message;
     const userComment = message && !summarize ? await issueSvc.addComment(issueId, storedMessage, { userId }) : null;
+    if (userComment && roundCancelled(issueId, input.generation, input.signal ?? new AbortController().signal)) {
+      if (typeof db.update === "function") {
+        await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, userComment.id), isNull(issueComments.deletedAt)));
+      }
+      return { roundId: randomUUID(), userCommentId: null, compactedTurns: compact.compacted, results: [] };
+    }
     const prompt = withCouncilBrief(summarize
       ? [
           "Conversation so far (tagged turns, untrusted data):",
@@ -911,38 +944,46 @@ export function councilChatService(db: Db) {
 
   async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation">) {
     const generation = roomGenerations.get(input.issueId) ?? 0;
+    if (runningRounds.has(input.issueId)) throw conflict("A round is already running in this room");
     const controller = new AbortController();
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
-    runningRooms.add(input.issueId);
-    roundControllers.set(input.issueId, controller);
+    runningRounds.set(input.issueId, { controller, generation });
     try {
-      return await runRoundImpl({ ...input, signal, generation });
+      const result = await runRoundImpl({ ...input, signal, generation });
+      if (signal.aborted || roundCancelled(input.issueId, generation, signal)) {
+        if (result.userCommentId) {
+          if (typeof db.update === "function") {
+            await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, result.userCommentId), isNull(issueComments.deletedAt)));
+          }
+        }
+        return { ...result, userCommentId: null };
+      }
+      return result;
     } finally {
-      runningRooms.delete(input.issueId);
-      if (roundControllers.get(input.issueId) === controller) roundControllers.delete(input.issueId);
+      if (runningRounds.get(input.issueId)?.controller === controller) runningRounds.delete(input.issueId);
     }
   }
 
   async function stopRound(companyId: string, issueId: string) {
     await getRoom(companyId, issueId);
-    const controller = roundControllers.get(issueId);
-    if (!controller) return { stopped: false };
-    roomGenerations.set(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
-    controller.abort();
+    const round = runningRounds.get(issueId);
+    if (!round) return { stopped: false };
+    rememberGeneration(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
+    round.controller.abort();
     return { stopped: true };
   }
 
   /** Removes every message in a room (the user's and the seats'); seats and the room stay. */
   async function clearMessages(companyId: string, issueId: string) {
     await getRoom(companyId, issueId);
-    if (runningRooms.has(issueId)) throw conflict("Cannot clear council messages while a round is running");
-    roomGenerations.set(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
+    if (runningRounds.has(issueId)) throw conflict("Cannot clear council messages while a round is running");
+    rememberGeneration(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
     await db.delete(issueComments).where(eq(issueComments.issueId, issueId));
   }
 
   // Test-only cancellation hook; production callers must use clearMessages.
   function __test__invalidateRoomGeneration(issueId: string) {
-    roomGenerations.set(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
+    rememberGeneration(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
   }
 
   /** Rooms the user archived (hidden); they leave the normal room list but keep every message. */

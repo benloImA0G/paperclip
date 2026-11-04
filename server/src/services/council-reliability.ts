@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { councilSeats, issueComments, type Db } from "@paperclipai/db";
 import { COUNCIL_SEAT_AUTHOR_PREFIX } from "./council-chat.js";
 
@@ -35,6 +35,6 @@ export async function getCouncilReliability(db: Db, companyId: string, issueId: 
   const seats = await db.select({ id: councilSeats.id, name: councilSeats.name }).from(councilSeats)
     .where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId))).orderBy(asc(councilSeats.position));
   const comments = await db.select({ authorUserId: issueComments.authorUserId, metadata: issueComments.metadata }).from(issueComments)
-    .where(and(eq(issueComments.companyId, companyId), eq(issueComments.issueId, issueId)));
+    .where(and(eq(issueComments.companyId, companyId), eq(issueComments.issueId, issueId), isNull(issueComments.deletedAt)));
   return calculateCouncilReliability(seats, comments);
 }

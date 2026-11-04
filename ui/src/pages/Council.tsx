@@ -323,10 +323,14 @@ export function Council() {
   useEffect(() => {
     if (!pendingTemplate) return;
     if (pendingTemplate.roomId !== roomId) { setPendingTemplate(null); return; }
-    if (addDefaults.isPending || !seats.isSuccess || defaultsReadyRoomId !== roomId) return;
     const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === pendingTemplate.templateId)!;
-    if (!Object.keys(template.roles).every((name) => allSeats.some((seat) => seat.name === name))) return;
+    if (!saveExportSetting.isPending && template.requireApproval !== (exportSettingQuery.data?.requireApproval ?? false)) {
+      saveExportSetting.mutate({ targetRoomId: pendingTemplate.roomId, value: template.requireApproval });
+    }
+    if (addDefaults.isPending || !seats.isSuccess || defaultsReadyRoomId !== roomId) return;
     const roleUpdates = allSeats.filter((seat) => template.roles[seat.name] && seat.role !== template.roles[seat.name]);
+    const missing = Object.keys(template.roles).filter((name) => !allSeats.some((seat) => seat.name === name));
+    if (missing.length) setError(`Template note: missing seats — ${missing.join(", ")}. Existing seats were applied.`);
     if (roleUpdates.length) {
       setPendingTemplate(null);
       void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, { name: seat.name, role: template.roles[seat.name] })))
@@ -335,8 +339,7 @@ export function Council() {
     } else {
       setPendingTemplate(null);
     }
-    if (template.requireApproval !== (exportSettingQuery.data?.requireApproval ?? false)) saveExportSetting.mutate({ targetRoomId: pendingTemplate.roomId, value: template.requireApproval });
-  }, [addDefaults.isPending, allSeats, companyId, defaultsReadyRoomId, exportSettingQuery.data?.requireApproval, pendingTemplate, refreshSeatsFor, roomId, saveExportSetting, seats.isSuccess]);
+  }, [addDefaults.isPending, allSeats, companyId, defaultsReadyRoomId, exportSettingQuery.data?.requireApproval, pendingTemplate, refreshSeatsFor, roomId, saveExportSetting, saveExportSetting.isPending, seats.isSuccess]);
 
   const deleteRoom = useMutation({
     mutationFn: (id: string) => issuesApi.remove(id),
@@ -364,6 +367,7 @@ export function Council() {
       setLastResults((current) => ({ ...current, [roomId!]: {} }));
       setRoundDetails((current) => ({ ...current, [roomId!]: [] }));
       setCompactedTurns(0);
+      void reliabilityQuery.refetch();
     },
     onSettled: () => void refresh("comments"),
     onError: (e) => setError(errorText(e)),
@@ -484,6 +488,7 @@ export function Council() {
       setRunning(false);
       setSteps([]);
       void refresh("comments");
+      void reliabilityQuery.refetch();
     },
   });
 
@@ -493,6 +498,7 @@ export function Council() {
       await councilApi.stopRound(companyId, roomId);
       abortRef.current?.abort();
       setStoppedNote(true);
+      void reliabilityQuery.refetch();
     } catch (e) {
       setError(errorText(e));
     }
@@ -711,7 +717,7 @@ export function Council() {
             <div className="flex flex-wrap gap-1 border-t px-2 py-2">
               {activeSeats.map((seat) => {
                 const result = latestRound.find((candidate) => candidate.seatId === seat.id) ?? lastResults[roomId ?? ""]?.[seat.id];
-                const status = running && !result ? "working…" : result ? (result.status === "ok" ? "answered" : result.status === "blocked" ? "skipped" : "failed") : "waiting";
+                const status = running && !result ? "working…" : result ? (result.status === "ok" ? "answered" : result.status === "blocked" ? "skipped" : result.status === "cancelled" ? "stopped" : "failed") : "waiting";
                 const latency = result?.latencyMs ?? result?.durationMs;
                 const statusTone = status === "answered" ? "text-emerald-600" : status === "failed" ? "text-destructive" : status === "working…" ? "text-primary" : "text-muted-foreground";
                 return (
@@ -958,9 +964,10 @@ export function Council() {
                     <tbody className="divide-y divide-border/50">
                   {results.map((result, resultIndex) => {
                     const seat = allSeats.find((candidate) => candidate.id === result.seatId);
-                    const status = result.status === "ok" ? "ok" : result.status === "blocked" ? "skipped" : "failed";
+                    const status = result.status === "ok" ? "ok" : result.status === "blocked" ? "skipped" : result.status === "cancelled" ? "stopped" : "failed";
+                    const statusLabel = result.status === "cancelled" ? "Stopped" : status;
                     return (
-                      <tr key={`${result.seatId}-${resultIndex}`}><td className="px-2.5 py-1.5 font-medium text-foreground">{seat ? vendorOf(seat) : "Unknown vendor"}{result.orchestrator ? " (orchestrator)" : ""}</td><td className="px-2.5 py-1.5">{result.latencyMs == null ? "—" : `${(result.latencyMs / 1000).toFixed(1)}s`}</td><td className="px-2.5 py-1.5">{result.usage?.inputTokens ?? "—"}</td><td className="px-2.5 py-1.5">{result.usage?.outputTokens ?? "—"}</td><td className="max-w-40 truncate px-2.5 py-1.5" title={result.model}>{result.model ?? "—"}{result.fallbackUsed ? " (fallback)" : ""}</td><td className={status === "ok" ? "px-2.5 py-1.5 text-emerald-600" : status === "failed" ? "px-2.5 py-1.5 text-destructive" : "px-2.5 py-1.5"}>{status}{result.error ? ` — ${result.error.slice(0, 80)}` : ""}</td></tr>
+                      <tr key={`${result.seatId}-${resultIndex}`}><td className="px-2.5 py-1.5 font-medium text-foreground">{seat ? vendorOf(seat) : "Unknown vendor"}{result.orchestrator ? " (orchestrator)" : ""}</td><td className="px-2.5 py-1.5">{result.latencyMs == null ? "—" : `${(result.latencyMs / 1000).toFixed(1)}s`}</td><td className="px-2.5 py-1.5">{result.usage?.inputTokens ?? "—"}</td><td className="px-2.5 py-1.5">{result.usage?.outputTokens ?? "—"}</td><td className="max-w-40 truncate px-2.5 py-1.5" title={result.model}>{result.model ?? "—"}{result.fallbackUsed ? " (fallback)" : ""}</td><td className={status === "ok" ? "px-2.5 py-1.5 text-emerald-600" : status === "failed" ? "px-2.5 py-1.5 text-destructive" : "px-2.5 py-1.5"}>{statusLabel}{result.status === "cancelled" ? " — you stopped this round" : result.error ? ` — ${result.error.slice(0, 80)}` : ""}</td></tr>
                     );
                   })}
                     </tbody>
