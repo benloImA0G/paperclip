@@ -60,6 +60,7 @@ export interface VendorDraft {
 export function VendorSeatCard({
   vendor,
   color,
+  roomId,
   seat,
   draftDefaults,
   models,
@@ -73,6 +74,7 @@ export function VendorSeatCard({
 }: {
   vendor: string;
   color: string;
+  roomId: string;
   seat?: CouncilSeat;
   draftDefaults: VendorDraft;
   models: string[];
@@ -105,10 +107,35 @@ export function VendorSeatCard({
   const [text, setText] = useState(persona);
   useEffect(() => setText(persona), [persona]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveVersion = useRef(0);
+  const seatId = seat?.id ?? null;
+  useEffect(() => {
+    saveVersion.current += 1;
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    setSaveState("idle");
+  }, [roomId, seatId]);
+  useEffect(() => () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveVersion.current += 1;
+  }, []);
   const queuePersona = (value: string) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    const scheduledRoomId = roomId;
+    const scheduledSeatId = seatId;
+    const version = ++saveVersion.current;
     saveTimer.current = setTimeout(() => {
-      if (value.trim() !== persona.trim()) change({ persona: value });
+      if (version !== saveVersion.current || scheduledRoomId !== roomId || scheduledSeatId !== seat?.id) return;
+      if (value.trim() !== persona.trim()) {
+        setSaveState("saving");
+        void onUpdate({ persona: value }).then(() => {
+          if (version === saveVersion.current && scheduledRoomId === roomId && scheduledSeatId === seat?.id) setSaveState("saved");
+        }).catch(() => {
+          if (version === saveVersion.current && scheduledRoomId === roomId && scheduledSeatId === seat?.id) setSaveState("error");
+        });
+      }
     }, 700);
   };
 

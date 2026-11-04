@@ -626,6 +626,45 @@
 
 .council-thread-shell { min-height: var(--council-thread-min-height-mobile); }
 .council-options-popover { max-width: 32rem; }
+@media (width < 48rem) {
+  .council-shell {
+    height: 100%;
+    padding-bottom: 0;
+  }
+
+  .council-header {
+    gap: var(--spacing);
+  }
+
+  .council-header h1 {
+    font-size: var(--text-lg);
+  }
+
+  .council-header p {
+    max-width: 18rem;
+  }
+
+  .council-vendor-helper,
+  .council-participants {
+    display: none;
+  }
+
+  .council-thread-shell {
+    min-height: 40dvh;
+  }
+
+  .council-message-thread {
+    min-height: 40dvh;
+    padding-bottom: calc(var(--tc-composer-editor-max-height) + var(--spacing) * 6);
+  }
+
+  .council-shell .mobile-nav-composer {
+    position: fixed;
+    inset-inline: calc(var(--spacing) * 3);
+    bottom: var(--tc-composer-visible-nav-offset);
+    margin: 0;
+  }
+}
 @media (min-width: 768px) {
   .council-thread-shell { min-height: var(--council-thread-min-height-desktop); }
 }

@@ -86,6 +86,12 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function QueryState({ label, loading, error, onRetry }: { label: string; loading: boolean; error: boolean; onRetry: () => void }) {
+  if (loading) return <div className="animate-pulse rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">Loading {label}…</div>;
+  if (error) return <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 px-3 py-2 text-xs text-destructive"><span>Couldn’t load {label}.</span><button type="button" className="underline" onClick={onRetry}>Retry</button></div>;
+  return null;
+}
+
 function clock(value: unknown): string {
   const d = new Date(value as string);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -132,6 +138,8 @@ export function Council() {
   const [cardsOpen, setCardsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
@@ -146,6 +154,22 @@ export function Council() {
   const lastExportNote = roomId ? lastExportNoteByRoom[roomId] ?? null : null;
 
   useEffect(() => setBreadcrumbs([{ label: "Council" }]), [setBreadcrumbs]);
+  useEffect(() => {
+    if (!moreOpen && !optionsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (moreOpen) { setMoreOpen(false); moreTriggerRef.current?.focus(); }
+      if (optionsOpen) { setOptionsOpen(false); optionsTriggerRef.current?.focus(); }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (moreOpen && !moreTriggerRef.current?.parentElement?.contains(target)) { setMoreOpen(false); moreTriggerRef.current?.focus(); }
+      if (optionsOpen && !optionsTriggerRef.current?.parentElement?.contains(target)) { setOptionsOpen(false); optionsTriggerRef.current?.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); document.removeEventListener("pointerdown", onPointerDown); };
+  }, [moreOpen, optionsOpen]);
   const companyId = selectedCompanyId ?? "";
 
   const rooms = useQuery({ queryKey: ["council", companyId, "rooms"], queryFn: () => councilApi.listRooms(companyId), enabled: !!companyId });
@@ -322,7 +346,7 @@ export function Council() {
       const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }>; clarify?: boolean } = {}) =>
         councilApi.runRound(
           companyId,
-          roomId!,
+          runRoomId,
           {
             mode: m,
             seatId: m === "summarize" ? summarySeatId || fastSeatId : undefined,
@@ -426,8 +450,8 @@ export function Council() {
   };
 
   return (
-    <div className="flex h-(--sz-100dvh) min-h-0 flex-col gap-3 overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+    <div data-task-chat-shell className="council-shell flex h-(--sz-100dvh) min-h-0 flex-col gap-3 overflow-hidden pb-(--tc-composer-visible-nav-offset) md:pb-0">
+      <div className="council-header flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="w-60 shrink-0">
           <h1 className="flex items-center gap-2 text-xl font-semibold leading-tight">
             <MessagesSquare className="h-5 w-5" /> Multi-Vendor Council Chat
@@ -459,7 +483,7 @@ export function Council() {
             </select>
           </label>
           <div className="relative">
-            <Button type="button" variant="outline" size="sm" aria-expanded={moreOpen} aria-controls="council-more-actions" onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal /> More</Button>
+            <Button ref={moreTriggerRef} type="button" variant="outline" size="sm" aria-expanded={moreOpen} aria-controls="council-more-actions" onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal /> More</Button>
             {moreOpen ? <div id="council-more-actions" className="absolute right-0 z-20 mt-1 flex min-w-44 flex-col rounded-lg border bg-popover p-1 shadow-lg">
               <Button variant="ghost" size="sm" className="justify-start sm:hidden" onClick={() => setClarify((v) => !v)}>Clarify <span className="ml-auto text-xs text-muted-foreground">{clarify ? "On" : "Off"}</span></Button>
               <Button variant="ghost" size="sm" className="justify-start sm:hidden" onClick={() => setAutoSummary((v) => !v)}>Summary <span className="ml-auto text-xs text-muted-foreground">{autoSummary ? "On" : "Off"}</span></Button>
@@ -501,12 +525,14 @@ export function Council() {
         </div>
       ) : null}
 
-      <div className="flex min-w-0 items-center gap-2 rounded-lg border p-2">
+      <div className="flex min-w-0 flex-col items-stretch gap-2 rounded-lg border p-2 sm:flex-row sm:items-center">
         <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">War rooms</span>
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto overscroll-x-contain">
+          <QueryState label="rooms" loading={rooms.isLoading} error={rooms.isError} onRetry={() => void rooms.refetch()} />
           {(rooms.data ?? []).map((r) => (
             <button
               key={r.id}
+              disabled={running}
               onClick={() => {
                 setRoomId(r.id);
                 setLastResults((current) => ({ ...current, [r.id]: {} }));
@@ -530,14 +556,14 @@ export function Council() {
         </div>
         {creating ? (
           <form
-            className="flex shrink-0 gap-1"
+            className="flex w-full min-w-0 flex-col gap-1 sm:w-auto sm:flex-row"
             onSubmit={(e) => {
               e.preventDefault();
               if (newTitle.trim()) createRoom.mutate();
             }}
           >
-            <Input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Room title" className="h-8 w-44" />
-            <Button type="submit" size="sm" disabled={createRoom.isPending}>Create</Button>
+            <Input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Room title" className="h-8 min-w-0 w-full sm:w-44" />
+            <Button type="submit" size="sm" disabled={createRoom.isPending} className="w-full sm:w-auto">Create</Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setCreating(false)}><X /></Button>
           </form>
         ) : (
@@ -547,13 +573,19 @@ export function Council() {
         )}
       </div>
 
-      {!roomId ? (
+      {!roomId && rooms.isLoading ? (
+        <QueryState label="rooms" loading error={false} onRetry={() => void rooms.refetch()} />
+      ) : !roomId && rooms.isError ? (
+        <QueryState label="rooms" loading={false} error onRetry={() => void rooms.refetch()} />
+      ) : !roomId ? (
         <EmptyState icon={Users} message="Create a war room to put several AI models on one question." />
       ) : (
         <>
+          <QueryState label="connections" loading={connections.isLoading} error={connections.isError} onRetry={() => void connections.refetch()} />
+          <QueryState label="seats" loading={seats.isLoading} error={seats.isError} onRetry={() => void seats.refetch()} />
           <div className="flex items-center justify-between text-xs">
             <span className="font-semibold uppercase tracking-wide text-muted-foreground">
-              ● Select participating vendors <span className="font-normal normal-case">· click Active / Inactive to include a vendor · selected vendors respond concurrently</span>
+              ● Select participating vendors <span className="council-vendor-helper font-normal normal-case">· click Active / Inactive to include a vendor · selected vendors respond concurrently</span>
             </span>
             <span className="flex items-center gap-2">
               <button type="button" onClick={() => setCardsOpen((v) => !v)} className="rounded-md border px-2 py-0.5 text-[11px] hover:bg-accent">
@@ -587,7 +619,7 @@ export function Council() {
               })}
             </div>
           ) : null}
-          <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className="shrink-0 rounded-lg border bg-muted/10">
+          <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className="council-participants shrink-0 rounded-lg border bg-muted/10">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
               <span className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Participants <span className="font-normal text-muted-foreground">{activeSeats.length} active</span></span>
               <span className="flex items-center gap-1 text-muted-foreground">
@@ -632,6 +664,7 @@ export function Council() {
                   key={`${conn.id}:${conn.grantId}`}
                   vendor={conn.name}
                   color={colorOfConnection(conn.id)}
+                  roomId={roomId!}
                   seat={seat}
                   draftDefaults={{ name: d?.name ?? conn.name.split(/\s+/)[0], model: d?.model ?? "", persona: d?.persona ?? "", role: "none" }}
                   models={modelLists[i]?.data ?? []}
@@ -645,7 +678,7 @@ export function Council() {
                 />
               );
             })}
-            {!connectionOptions.length ? <p className="text-sm text-muted-foreground">No AI connections yet. Add one in Settings.</p> : null}
+            {!connections.isLoading && !connections.isError && !connectionOptions.length ? <p className="text-sm text-muted-foreground">No AI connections yet. Add one in Settings.</p> : null}
           </div>
 
           {running && steps.length ? (
@@ -680,11 +713,12 @@ export function Council() {
                 Ask before downloading exports
               </label>
             </div>
-            {briefOpen ? <div id="council-brief" className="mt-2 flex gap-2 border-t pt-2"><Textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} rows={2} placeholder="Shared context for every vendor in this room…" className="min-h-0 flex-1" /><Button type="button" size="sm" onClick={() => roomId && saveBrief.mutate(roomId)} disabled={saveBrief.isPending || brief.length > 4000}>Save</Button></div> : null}
-            {artifactsOpen ? <div id="council-artifacts" className="mt-2 space-y-2 border-t pt-2">{artifactDraft ? <div className="flex flex-wrap items-center gap-2"><input aria-label="Artifact title" className="min-w-40 flex-1 rounded-md border bg-background px-2 py-1 text-xs" value={artifactDraft.title} onChange={(e) => setArtifactDraft({ ...artifactDraft, title: e.target.value })} /><Button type="button" size="sm" disabled={saveArtifact.isPending || !artifactDraft.title.trim()} onClick={() => { const slug = artifactDraft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "draft"; saveArtifact.mutate({ companyId, roomId: roomId!, artifact: { key: `council-output-${slug}`, title: artifactDraft.title.trim(), markdown: artifactDraft.markdown } }); }}>Save artifact</Button></div> : null}<div className="flex flex-wrap gap-1">{(artifactsQuery.data ?? []).map((artifact) => <button key={artifact.key} type="button" className={`rounded-md border px-2 py-1 text-xs ${selectedArtifactKey === artifact.key ? "border-primary bg-accent" : "hover:bg-accent"}`} onClick={() => { setSelectedArtifactKey(artifact.key); setSelectedRevision(null); }}>{artifact.title ?? artifact.key} <span className="ml-1 rounded-full bg-muted px-1.5">v{artifact.latestRevisionNumber}</span></button>)}{!artifactsQuery.data?.length ? <span className="text-xs text-muted-foreground">Save a reply to create the first artifact.</span> : null}</div>{artifactQuery.data ? <div className="border-t pt-2"><div className="flex items-center justify-between gap-2 text-xs font-medium"><span>{artifactQuery.data.title}</span><select className="h-7 rounded-md border bg-background px-1" value={selectedRevision ?? artifactQuery.data.latestRevisionNumber} onChange={(e) => setSelectedRevision(Number(e.target.value))}>{artifactQuery.data.revisions.map((item) => <option key={item.revisionNumber} value={item.revisionNumber}>v{item.revisionNumber}</option>)}</select></div><MarkdownBody className="max-h-32 overflow-y-auto text-sm">{artifactQuery.data.body}</MarkdownBody></div> : null}</div> : null}
+            {briefOpen ? <div id="council-brief" className="mt-2 border-t pt-2"><QueryState label="the brief" loading={briefQuery.isLoading} error={briefQuery.isError} onRetry={() => void briefQuery.refetch()} />{!briefQuery.isLoading && !briefQuery.isError ? <div className="flex gap-2"><Textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} rows={2} placeholder="Shared context for every vendor in this room…" className="min-h-0 flex-1" /><Button type="button" size="sm" onClick={() => roomId && saveBrief.mutate(roomId)} disabled={saveBrief.isPending || brief.length > 4000}>Save</Button></div> : null}</div> : null}
+            {artifactsOpen ? <div id="council-artifacts" className="mt-2 space-y-2 border-t pt-2"><QueryState label="artifacts" loading={artifactsQuery.isLoading} error={artifactsQuery.isError} onRetry={() => void artifactsQuery.refetch()} />{!artifactsQuery.isLoading && !artifactsQuery.isError ? <>{artifactDraft ? <div className="flex flex-wrap items-center gap-2"><input aria-label="Artifact title" className="min-w-40 flex-1 rounded-md border bg-background px-2 py-1 text-xs" value={artifactDraft.title} onChange={(e) => setArtifactDraft({ ...artifactDraft, title: e.target.value })} /><Button type="button" size="sm" disabled={saveArtifact.isPending || !artifactDraft.title.trim()} onClick={() => { const slug = artifactDraft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "draft"; saveArtifact.mutate({ companyId, roomId: roomId!, artifact: { key: `council-output-${slug}`, title: artifactDraft.title.trim(), markdown: artifactDraft.markdown } }); }}>Save artifact</Button></div> : null}<div className="flex flex-wrap gap-1">{(artifactsQuery.data ?? []).map((artifact) => <button key={artifact.key} type="button" className={`rounded-md border px-2 py-1 text-xs ${selectedArtifactKey === artifact.key ? "border-primary bg-accent" : "hover:bg-accent"}`} onClick={() => { setSelectedArtifactKey(artifact.key); setSelectedRevision(null); }}>{artifact.title ?? artifact.key} <span className="ml-1 rounded-full bg-muted px-1.5">v{artifact.latestRevisionNumber}</span></button>)}{!artifactsQuery.data?.length ? <span className="text-xs text-muted-foreground">Save a reply to create the first artifact.</span> : null}</div></> : null}{artifactQuery.isError ? <QueryState label="the artifact" loading={false} error onRetry={() => void artifactQuery.refetch()} /> : null}{artifactQuery.data ? <div className="border-t pt-2"><div className="flex items-center justify-between gap-2 text-xs font-medium"><span>{artifactQuery.data.title}</span><select className="h-7 rounded-md border bg-background px-1" value={selectedRevision ?? artifactQuery.data.latestRevisionNumber} onChange={(e) => setSelectedRevision(Number(e.target.value))}>{artifactQuery.data.revisions.map((item) => <option key={item.revisionNumber} value={item.revisionNumber}>v{item.revisionNumber}</option>)}</select></div><MarkdownBody className="max-h-32 overflow-y-auto text-sm">{artifactQuery.data.body}</MarkdownBody></div> : null}</div> : null}
           </div>
-          <div ref={threadScrollRef} className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col space-y-3 overflow-x-hidden overflow-y-auto rounded-md border p-3">
-            {(comments.data ?? []).map((c) => {
+          <div ref={threadScrollRef} className="council-message-thread flex min-h-0 min-w-0 flex-1 basis-0 flex-col space-y-3 overflow-x-hidden overflow-y-auto rounded-md border p-3">
+            <QueryState label="comments" loading={comments.isLoading} error={comments.isError} onRetry={() => void comments.refetch()} />
+            {!comments.isLoading && !comments.isError && (comments.data ?? []).map((c) => {
               const seat = c.authorUserId ? seatById.get(c.authorUserId) : undefined;
               const seatAuthor = !!c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX);
               if (!seatAuthor) {
@@ -827,7 +861,7 @@ export function Council() {
                 </div>
               </details>
             ))}
-            {comments.data && !comments.data.length ? (
+            {!comments.isLoading && !comments.isError && comments.data && !comments.data.length ? (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">{activeSeats.length ? "Ask the council one question, or start from an example." : "Switch at least one vendor to Active, then ask."}</p>
                 {activeSeats.length ? <div className="grid shrink-0 gap-2 md:grid-cols-3">{QUICK_PROMPTS.map((q) => <button key={q.title} type="button" onClick={() => setMessage(q.text)} className="rounded-lg border p-2 text-left hover:bg-accent/50"><div className="text-sm font-medium">{q.title}</div><div className="text-xs text-muted-foreground">{q.hint}</div></button>)}</div> : null}
@@ -844,7 +878,7 @@ export function Council() {
           ) : null}
 
           <form
-            className="relative z-10 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg"
+            className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSend) ask.mutate("ask");
@@ -853,6 +887,7 @@ export function Council() {
             <div className="flex items-end gap-2">
             <Textarea
               value={message}
+              aria-label="Message the council"
               onChange={(e) => setMessage(e.target.value)}
               placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a vendor"}`}
               rows={2}
@@ -867,7 +902,7 @@ export function Council() {
             />
             {ask.isPending ? <Button type="button" variant="destructive" onClick={() => abortRef.current?.abort()}><Square /> Stop</Button> : <Button type="submit" disabled={!canSend}><Send /> Send</Button>}
             </div>
-            {!comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
+            {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
             {images.length ? (
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {images.map((img, i) => (
@@ -882,8 +917,8 @@ export function Council() {
               </div>
             ) : null}
             <div className="relative flex flex-wrap items-center gap-2 text-xs">
-              <Button type="button" variant="outline" size="sm" onClick={() => setOptionsOpen((v) => !v)} aria-expanded={optionsOpen}><Settings2 /> Options</Button>
-              {optionsOpen ? <div className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover p-2 shadow-lg">
+              <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" onClick={() => setOptionsOpen((v) => !v)} aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /> Options</Button>
+              {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover p-2 shadow-lg">
               <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-muted-foreground hover:bg-accent">
                 <ImagePlus className="h-3.5 w-3.5" /> upload
                 <input
