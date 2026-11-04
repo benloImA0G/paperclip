@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, Plus, RotateCcw, Send, Square, Trash2, Users, X } from "lucide-react";
+import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, Plus, RotateCcw, Send, Settings2, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -131,7 +131,8 @@ export function Council() {
   const [showArchives, setShowArchives] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [participantsOpen, setParticipantsOpen] = useState(true);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [participantsOpen, setParticipantsOpen] = useState(false);
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
@@ -140,6 +141,9 @@ export function Council() {
   const [compactedTurns, setCompactedTurns] = useState(0);
   const [images, setImages] = useState<Array<{ name: string; mediaType: string; data: string }>>([]);
   const [exportingReply, setExportingReply] = useState<string | null>(null);
+  const [consolidatePptx, setConsolidatePptx] = useState(true);
+  const [lastExportNoteByRoom, setLastExportNoteByRoom] = useState<Record<string, string>>({});
+  const lastExportNote = roomId ? lastExportNoteByRoom[roomId] ?? null : null;
 
   useEffect(() => setBreadcrumbs([{ label: "Council" }]), [setBreadcrumbs]);
   const companyId = selectedCompanyId ?? "";
@@ -422,7 +426,7 @@ export function Council() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
+    <div className="flex h-(--sz-100dvh) min-h-0 flex-col gap-3 overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="w-60 shrink-0">
           <h1 className="flex items-center gap-2 text-xl font-semibold leading-tight">
@@ -431,9 +435,9 @@ export function Council() {
           <p className="text-xs text-muted-foreground">Post an engineering challenge; vendors debate and reconcile into a unified vision.</p>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
-          <Toggle label="Clarify" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" />
-          <Toggle label="Summary" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" />
-          <label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground" title="Sets how many rounds vendors comment on each other">
+          <span className="hidden sm:inline-flex"><Toggle label="Clarify" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" /></span>
+          <span className="hidden sm:inline-flex"><Toggle label="Summary" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" /></span>
+          <label className="hidden items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground sm:flex" title="Sets how many rounds vendors comment on each other">
             Rounds
             <select
               className="h-7 rounded-md border bg-background px-1 text-xs normal-case text-foreground"
@@ -457,6 +461,9 @@ export function Council() {
           <div className="relative">
             <Button type="button" variant="outline" size="sm" aria-expanded={moreOpen} aria-controls="council-more-actions" onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal /> More</Button>
             {moreOpen ? <div id="council-more-actions" className="absolute right-0 z-20 mt-1 flex min-w-44 flex-col rounded-lg border bg-popover p-1 shadow-lg">
+              <Button variant="ghost" size="sm" className="justify-start sm:hidden" onClick={() => setClarify((v) => !v)}>Clarify <span className="ml-auto text-xs text-muted-foreground">{clarify ? "On" : "Off"}</span></Button>
+              <Button variant="ghost" size="sm" className="justify-start sm:hidden" onClick={() => setAutoSummary((v) => !v)}>Summary <span className="ml-auto text-xs text-muted-foreground">{autoSummary ? "On" : "Off"}</span></Button>
+              <label className="flex items-center gap-2 px-2 py-1.5 text-sm sm:hidden"><span>Rounds</span><select className="ml-auto h-7 rounded-md border bg-background px-1 text-xs" value={discussion ? depth : "off"} onChange={(e) => { if (e.target.value === "off") setDiscussion(false); else { setDiscussion(true); setDepth(e.target.value as Depth); } }}><option value="off">No debate</option>{(Object.keys(DEPTHS) as Depth[]).map((d) => <option key={d} value={d}>{DEPTHS[d].label}</option>)}</select></label>
               <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || setArchived.isPending} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}><Archive /> Archive Thread</Button>
               <Button variant="ghost" size="sm" className="justify-start text-destructive" disabled={!roomId || !room || running} title={running ? "Stop the running round first" : undefined} onClick={() => { if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id); }}><Trash2 /> Delete Thread</Button>
               <Button variant="ghost" size="sm" className="justify-start" onClick={() => { setShowArchives((v) => !v); setMoreOpen(false); }}>Archives <span className="rounded-full bg-accent px-1.5 text-xs">{archived.data?.length ?? 0}</span></Button>
@@ -558,7 +565,7 @@ export function Council() {
             </span>
           </div>
           {!cardsOpen ? (
-            <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2 overflow-x-auto md:flex-wrap">
               {connectionOptions.map((conn) => {
                 const seat = seatOf(conn.id);
                 const color = colorOfConnection(conn.id);
@@ -573,8 +580,8 @@ export function Council() {
                     title="Click to switch this vendor on or off"
                   >
                     {vendorIcon(conn.name)} <b>{seat?.name ?? conn.name}</b>
-                    <span className="text-muted-foreground">{seat?.model ?? "not in this room"}</span>
-                    {running && seat?.active ? <Loader2 className="h-3 w-3 animate-spin" /> : seat?.active ? "✓" : ""}
+                    {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">Orchestrator</span> : null}
+                    <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} />
                   </button>
                 );
               })}
@@ -604,7 +611,7 @@ export function Council() {
                         <span className="truncate font-medium" title={seat.name}>{seat.name}</span>
                         <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] text-muted-foreground">{roleLabel(seat.role)}</span>
                       </div>
-                      <div className="truncate text-[10px] text-muted-foreground" title={`${vendorOf(seat)} · ${seat.model}`}>{vendorOf(seat)} · {seat.model}</div>
+                      <div className="truncate text-[10px] text-muted-foreground" title={`${vendorOf(seat)} · ${seat.model}`}>{vendorOf(seat)}</div>
                     </div>
                     <div className={`flex shrink-0 flex-col items-end gap-0.5 text-[10px] ${statusTone}`}>
                       <span className="rounded-full bg-muted px-1.5 py-0.5 font-medium leading-tight">{status}</span>
@@ -658,7 +665,25 @@ export function Council() {
             </div>
           ) : null}
 
-          <div ref={threadScrollRef} className="flex min-h-[18rem] min-w-0 flex-1 basis-0 flex-col space-y-3 overflow-x-hidden overflow-y-auto rounded-md border p-3">
+          <div className="council-thread-shell flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+          <div className="shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5">
+            <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs">
+              <span className="mr-1 shrink-0 font-semibold text-muted-foreground">Room tools</span>
+              <button type="button" aria-expanded={briefOpen} onClick={() => setBriefOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
+                Brief <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px]">{brief.trim() ? "set" : "empty"}</span>
+              </button>
+              <button type="button" aria-expanded={artifactsOpen} onClick={() => setArtifactsOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
+                Artifacts <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px]">{artifactsQuery.data?.length ?? 0}</span>
+              </button>
+              <label className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground">
+                <input type="checkbox" checked={requireApproval} onChange={(e) => saveExportSetting.mutate(e.target.checked)} disabled={!roomId || saveExportSetting.isPending} />
+                Ask before downloading exports
+              </label>
+            </div>
+            {briefOpen ? <div id="council-brief" className="mt-2 flex gap-2 border-t pt-2"><Textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} rows={2} placeholder="Shared context for every vendor in this room…" className="min-h-0 flex-1" /><Button type="button" size="sm" onClick={() => roomId && saveBrief.mutate(roomId)} disabled={saveBrief.isPending || brief.length > 4000}>Save</Button></div> : null}
+            {artifactsOpen ? <div id="council-artifacts" className="mt-2 space-y-2 border-t pt-2">{artifactDraft ? <div className="flex flex-wrap items-center gap-2"><input aria-label="Artifact title" className="min-w-40 flex-1 rounded-md border bg-background px-2 py-1 text-xs" value={artifactDraft.title} onChange={(e) => setArtifactDraft({ ...artifactDraft, title: e.target.value })} /><Button type="button" size="sm" disabled={saveArtifact.isPending || !artifactDraft.title.trim()} onClick={() => { const slug = artifactDraft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "draft"; saveArtifact.mutate({ companyId, roomId: roomId!, artifact: { key: `council-output-${slug}`, title: artifactDraft.title.trim(), markdown: artifactDraft.markdown } }); }}>Save artifact</Button></div> : null}<div className="flex flex-wrap gap-1">{(artifactsQuery.data ?? []).map((artifact) => <button key={artifact.key} type="button" className={`rounded-md border px-2 py-1 text-xs ${selectedArtifactKey === artifact.key ? "border-primary bg-accent" : "hover:bg-accent"}`} onClick={() => { setSelectedArtifactKey(artifact.key); setSelectedRevision(null); }}>{artifact.title ?? artifact.key} <span className="ml-1 rounded-full bg-muted px-1.5">v{artifact.latestRevisionNumber}</span></button>)}{!artifactsQuery.data?.length ? <span className="text-xs text-muted-foreground">Save a reply to create the first artifact.</span> : null}</div>{artifactQuery.data ? <div className="border-t pt-2"><div className="flex items-center justify-between gap-2 text-xs font-medium"><span>{artifactQuery.data.title}</span><select className="h-7 rounded-md border bg-background px-1" value={selectedRevision ?? artifactQuery.data.latestRevisionNumber} onChange={(e) => setSelectedRevision(Number(e.target.value))}>{artifactQuery.data.revisions.map((item) => <option key={item.revisionNumber} value={item.revisionNumber}>v{item.revisionNumber}</option>)}</select></div><MarkdownBody className="max-h-32 overflow-y-auto text-sm">{artifactQuery.data.body}</MarkdownBody></div> : null}</div> : null}
+          </div>
+          <div ref={threadScrollRef} className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col space-y-3 overflow-x-hidden overflow-y-auto rounded-md border p-3">
             {(comments.data ?? []).map((c) => {
               const seat = c.authorUserId ? seatById.get(c.authorUserId) : undefined;
               const seatAuthor = !!c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX);
@@ -684,7 +709,7 @@ export function Council() {
                     <div className="mb-1 flex items-center justify-between gap-2 text-xs font-semibold">
                       <span>
                         {seat?.role === "moderator" ? <span className="mr-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">Orchestrator</span> : null}@{name} • {seat ? vendorOf(seat) : "Vendor"}
-                        {seat ? ` (${seat.model})` : ""}
+                        <span className="sr-only">{seat ? ` (${seat.model})` : ""}</span>
                       </span>
                       <span className="font-normal text-muted-foreground">{clock(c.createdAt)}</span>
                     </div>
@@ -711,7 +736,9 @@ export function Council() {
                           }
                           setExportingReply(exportKey);
                           try {
-                            saveBlobFile(`${room?.title ?? "council"}-${name}.${format}`, await councilApi.exportDocument(companyId, roomId!, format, room?.title ?? "Council reply", c.body, requireApproval));
+                            const exported = await councilApi.exportDocument(companyId, roomId!, format, room?.title ?? "Council reply", c.body, requireApproval, format === "pptx" ? consolidatePptx : false);
+                            saveBlobFile(`${room?.title ?? "council"}-${name}.${format}`, exported.blob);
+                            if (format === "pptx" && roomId) setLastExportNoteByRoom((notes) => ({ ...notes, [roomId]: exported.consolidated ? "Condensed into slides." : "Exported as-is." }));
                           } catch (err) {
                             setError(`Could not create the .${format}: ${errorText(err)}`);
                           } finally {
@@ -738,7 +765,9 @@ export function Council() {
                               if (requireApproval && !window.confirm("Export this reply?")) return;
                               setExportingReply(`${c.id}:pptx`);
                               try {
-                                saveBlobFile(`${room?.title ?? "council"}.${"pptx"}`, await councilApi.exportDocument(companyId, roomId!, "pptx", room?.title ?? "Council reply", c.body, requireApproval));
+                                const exported = await councilApi.exportDocument(companyId, roomId!, "pptx", room?.title ?? "Council reply", c.body, requireApproval, consolidatePptx);
+                                saveBlobFile(`${room?.title ?? "council"}.pptx`, exported.blob);
+                                if (roomId) setLastExportNoteByRoom((notes) => ({ ...notes, [roomId]: exported.consolidated ? "Condensed into slides." : "Exported as-is." }));
                               } catch (err) {
                                 setError(`Could not create the .pptx: ${errorText(err)}`);
                               } finally {
@@ -746,9 +775,11 @@ export function Council() {
                               }
                             }}
                           >
-                            {exportingReply === `${c.id}:pptx` ? <Loader2 className="animate-spin" /> : null} Download PowerPoint
+                            {exportingReply === `${c.id}:pptx` ? <Loader2 className="animate-spin" /> : null} {exportingReply === `${c.id}:pptx` && consolidatePptx ? "Condensing…" : "Download PowerPoint"}
                           </Button>
                         ) : null}
+                        {requestedFormats.pptx ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" aria-label="Condense into 3-4 slides first" checked={consolidatePptx} onChange={(event) => setConsolidatePptx(event.target.checked)} /> <span>Condense into 3-4 slides first <span className="text-[10px]">(keeps the key facts and numbers)</span></span></label> : null}
+                        {lastExportNote ? <span role="status" className="text-xs text-muted-foreground">{lastExportNote}</span> : null}
                         {requestedFormats.docx ? (
                           <Button
                             type="button"
@@ -758,7 +789,7 @@ export function Council() {
                               if (requireApproval && !window.confirm("Export this reply?")) return;
                               setExportingReply(`${c.id}:docx`);
                               try {
-                                saveBlobFile(`${room?.title ?? "council"}.${"docx"}`, await councilApi.exportDocument(companyId, roomId!, "docx", room?.title ?? "Council reply", c.body, requireApproval));
+                                saveBlobFile(`${room?.title ?? "council"}.docx`, (await councilApi.exportDocument(companyId, roomId!, "docx", room?.title ?? "Council reply", c.body, requireApproval, false)).blob);
                               } catch (err) {
                                 setError(`Could not create the .docx: ${errorText(err)}`);
                               } finally {
@@ -797,9 +828,10 @@ export function Council() {
               </details>
             ))}
             {comments.data && !comments.data.length ? (
-              <p className="text-sm text-muted-foreground">
-                {activeSeats.length ? "Ask the council one question, or start from an example below." : "Switch at least one vendor to Active, then ask."}
-              </p>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">{activeSeats.length ? "Ask the council one question, or start from an example." : "Switch at least one vendor to Active, then ask."}</p>
+                {activeSeats.length ? <div className="grid shrink-0 gap-2 md:grid-cols-3">{QUICK_PROMPTS.map((q) => <button key={q.title} type="button" onClick={() => setMessage(q.text)} className="rounded-lg border p-2 text-left hover:bg-accent/50"><div className="text-sm font-medium">{q.title}</div><div className="text-xs text-muted-foreground">{q.hint}</div></button>)}</div> : null}
+              </div>
             ) : null}
             <div ref={threadEndRef} />
           </div>
@@ -811,66 +843,21 @@ export function Council() {
             </p>
           ) : null}
 
-          {activeSeats.length ? (
-            <div className="grid shrink-0 gap-2 md:grid-cols-3">
-              {QUICK_PROMPTS.map((q) => (
-                <button key={q.title} type="button" onClick={() => setMessage(q.text)} className="rounded-lg border p-2 text-left hover:bg-accent/50">
-                  <div className="text-sm font-medium">{q.title}</div>
-                  <div className="text-xs text-muted-foreground">{q.hint}</div>
-                </button>
-              ))}
-            </div>
-          ) : null}
-
           <form
-            className="flex shrink-0 flex-col gap-2 rounded-xl border p-2"
+            className="relative z-10 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSend) ask.mutate("ask");
             }}
           >
-            <div className="rounded-lg border bg-muted/20 p-2">
-              <button type="button" aria-expanded={artifactsOpen} aria-controls="council-artifacts" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setArtifactsOpen((v) => !v)}>
-                {artifactsOpen ? "▾" : "▸"} Artifacts
-              </button>
-              {artifactsOpen ? (
-                <div id="council-artifacts" className="mt-2 space-y-2">
-                  {artifactDraft ? <div className="space-y-1 border-b pb-2"><input aria-label="Artifact title" className="w-full rounded-md border bg-background px-2 py-1 text-xs" value={artifactDraft.title} onChange={(e) => setArtifactDraft({ ...artifactDraft, title: e.target.value })} /><p className="text-xs text-muted-foreground">Same title adds a new version.</p><Button type="button" size="sm" disabled={saveArtifact.isPending || !artifactDraft.title.trim()} onClick={() => { const slug = artifactDraft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "draft"; saveArtifact.mutate({ companyId, roomId: roomId!, artifact: { key: `council-output-${slug}`, title: artifactDraft.title.trim(), markdown: artifactDraft.markdown } }); }}>Save artifact</Button></div> : null}
-                  <div className="flex flex-wrap gap-1">
-                    {(artifactsQuery.data ?? []).map((artifact) => (
-                      <button key={artifact.key} type="button" className={`rounded-md border px-2 py-1 text-xs ${selectedArtifactKey === artifact.key ? "border-primary bg-accent" : "hover:bg-accent"}`} onClick={() => { setSelectedArtifactKey(artifact.key); setSelectedRevision(null); }}>
-                        {artifact.title ?? artifact.key} <span className="ml-1 rounded-full bg-muted px-1.5">v{artifact.latestRevisionNumber}</span>
-                      </button>
-                    ))}
-                    {!artifactsQuery.data?.length ? <span className="text-xs text-muted-foreground">Save a reply to create the first artifact.</span> : null}
-                  </div>
-                  {artifactQuery.data ? (() => {
-                    return <div className="space-y-2 border-t pt-2"><div className="flex items-center justify-between gap-2 text-xs font-medium"><span>{artifactQuery.data.title}</span><select className="h-7 rounded-md border bg-background px-1" value={selectedRevision ?? artifactQuery.data.latestRevisionNumber} onChange={(e) => setSelectedRevision(Number(e.target.value))}>{artifactQuery.data.revisions.map((item) => <option key={item.revisionNumber} value={item.revisionNumber}>v{item.revisionNumber}</option>)}</select></div><MarkdownBody className="max-h-48 overflow-y-auto text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{artifactQuery.data.body}</MarkdownBody></div>;
-                  })() : null}
-                </div>
-              ) : null}
-            </div>
-            <div className="rounded-lg border bg-muted/20 p-2">
-              <button type="button" aria-expanded={briefOpen} aria-controls="council-brief" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setBriefOpen((v) => !v)}>
-                {briefOpen ? "▾" : "▸"} Brief
-              </button>
-              {briefOpen ? (
-                <div id="council-brief" className="mt-2 flex gap-2">
-                  <Textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} rows={3} placeholder="Shared context for every vendor in this room…" className="min-h-0 flex-1" />
-                  <Button type="button" size="sm" onClick={() => roomId && saveBrief.mutate(roomId)} disabled={saveBrief.isPending || brief.length > 4000}>Save</Button>
-                </div>
-              ) : null}
-              <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                <input type="checkbox" checked={requireApproval} onChange={(e) => saveExportSetting.mutate(e.target.checked)} disabled={!roomId || saveExportSetting.isPending} />
-                <span><span className="font-medium text-foreground">Ask before downloading exports</span><span className="block text-[10px]">Confirm each document download before it starts.</span></span>
-              </label>
-            </div>
+            <div className="flex items-end gap-2">
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a vendor"}`}
-              rows={3}
-              className="border-0 shadow-none focus-visible:ring-2 focus-visible:ring-primary"
+              rows={2}
+              onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 144)}px`; }}
+              className="min-w-0 flex-1 border-0 shadow-none focus-visible:ring-2 focus-visible:ring-primary"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -878,7 +865,9 @@ export function Council() {
                 }
               }}
             />
-            <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p>
+            {ask.isPending ? <Button type="button" variant="destructive" onClick={() => abortRef.current?.abort()}><Square /> Stop</Button> : <Button type="submit" disabled={!canSend}><Send /> Send</Button>}
+            </div>
+            {!comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
             {images.length ? (
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {images.map((img, i) => (
@@ -892,7 +881,9 @@ export function Council() {
                 <span>Only vendors with vision can see them.</span>
               </div>
             ) : null}
-            <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="relative flex flex-wrap items-center gap-2 text-xs">
+              <Button type="button" variant="outline" size="sm" onClick={() => setOptionsOpen((v) => !v)} aria-expanded={optionsOpen}><Settings2 /> Options</Button>
+              {optionsOpen ? <div className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover p-2 shadow-lg">
               <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-muted-foreground hover:bg-accent">
                 <ImagePlus className="h-3.5 w-3.5" /> upload
                 <input
@@ -927,73 +918,22 @@ export function Council() {
               <button type="button" onClick={() => addToMessage("@all")} className="rounded-full border border-primary px-2 py-0.5 text-primary hover:bg-accent">
                 @Council (All)
               </button>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  aria-pressed={discussion}
-                  onClick={() => setDiscussion((v) => !v)}
-                  className={`rounded-full border px-3 py-1 font-medium ${discussion ? "border-primary bg-accent" : "text-muted-foreground"}`}
-                  title="After the first answers, vendors read each other and debate"
-                >
-                  <MessagesSquare className="mr-1 inline h-3.5 w-3.5" /> Discussion: {discussion ? "ON" : "OFF"}
-                </button>
-                <select
-                  className="h-8 rounded-md border bg-background px-2 disabled:opacity-50"
-                  aria-label="Discussion depth"
-                  title="Sets how many rounds vendors comment on each other"
-                  disabled={!discussion}
-                  value={depth}
-                  onChange={(e) => setDepth(e.target.value as Depth)}
-                >
-                  {(Object.keys(DEPTHS) as Depth[]).map((d) => (
-                    <option key={d} value={d}>
-                      {DEPTHS[d].label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="h-8 rounded-md border bg-background px-2"
-                  aria-label="Summary by"
-                  value={summarySeatId}
-                  onChange={(e) => setSummarySeatId(e.target.value)}
-                >
-                  <option value="">Summary by (auto: fast vendor)</option>
-                  {activeSeats.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      Summary by {s.name}
-                    </option>
-                  ))}
-                </select>
-                <Button type="button" variant="outline" size="sm" className="border-primary/60 bg-primary/10" title="Creates a concise one-page summary of the discussion" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>
-                  Summary
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  title="Vendors read the others' answers and react. Your note is optional."
-                  disabled={ask.isPending || activeSeats.length < 2 || !hasAnswers}
-                  onClick={() => ask.mutate("discuss")}
-                >
-                  Discuss now
-                </Button>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-foreground">Response options</span>
+                  <button type="button" aria-pressed={discussion} onClick={() => setDiscussion((v) => !v)} className={`rounded-full border px-3 py-1 font-medium ${discussion ? "border-primary bg-accent" : "text-muted-foreground"}`} title="After the first answers, vendors read each other and debate"><MessagesSquare className="mr-1 inline h-3.5 w-3.5" /> Discussion: {discussion ? "ON" : "OFF"}</button>
+                  <select className="h-8 rounded-md border bg-background px-2 disabled:opacity-50" aria-label="Discussion depth" disabled={!discussion} value={depth} onChange={(e) => setDepth(e.target.value as Depth)}>{(Object.keys(DEPTHS) as Depth[]).map((d) => <option key={d} value={d}>{DEPTHS[d].label}</option>)}</select>
+                  <select className="h-8 rounded-md border bg-background px-2" aria-label="Summary by" value={summarySeatId} onChange={(e) => setSummarySeatId(e.target.value)}><option value="">Summary by (auto: fast vendor)</option>{activeSeats.map((s) => <option key={s.id} value={s.id}>Summary by {s.name}</option>)}</select>
+                  <Button type="button" variant="outline" size="sm" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>Summary</Button>
+                  <Button type="button" variant="outline" size="sm" disabled={ask.isPending || activeSeats.length < 2 || !hasAnswers} onClick={() => ask.mutate("discuss")}>Discuss now</Button>
+                </div>
               </div>
-              {ask.isPending ? (
-                <Button type="button" variant="destructive" onClick={() => abortRef.current?.abort()}>
-                  <Square /> Stop
-                </Button>
-              ) : (
-                <Button type="submit" disabled={!canSend}>
-                  <Send /> Send
-                </Button>
-              )}
-            </div>
+              </div> : null}</div>
           </form>
           <p className="text-xs text-muted-foreground">
             Enter sends, Shift+Enter adds a line. Tag one vendor with its @name, or <code>@all</code> for everyone.
           </p>
+          </div>
         </>
       )}
     </div>

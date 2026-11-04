@@ -71,8 +71,10 @@ export const councilApi = {
   saveArtifact: (companyId: string, issueId: string, input: { key: string; title: string; markdown: string }) => api.post<CouncilArtifact>(`/companies/${companyId}/council/rooms/${issueId}/artifacts`, input),
   getExportSetting: (companyId: string, issueId: string) => api.get<{ requireApproval: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/export-setting`),
   updateExportSetting: (companyId: string, issueId: string, requireApproval: boolean) => api.put<{ requireApproval: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/export-setting`, { requireApproval }),
-  exportDocument: async (companyId: string, roomId: string, format: "docx" | "pptx", title: string, markdown: string, approved = false) =>
-    (await requestResponse(`/companies/${companyId}/council/export`, { method: "POST", body: JSON.stringify({ roomId, format, title, markdown, approved }) })).blob(),
+  exportDocument: async (companyId: string, roomId: string, format: "docx" | "pptx", title: string, markdown: string, approved = false, consolidate = true) => {
+    const response = await requestResponse(`/companies/${companyId}/council/export`, { method: "POST", body: JSON.stringify({ roomId, format, title, markdown, approved, consolidate }) });
+    return { blob: await response.blob(), consolidated: response.headers.get("X-Council-Consolidated") === "true" };
+  },
   listRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms`),
   listArchivedRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms?archived=1`),
   listModels: (companyId: string, connectionId: string, grantId: string) =>

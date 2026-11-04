@@ -210,6 +210,8 @@
 }
 
 :root {
+  --council-thread-min-height-mobile: 40vh;
+  --council-thread-min-height-desktop: 45vh;
   color-scheme: light;
   --font-paper-mono: "Paper Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --file-tree-indent-base: calc(var(--spacing) * 2);
@@ -620,6 +622,12 @@
   --primary-crown-bubble-size: 7px;
   --primary-crown-bubble-travel: 30px;
   --motion-ease-primary-crown-burst: cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.council-thread-shell { min-height: var(--council-thread-min-height-mobile); }
+.council-options-popover { max-width: 32rem; }
+@media (min-width: 768px) {
+  .council-thread-shell { min-height: var(--council-thread-min-height-desktop); }
 }
 
 .dark {
