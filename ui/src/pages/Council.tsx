@@ -151,6 +151,9 @@ export function Council() {
   const [cardsOpen, setCardsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [advancedMode, setAdvancedMode] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [participantsOpen, setParticipantsOpen] = useState(false);
@@ -174,11 +177,20 @@ export function Council() {
 
   useEffect(() => setBreadcrumbs([{ label: "Council" }]), [setBreadcrumbs]);
   useEffect(() => {
-    if (!moreOpen && !optionsOpen) return;
+    try {
+      setAdvancedMode(window.localStorage.getItem("paperclip:council:mode") === "advanced");
+    } catch { /* unavailable storage is fine */ }
+  }, []);
+  useEffect(() => {
+    try { window.localStorage.setItem("paperclip:council:mode", advancedMode ? "advanced" : "simple"); } catch { /* unavailable storage is fine */ }
+  }, [advancedMode]);
+  useEffect(() => {
+    if (!moreOpen && !optionsOpen && !settingsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (moreOpen) { setMoreOpen(false); moreTriggerRef.current?.focus(); }
       if (optionsOpen) { setOptionsOpen(false); optionsTriggerRef.current?.focus(); }
+      if (settingsOpen) { setSettingsOpen(false); settingsTriggerRef.current?.focus(); }
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -188,7 +200,7 @@ export function Council() {
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     return () => { document.removeEventListener("keydown", onKeyDown); document.removeEventListener("pointerdown", onPointerDown); };
-  }, [moreOpen, optionsOpen]);
+  }, [moreOpen, optionsOpen, settingsOpen]);
   const companyId = selectedCompanyId ?? "";
 
   const rooms = useQuery({ queryKey: ["council", companyId, "rooms"], queryFn: () => councilApi.listRooms(companyId), enabled: !!companyId });
@@ -533,29 +545,19 @@ export function Council() {
           <p className="text-xs text-muted-foreground">Post an engineering challenge; vendors debate and reconcile into a unified vision.</p>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
-          <span className="hidden sm:inline-flex"><Toggle label="Clarify" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" /></span>
-          <span className="hidden sm:inline-flex"><Toggle label="Summary" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" /></span>
-          <label className="hidden items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground sm:flex" title="Sets how many rounds vendors comment on each other">
-            Rounds
-            <select
-              className="h-7 rounded-md border bg-background px-1 text-xs normal-case text-foreground"
-              value={discussion ? depth : "off"}
-              onChange={(e) => {
-                if (e.target.value === "off") setDiscussion(false);
-                else {
-                  setDiscussion(true);
-                  setDepth(e.target.value as Depth);
-                }
-              }}
-            >
-              <option value="off">No debate</option>
-              {(Object.keys(DEPTHS) as Depth[]).map((d) => (
-                <option key={d} value={d}>
-                  {DEPTHS[d].label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="relative">
+            <Button ref={settingsTriggerRef} type="button" variant="outline" size="sm" aria-label="Room settings" aria-expanded={settingsOpen} aria-controls="council-room-settings" onClick={() => setSettingsOpen((v) => !v)}>
+              <Settings2 /> Settings {brief.trim() || requireApproval ? <span aria-label="Settings need attention" className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
+            </Button>
+            {settingsOpen ? <div id="council-room-settings" role="dialog" aria-label="Room settings" className="council-settings-panel fixed inset-x-2 bottom-2 z-40 max-h-screen overflow-y-auto rounded-xl border bg-popover p-4 shadow-2xl md:absolute md:inset-x-auto md:right-0 md:top-full md:bottom-auto md:mt-2 md:w-96">
+              <div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">Room settings</h2><p className="text-xs text-muted-foreground">Optional controls for this war room.</p></div><Button type="button" variant="ghost" size="sm" aria-label="Close room settings" onClick={() => { setSettingsOpen(false); settingsTriggerRef.current?.focus(); }}><X /></Button></div>
+              <div className="space-y-4 text-sm">
+                <section className="space-y-2"><h3 className="font-semibold">How the council answers</h3><div className="flex flex-wrap gap-2"><Toggle label="Clarify" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" /><Toggle label="Summary" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" /><label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground">Rounds<select aria-label="Rounds" className="h-7 rounded-md border bg-background px-1 text-xs text-foreground" value={discussion ? depth : "off"} onChange={(e) => e.target.value === "off" ? setDiscussion(false) : (setDiscussion(true), setDepth(e.target.value as Depth))}><option value="off">No debate</option>{(Object.keys(DEPTHS) as Depth[]).map((d) => <option key={d} value={d}>{DEPTHS[d].label}</option>)}</select></label></div></section>
+                <section className="space-y-2"><h3 className="font-semibold">Room</h3><div className="flex flex-wrap gap-2"><button type="button" className="rounded-md border px-2 py-1" onClick={() => setBriefOpen((v) => !v)}>Brief</button><button type="button" className="rounded-md border px-2 py-1" onClick={() => setArtifactsOpen((v) => !v)}>Artifacts</button><details className="relative rounded-md border"><summary className="cursor-pointer list-none px-2 py-1">Reliability</summary><div className="absolute right-0 z-10 mt-1 w-80 max-w-full rounded-lg border bg-popover p-3 shadow-lg">{reliabilityQuery.isLoading ? <p className="text-muted-foreground">Loading reply history…</p> : reliabilityQuery.isError ? <p className="text-destructive">Reliability is unavailable.</p> : reliabilityQuery.data ? <p className="text-muted-foreground">Based on {reliabilityQuery.data.totals.replies} replies.</p> : null}</div></details><Toggle label="Ask before downloading exports" on={requireApproval} onClick={() => roomId && saveExportSetting.mutate({ targetRoomId: roomId, value: !requireApproval })} /></div></section>
+                <section className="space-y-2"><h3 className="font-semibold">Vendors</h3><div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setAdvancedMode((v) => !v)}>{advancedMode ? "Hide vendor settings" : "Show vendor settings"}</Button><Button type="button" variant="outline" size="sm" onClick={() => setParticipantsOpen((v) => !v)}><Users /> Participants</Button><span className="text-xs text-muted-foreground">{activeSeats.length} active</span></div></section>
+              </div>
+            </div> : null}
+          </div>
           <div className="relative">
             <Button ref={moreTriggerRef} type="button" variant="outline" size="sm" aria-expanded={moreOpen} aria-controls="council-more-actions" onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal /> More</Button>
             {moreOpen ? <div id="council-more-actions" className="absolute right-0 z-20 mt-1 flex min-w-44 flex-col rounded-lg border bg-popover p-1 shadow-lg">
@@ -568,7 +570,7 @@ export function Council() {
               <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || !comments.data?.length || clearChat.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Clear Chat unavailable while a round is running" : "Clear Chat"} onClick={() => { if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate(); }}>Clear Chat</Button>
             </div> : null}
           </div>
-          <details className="relative rounded-lg border bg-background text-xs">
+          <details className="hidden">
             <summary className="cursor-pointer list-none px-2 py-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Reliability</summary>
             <div className="absolute right-0 z-20 mt-1 w-80 max-w-full rounded-lg border bg-popover p-3 shadow-lg">
               {reliabilityQuery.isLoading ? <p className="text-muted-foreground">Loading reply history…</p> : reliabilityQuery.isError ? <p className="text-destructive">Reliability is unavailable.</p> : reliabilityQuery.data ? <>
@@ -673,7 +675,7 @@ export function Council() {
         <>
           <QueryState label="connections" loading={connections.isLoading} error={connections.isError} onRetry={() => void connections.refetch()} />
           <QueryState label="seats" loading={seats.isLoading} error={seats.isError} onRetry={() => void seats.refetch()} />
-          <div className="flex items-center justify-between text-xs">
+          <div className={advancedMode ? "flex items-center justify-between text-xs" : "hidden"}>
             <span className="font-semibold uppercase tracking-wide text-muted-foreground">
               ● Select participating vendors <span className="council-vendor-helper font-normal normal-case">· click Active / Inactive to include a vendor · selected vendors respond concurrently</span>
             </span>
@@ -701,15 +703,15 @@ export function Council() {
                     style={{ borderColor: seat?.active ? color : undefined }}
                     title="Click to switch this vendor on or off"
                   >
-                    {vendorIcon(conn.name)} <b>{seat?.name ?? conn.name}</b>
+                    <b>{seat?.name ?? conn.name}</b>
                     {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-(length:--text-nano) text-primary">Orchestrator</span> : null}
-                    <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} />
+                    {advancedMode ? <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} /> : null}
                   </button>
                 );
               })}
             </div>
           ) : null}
-          <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className="council-participants shrink-0 rounded-lg border bg-muted/10">
+          <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className={advancedMode ? "council-participants shrink-0 rounded-lg border bg-muted/10" : "hidden"}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
               <span className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Participants <span className="font-normal text-muted-foreground">{activeSeats.length} active</span></span>
               <span className="flex items-center gap-1 text-muted-foreground">
@@ -745,7 +747,7 @@ export function Council() {
               {!activeSeats.length ? <p className="px-1 text-xs text-muted-foreground">No active participants.</p> : null}
             </div>
           </details>
-          <div className={`${cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 pb-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
+          <div className={`${advancedMode && cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 pb-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
             {[
               ...allSeats.map((seat) => ({ conn: connectionOptions.find((candidate) => candidate.id === seat.connectionId), seat })),
               ...connectionOptions.filter((conn) => !allSeats.some((seat) => seat.connectionId === conn.id)).map((conn) => ({ conn, seat: undefined })),
@@ -793,7 +795,7 @@ export function Council() {
           ) : null}
 
           <div className="council-thread-shell flex min-h-0 min-w-0 flex-1 flex-col gap-2">
-          <div className="shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5">
+          <div className={advancedMode ? "shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5" : "hidden"}>
             <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs">
               <span className="mr-1 shrink-0 font-semibold text-muted-foreground">Room tools</span>
               <button type="button" aria-expanded={briefOpen} onClick={() => setBriefOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
