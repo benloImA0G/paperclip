@@ -66,7 +66,7 @@ const roundSchema = z
     clarify: z.boolean().optional(),
   })
   .strict();
-const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional() }).strict();
+const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional(), consolidate: z.boolean().optional() }).strict();
 const artifactKeySchema = z.string().regex(/^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid artifact key");
 const artifactSchema = z.object({ key: artifactKeySchema, title: z.string().trim().min(1).max(200), markdown: z.string().trim().min(1).max(100_000) }).strict();
 
@@ -250,15 +250,20 @@ export function councilChatRoutes(db: Db) {
   router.post("/companies/:companyId/council/export", validate(exportSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
-    boardUserId(req);
+    const userId = boardUserId(req);
+    const abort = new AbortController();
+    const deadline = AbortSignal.timeout(45_000);
+    req.on("close", () => abort.abort());
     const { roomId, format, title, markdown, approved } = req.body;
     // This confirmation is client-asserted for the single board user, not a security boundary.
     if ((await council.getExportSetting(companyId, roomId)).requireApproval && approved !== true) {
       throw conflict("This room requires approval before export");
     }
+    const shouldConsolidate = format === "pptx" && req.body.consolidate !== false;
+    const source = shouldConsolidate ? await council.consolidateForExport({ companyId, issueId: roomId, userId, markdown, signal: AbortSignal.any([abort.signal, deadline]) }) : { markdown, consolidated: false };
     let bytes: Buffer;
     try {
-      bytes = format === "docx" ? await markdownToDocx(title, markdown) : await markdownToPptx(title, markdown);
+      bytes = format === "docx" ? await markdownToDocx(title, source.markdown) : await markdownToPptx(title, source.markdown);
     } catch (error) {
       if (error instanceof PandocUnavailableError) {
         res.status(503).json({ error: error.message });
@@ -267,6 +272,8 @@ export function councilChatRoutes(db: Db) {
       throw error;
     }
     res.setHeader("Content-Type", format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    res.setHeader("X-Council-Consolidated", String(source.consolidated));
+    res.setHeader("Access-Control-Expose-Headers", "X-Council-Consolidated");
     res.setHeader("Content-Disposition", `attachment; filename="${exportFilename(title, format)}"`);
     res.send(bytes);
   });
