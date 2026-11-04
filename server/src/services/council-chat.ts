@@ -10,12 +10,14 @@ import { budgetServiceInTransaction } from "./budgets.js";
 import { createCostEventInTransaction } from "./costs.js";
 import { fastResponseModel } from "./fast-response-provider.js";
 import { issueService } from "./issues.js";
+import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 
 /** Issues that are council war rooms carry this origin kind. */
 export const COUNCIL_ORIGIN_KIND = "council";
 /** Seat replies are stored as comments under `council-seat:<seatId>`, like `board-concierge` for the board chat. */
 export const COUNCIL_SEAT_AUTHOR_PREFIX = "council-seat:";
+export const COUNCIL_ARTIFACT_KEY_REGEX = /^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const HISTORY_COMMENTS = 20;
 const DEFAULT_SEAT_MAX_OUTPUT_TOKENS = 1024;
@@ -198,6 +200,8 @@ export function seatAttemptSystemPrompt(seat: { name: string; persona: string; r
 
 export function councilChatService(db: Db) {
   const issueSvc = issueService(db);
+  const documents = documentService(db);
+  const councilArtifactKey = COUNCIL_ARTIFACT_KEY_REGEX;
   const connections = aiConnectionService(db);
 
   async function getRoom(companyId: string, issueId: string) {
@@ -230,6 +234,41 @@ export function councilChatService(db: Db) {
         .returning();
       return { brief: roomMetadata(updatedRoom?.description).brief };
     });
+  }
+
+  async function listArtifacts(companyId: string, issueId: string) {
+    await getRoom(companyId, issueId);
+    return (await documents.listIssueDocuments(issueId)).filter((document) => councilArtifactKey.test(document.key)).map((document) => ({
+      key: document.key,
+      title: document.title,
+      latestRevisionNumber: document.latestRevisionNumber,
+      updatedAt: document.updatedAt,
+    }));
+  }
+
+  async function getArtifact(companyId: string, issueId: string, key: string, revisionNumber?: number) {
+    await getRoom(companyId, issueId);
+    if (!councilArtifactKey.test(key)) throw unprocessable("Invalid artifact key");
+    const document = await documents.getIssueDocumentByKey(issueId, key);
+    if (!document) throw notFound("Artifact not found");
+    const revisions = await documents.listIssueDocumentRevisions(issueId, key);
+    const selectedRevision = revisionNumber === undefined ? null : revisions.find((revision) => revision.revisionNumber === revisionNumber);
+    if (revisionNumber !== undefined && !selectedRevision) throw notFound("Artifact revision not found");
+    const body = selectedRevision
+      ? (await documents.getIssueDocumentRevision(issueId, key, selectedRevision.id))?.body ?? document.body
+      : document.body;
+    return { key: document.key, title: document.title, body, latestRevisionNumber: document.latestRevisionNumber, updatedAt: document.updatedAt,
+      revisions: revisions.map((revision) => ({ revisionNumber: revision.revisionNumber, createdAt: revision.createdAt })) };
+  }
+
+  async function saveArtifact(companyId: string, issueId: string, userId: string, input: { key: string; title: string; markdown: string }) {
+    await getRoom(companyId, issueId);
+    if (!councilArtifactKey.test(input.key)) throw unprocessable("Invalid artifact key");
+    if (!input.markdown.trim()) throw unprocessable("Artifact markdown must not be empty");
+    const existing = await documents.getIssueDocumentByKey(issueId, input.key);
+    await documents.upsertIssueDocument({ issueId, key: input.key, title: input.title.trim(), format: "markdown", body: input.markdown,
+      baseRevisionId: existing?.latestRevisionId ?? undefined, createdByUserId: userId, changeSummary: "Saved from Council Chat" });
+    return getArtifact(companyId, issueId, input.key);
   }
 
   async function getExportSetting(companyId: string, issueId: string) {
@@ -740,5 +779,5 @@ export function councilChatService(db: Db) {
     return [...new Set(ids)].sort();
   }
 
-  return { getRoom, getBrief, updateBrief, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, clearMessages, listArchivedRooms, listModels };
+  return { getRoom, getBrief, updateBrief, listArtifacts, getArtifact, saveArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, clearMessages, listArchivedRooms, listModels };
 }

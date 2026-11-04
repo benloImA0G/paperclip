@@ -116,6 +116,10 @@ export function Council() {
   const [message, setMessage] = useState("");
   const [brief, setBrief] = useState("");
   const [briefOpen, setBriefOpen] = useState(false);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const [selectedArtifactKey, setSelectedArtifactKey] = useState<string | null>(null);
+  const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
+  const [artifactDraft, setArtifactDraft] = useState<{ markdown: string; title: string } | null>(null);
   const [requireApproval, setRequireApproval] = useState(false);
   const [lastResults, setLastResults] = useState<Record<string, Record<string, CouncilSeatResult>>>({});
   const [roundDetails, setRoundDetails] = useState<Record<string, CouncilSeatResult[][]>>({});
@@ -143,10 +147,13 @@ export function Council() {
   const connections = useQuery({ queryKey: ["council", companyId, "connections"], queryFn: () => aiConnectionsApi.list(companyId), enabled: !!companyId });
   const seats = useQuery({ queryKey: ["council", companyId, roomId, "seats"], queryFn: () => councilApi.listSeats(companyId, roomId!), enabled: !!companyId && !!roomId });
   const briefQuery = useQuery({ queryKey: ["council", companyId, roomId, "brief"], queryFn: () => councilApi.getBrief(companyId, roomId!), enabled: !!companyId && !!roomId });
+  const artifactsQuery = useQuery({ queryKey: ["council", companyId, roomId, "artifacts"], queryFn: () => councilApi.listArtifacts(companyId, roomId!), enabled: !!companyId && !!roomId });
+  const artifactQuery = useQuery({ queryKey: ["council", companyId, roomId, "artifact", selectedArtifactKey, selectedRevision], queryFn: () => councilApi.getArtifact(companyId, roomId!, selectedArtifactKey!, selectedRevision), enabled: !!companyId && !!roomId && !!selectedArtifactKey });
   const exportSettingQuery = useQuery({ queryKey: ["council", companyId, roomId, "export-setting"], queryFn: () => councilApi.getExportSetting(companyId, roomId!), enabled: !!companyId && !!roomId });
   useEffect(() => setBrief(briefQuery.data?.brief ?? ""), [briefQuery.data?.brief, roomId]);
   useEffect(() => setRequireApproval(exportSettingQuery.data?.requireApproval ?? false), [exportSettingQuery.data?.requireApproval, roomId]);
   const saveBrief = useMutation({ mutationFn: (savedRoomId: string) => councilApi.updateBrief(companyId, savedRoomId, brief), onSuccess: (data, savedRoomId) => { if (savedRoomId === roomId) setBrief(data.brief); void briefQuery.refetch(); } });
+  const saveArtifact = useMutation({ mutationFn: (input: { companyId: string; roomId: string; artifact: { key: string; title: string; markdown: string } }) => councilApi.saveArtifact(input.companyId, input.roomId, input.artifact), onSuccess: (artifact, input) => { if (input.companyId === companyId && input.roomId === roomId) { setSelectedArtifactKey(artifact.key); setSelectedRevision(null); } setArtifactDraft(null); void artifactsQuery.refetch(); } });
   const saveExportSetting = useMutation({ mutationFn: (value: boolean) => councilApi.updateExportSetting(companyId, roomId!, value), onSuccess: (data) => setRequireApproval(data.requireApproval) });
   const comments = useQuery({
     queryKey: ["council", companyId, roomId, "comments"],
@@ -660,6 +667,11 @@ export function Council() {
                     </div>
                     <MarkdownBody className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
                     <div className="mt-1 flex justify-end gap-2 text-[10px] text-muted-foreground">
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-[10px]" disabled={saveArtifact.isPending} onClick={() => {
+                        if (!roomId) return;
+                        setArtifactDraft({ markdown: c.body, title: `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
+                        setArtifactsOpen(true);
+                      }}>Save as artifact</Button>
                       <select
                         aria-label="Save reply as"
                         className="h-6 rounded-md border bg-background px-1 text-[10px] text-foreground"
@@ -794,6 +806,27 @@ export function Council() {
               if (canSend) ask.mutate("ask");
             }}
           >
+            <div className="rounded-lg border bg-muted/20 p-2">
+              <button type="button" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setArtifactsOpen((v) => !v)}>
+                {artifactsOpen ? "▾" : "▸"} Artifacts
+              </button>
+              {artifactsOpen ? (
+                <div className="mt-2 space-y-2">
+                  {artifactDraft ? <div className="space-y-1 border-b pb-2"><input aria-label="Artifact title" className="w-full rounded-md border bg-background px-2 py-1 text-xs" value={artifactDraft.title} onChange={(e) => setArtifactDraft({ ...artifactDraft, title: e.target.value })} /><p className="text-xs text-muted-foreground">Same title adds a new version.</p><Button type="button" size="sm" disabled={saveArtifact.isPending || !artifactDraft.title.trim()} onClick={() => { const slug = artifactDraft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "draft"; saveArtifact.mutate({ companyId, roomId: roomId!, artifact: { key: `council-output-${slug}`, title: artifactDraft.title.trim(), markdown: artifactDraft.markdown } }); }}>Save artifact</Button></div> : null}
+                  <div className="flex flex-wrap gap-1">
+                    {(artifactsQuery.data ?? []).map((artifact) => (
+                      <button key={artifact.key} type="button" className={`rounded-md border px-2 py-1 text-xs ${selectedArtifactKey === artifact.key ? "border-primary bg-accent" : "hover:bg-accent"}`} onClick={() => { setSelectedArtifactKey(artifact.key); setSelectedRevision(null); }}>
+                        {artifact.title ?? artifact.key} <span className="ml-1 rounded-full bg-muted px-1.5">v{artifact.latestRevisionNumber}</span>
+                      </button>
+                    ))}
+                    {!artifactsQuery.data?.length ? <span className="text-xs text-muted-foreground">Save a reply to create the first artifact.</span> : null}
+                  </div>
+                  {artifactQuery.data ? (() => {
+                    return <div className="space-y-2 border-t pt-2"><div className="flex items-center justify-between gap-2 text-xs font-medium"><span>{artifactQuery.data.title}</span><select className="h-7 rounded-md border bg-background px-1" value={selectedRevision ?? artifactQuery.data.latestRevisionNumber} onChange={(e) => setSelectedRevision(Number(e.target.value))}>{artifactQuery.data.revisions.map((item) => <option key={item.revisionNumber} value={item.revisionNumber}>v{item.revisionNumber}</option>)}</select></div><MarkdownBody className="max-h-48 overflow-y-auto text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{artifactQuery.data.body}</MarkdownBody></div>;
+                  })() : null}
+                </div>
+              ) : null}
+            </div>
             <div className="rounded-lg border bg-muted/20 p-2">
               <button type="button" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setBriefOpen((v) => !v)}>
                 {briefOpen ? "▾" : "▸"} Brief

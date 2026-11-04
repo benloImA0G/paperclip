@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import { issueService } from "../services/index.js";
 import { COUNCIL_ORIGIN_KIND, councilChatService } from "../services/council-chat.js";
-import { conflict, forbidden } from "../errors.js";
+import { conflict, forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../services/council-export.js";
@@ -66,6 +66,8 @@ const roundSchema = z
   })
   .strict();
 const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional() }).strict();
+const artifactKeySchema = z.string().regex(/^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid artifact key");
+const artifactSchema = z.object({ key: artifactKeySchema, title: z.string().trim().min(1).max(200), markdown: z.string().trim().min(1).max(100_000) }).strict();
 
 function exportFilename(title: string, format: "docx" | "pptx") {
   const safe = title.replace(/[^\w. -]+/g, "_").trim().slice(0, 160) || "council-export";
@@ -124,6 +126,29 @@ export function councilChatRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     boardUserId(req);
     res.json(await council.updateBrief(companyId, req.params.issueId as string, req.body.brief));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId/artifacts", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(await council.listArtifacts(companyId, req.params.issueId as string));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId/artifacts/:key", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    const revision = req.query.revision === undefined ? undefined : Number(req.query.revision);
+    if (revision !== undefined && (!Number.isInteger(revision) || revision < 1)) throw unprocessable("Invalid artifact revision");
+    res.json(await council.getArtifact(companyId, req.params.issueId as string, req.params.key as string, revision));
+  });
+
+  router.post("/companies/:companyId/council/rooms/:issueId/artifacts", validate(artifactSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const userId = boardUserId(req);
+    res.status(201).json(await council.saveArtifact(companyId, req.params.issueId as string, userId, req.body));
   });
 
   router.get("/companies/:companyId/council/rooms/:issueId/export-setting", async (req, res) => {

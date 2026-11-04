@@ -59,10 +59,15 @@ export interface CouncilRoundResult {
   compactedTurns: number;
   results: CouncilSeatResult[];
 }
+export interface CouncilArtifactSummary { key: string; title: string | null; latestRevisionNumber: number; updatedAt: string; }
+export interface CouncilArtifact extends CouncilArtifactSummary { body: string; revisions: Array<{ revisionNumber: number; createdAt: string }>; }
 
 export const councilApi = {
   getBrief: (companyId: string, issueId: string) => api.get<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`),
   updateBrief: (companyId: string, issueId: string, brief: string) => api.put<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`, { brief }),
+  listArtifacts: (companyId: string, issueId: string) => api.get<CouncilArtifactSummary[]>(`/companies/${companyId}/council/rooms/${issueId}/artifacts`),
+  getArtifact: (companyId: string, issueId: string, key: string, revision?: number | null) => api.get<CouncilArtifact>(`/companies/${companyId}/council/rooms/${issueId}/artifacts/${encodeURIComponent(key)}${revision ? `?revision=${revision}` : ""}`),
+  saveArtifact: (companyId: string, issueId: string, input: { key: string; title: string; markdown: string }) => api.post<CouncilArtifact>(`/companies/${companyId}/council/rooms/${issueId}/artifacts`, input),
   getExportSetting: (companyId: string, issueId: string) => api.get<{ requireApproval: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/export-setting`),
   updateExportSetting: (companyId: string, issueId: string, requireApproval: boolean) => api.put<{ requireApproval: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/export-setting`, { requireApproval }),
   exportDocument: async (companyId: string, roomId: string, format: "docx" | "pptx", title: string, markdown: string, approved = false) =>

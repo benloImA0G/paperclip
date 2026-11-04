@@ -10,7 +10,7 @@ import { isUniqueViolation } from "../db-errors.js";
 import { insertRowsInChunks } from "./batch-insert.js";
 import type { ImportIssueDocumentRow } from "./import-write-types.js";
 
-function normalizeDocumentKey(key: string) {
+export function normalizeDocumentKey(key: string) {
   const normalized = key.trim().toLowerCase();
   const parsed = issueDocumentKeySchema.safeParse(normalized);
   if (!parsed.success) {

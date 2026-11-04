@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { finalizeCouncilSeatTurn, normalizeCouncilBrief, roomMetadata, seatAttemptSystemPrompt, seatSystemPrompt, withCouncilBrief } from "../services/council-chat.js";
+import { COUNCIL_ARTIFACT_KEY_REGEX, finalizeCouncilSeatTurn, normalizeCouncilBrief, roomMetadata, seatAttemptSystemPrompt, seatSystemPrompt, withCouncilBrief } from "../services/council-chat.js";
+import { normalizeDocumentKey } from "../services/documents.js";
+
+describe("council artifacts", () => {
+  it("accepts only safe council-output slugs", () => {
+    const key = "council-output-decision-record";
+    expect(COUNCIL_ARTIFACT_KEY_REGEX.test(key)).toBe(true);
+    expect(normalizeDocumentKey(key)).toBe(key);
+    expect(COUNCIL_ARTIFACT_KEY_REGEX.test("council-output-plan_v2")).toBe(false);
+    expect(COUNCIL_ARTIFACT_KEY_REGEX.test("council-output-../private")).toBe(false);
+    expect(COUNCIL_ARTIFACT_KEY_REGEX.test("brief")).toBe(false);
+  });
+});
 
 it("adds a selected role instruction to a seat prompt", () => {
   expect(seatSystemPrompt({ name: "A", persona: "", role: "critic" })).toContain("Your role: Critic. Find flaws, risks and missing evidence; be concise.");
