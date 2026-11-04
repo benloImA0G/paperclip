@@ -63,9 +63,12 @@ export interface CouncilRoundResult {
 }
 export interface CouncilArtifactSummary { key: string; title: string | null; latestRevisionNumber: number; updatedAt: string; }
 export interface CouncilArtifact extends CouncilArtifactSummary { body: string; revisions: Array<{ revisionNumber: number; createdAt: string }>; }
+export interface CouncilReliabilitySeat { seatId: string; seatName: string; replies: number; averageLatencyMs: number | null; fallbackRate: number | null; }
+export interface CouncilReliability { seats: CouncilReliabilitySeat[]; totals: Omit<CouncilReliabilitySeat, "seatId" | "seatName">; }
 
 export const councilApi = {
   getBrief: (companyId: string, issueId: string) => api.get<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`),
+  getReliability: (companyId: string, issueId: string) => api.get<CouncilReliability>(`/companies/${companyId}/council/rooms/${issueId}/stats`),
   updateBrief: (companyId: string, issueId: string, brief: string) => api.put<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`, { brief }),
   listArtifacts: (companyId: string, issueId: string) => api.get<CouncilArtifactSummary[]>(`/companies/${companyId}/council/rooms/${issueId}/artifacts`),
   getArtifact: (companyId: string, issueId: string, key: string, revision?: number | null) => api.get<CouncilArtifact>(`/companies/${companyId}/council/rooms/${issueId}/artifacts/${encodeURIComponent(key)}${revision ? `?revision=${revision}` : ""}`),

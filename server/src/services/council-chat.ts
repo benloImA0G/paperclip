@@ -597,6 +597,16 @@ export function councilChatService(db: Db) {
       }
       const comment = input.persistComment === false ? null : await issueSvc.addComment(issueId, text, {
         userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${seat.id}`,
+      }, {
+        metadata: {
+          version: 1,
+          councilReliability: {
+            durationMs: Date.now() - startedAt,
+            fallbackUsed: (input.attempt ?? 0) > 0,
+            ...(usage ? { usage } : {}),
+          },
+          sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
+        },
       });
       return {
         ...base,

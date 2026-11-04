@@ -7,6 +7,7 @@ import { conflict, forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../services/council-export.js";
+import { getCouncilReliability } from "../services/council-reliability.js";
 import { logActivity } from "../services/activity-log.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
@@ -121,6 +122,14 @@ export function councilChatRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     boardUserId(req);
     res.json(await council.getBrief(companyId, req.params.issueId as string));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId/stats", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    await council.getRoom(companyId, req.params.issueId as string);
+    res.json(await getCouncilReliability(db, companyId, req.params.issueId as string));
   });
 
   router.put("/companies/:companyId/council/rooms/:issueId/brief", validate(briefSchema), async (req, res) => {

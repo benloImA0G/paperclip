@@ -1183,6 +1183,11 @@ export interface IssueCommentMetadataSection {
 
 export interface IssueCommentMetadata {
   version: 1;
+  councilReliability?: {
+    durationMs?: number;
+    fallbackUsed?: boolean;
+    usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+  };
   chatMessage?: {
     sourceTaskId: string;
     sourceTaskIdentifier: string;

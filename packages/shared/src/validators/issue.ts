@@ -1101,6 +1101,11 @@ export const issueCommentMetadataSectionSchema = z
 export const issueCommentMetadataSchema = z
   .object({
     version: z.literal(1),
+    councilReliability: z.object({
+      durationMs: z.number().nonnegative().optional(),
+      fallbackUsed: z.boolean().optional(),
+      usage: z.object({ inputTokens: z.number().nonnegative(), outputTokens: z.number().nonnegative(), totalTokens: z.number().nonnegative() }).strict().optional(),
+    }).strict().optional(),
     chatMessage: z.object({
       sourceTaskId: z.uuid(),
       sourceTaskIdentifier: z.string().min(1).max(80),

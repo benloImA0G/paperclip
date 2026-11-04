@@ -194,6 +194,7 @@ export function Council() {
   const connections = useQuery({ queryKey: ["council", companyId, "connections"], queryFn: () => aiConnectionsApi.list(companyId), enabled: !!companyId });
   const seats = useQuery({ queryKey: ["council", companyId, roomId, "seats"], queryFn: () => councilApi.listSeats(companyId, roomId!), enabled: !!companyId && !!roomId });
   const briefQuery = useQuery({ queryKey: ["council", companyId, roomId, "brief"], queryFn: () => councilApi.getBrief(companyId, roomId!), enabled: !!companyId && !!roomId });
+  const reliabilityQuery = useQuery({ queryKey: ["council", companyId, roomId, "reliability"], queryFn: () => councilApi.getReliability(companyId, roomId!), enabled: !!companyId && !!roomId });
   const artifactsQuery = useQuery({ queryKey: ["council", companyId, roomId, "artifacts"], queryFn: () => councilApi.listArtifacts(companyId, roomId!), enabled: !!companyId && !!roomId });
   const artifactQuery = useQuery({ queryKey: ["council", companyId, roomId, "artifact", selectedArtifactKey, selectedRevision], queryFn: () => councilApi.getArtifact(companyId, roomId!, selectedArtifactKey!, selectedRevision), enabled: !!companyId && !!roomId && !!selectedArtifactKey });
   const exportSettingQuery = useQuery({ queryKey: ["council", companyId, roomId, "export-setting"], queryFn: () => councilApi.getExportSetting(companyId, roomId!), enabled: !!companyId && !!roomId });
@@ -558,6 +559,19 @@ export function Council() {
               <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || !comments.data?.length || clearChat.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Clear Chat unavailable while a round is running" : "Clear Chat"} onClick={() => { if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate(); }}>Clear Chat</Button>
             </div> : null}
           </div>
+          <details className="relative rounded-lg border bg-background text-xs">
+            <summary className="cursor-pointer list-none px-2 py-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Reliability</summary>
+            <div className="absolute right-0 z-20 mt-1 w-80 max-w-full rounded-lg border bg-popover p-3 shadow-lg">
+              {reliabilityQuery.isLoading ? <p className="text-muted-foreground">Loading reply history…</p> : reliabilityQuery.isError ? <p className="text-destructive">Reliability is unavailable.</p> : reliabilityQuery.data ? <>
+                <table className="w-full text-left"><caption className="sr-only">Council reliability by seat</caption><thead><tr className="border-b text-muted-foreground"><th className="py-1 pr-2 font-medium">Seat</th><th className="py-1 pr-2 font-medium">Replies</th><th className="py-1 pr-2 font-medium">Avg time</th><th className="py-1 font-medium">Used backup</th></tr></thead><tbody>
+                  {reliabilityQuery.data.seats.map((seat) => <tr key={seat.seatId} className="border-b last:border-0"><th scope="row" className="max-w-32 truncate py-1.5 pr-2 font-medium">{seat.seatName}</th><td className="py-1.5 pr-2">{seat.replies}</td><td className="py-1.5 pr-2">{seat.averageLatencyMs == null ? "—" : `${(seat.averageLatencyMs / 1000).toFixed(1)}s`}</td><td className="py-1.5">{seat.fallbackRate == null ? "—" : `${Math.round(seat.fallbackRate * 100)}%`}</td></tr>)}
+                  <tr className="font-semibold"><th scope="row" className="py-1.5 pr-2">Total</th><td className="py-1.5 pr-2">{reliabilityQuery.data.totals.replies}</td><td className="py-1.5 pr-2">{reliabilityQuery.data.totals.averageLatencyMs == null ? "—" : `${(reliabilityQuery.data.totals.averageLatencyMs / 1000).toFixed(1)}s`}</td><td className="py-1.5">{reliabilityQuery.data.totals.fallbackRate == null ? "—" : `${Math.round(reliabilityQuery.data.totals.fallbackRate * 100)}%`}</td></tr>
+                </tbody></table>
+                <p className="mt-2 text-muted-foreground">Based on {reliabilityQuery.data.totals.replies} replies; small samples are not reliable</p>
+                <p className="mt-1 text-muted-foreground">Run details are only available for this session when older replies have no saved details.</p>
+              </> : null}
+            </div>
+          </details>
         </div>
       </div>
 
