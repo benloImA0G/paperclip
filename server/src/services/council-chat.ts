@@ -141,6 +141,37 @@ export function councilChatService(db: Db) {
     return seat;
   }
 
+  async function updateSeat(
+    companyId: string,
+    issueId: string,
+    seatId: string,
+    patch: { name?: string; persona?: string; model?: string; active?: boolean },
+  ) {
+    const set: Partial<typeof councilSeats.$inferInsert> = {};
+    if (patch.name !== undefined) {
+      const name = patch.name.trim();
+      if (!name) throw unprocessable("A seat needs a name");
+      set.name = name;
+    }
+    if (patch.persona !== undefined) set.persona = patch.persona.trim();
+    if (patch.model !== undefined) set.model = patch.model.trim();
+    if (patch.active !== undefined) set.active = patch.active;
+    if (!Object.keys(set).length) throw unprocessable("Nothing to update");
+    const [seat] = await db
+      .update(councilSeats)
+      .set(set)
+      .where(
+        and(
+          eq(councilSeats.companyId, companyId),
+          eq(councilSeats.issueId, issueId),
+          eq(councilSeats.id, seatId),
+        ),
+      )
+      .returning();
+    if (!seat) throw notFound("Seat not found");
+    return seat;
+  }
+
   async function removeSeat(companyId: string, issueId: string, seatId: string) {
     const removed = await db
       .delete(councilSeats)
@@ -428,5 +459,5 @@ export function councilChatService(db: Db) {
     return { roundId, userCommentId: userComment?.id ?? null, results };
   }
 
-  return { getRoom, listSeats, createRoom, addSeat, removeSeat, runRound };
+  return { getRoom, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound };
 }

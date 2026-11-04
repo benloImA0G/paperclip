@@ -31,6 +31,14 @@ const addSeatSchema = z
       .optional(),
   })
   .strict();
+const updateSeatSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).optional(),
+    persona: z.string().max(2000).optional(),
+    model: z.string().trim().min(1).max(256).optional(),
+    active: z.boolean().optional(),
+  })
+  .strict();
 const roundSchema = z
   .object({
     message: z.string().trim().max(20_000).optional(),
@@ -93,6 +101,19 @@ export function councilChatRoutes(db: Db) {
     boardUserId(req);
     res.status(201).json(await council.addSeat(companyId, req.params.issueId as string, req.body));
   });
+
+  router.patch(
+    "/companies/:companyId/council/rooms/:issueId/seats/:seatId",
+    validate(updateSeatSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      assertCompanyAccess(req, companyId);
+      boardUserId(req);
+      res.json(
+        await council.updateSeat(companyId, req.params.issueId as string, req.params.seatId as string, req.body),
+      );
+    },
+  );
 
   router.delete("/companies/:companyId/council/rooms/:issueId/seats/:seatId", async (req, res) => {
     const companyId = req.params.companyId as string;

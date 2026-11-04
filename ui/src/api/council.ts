@@ -60,6 +60,12 @@ export const councilApi = {
     api.get<CouncilSeat[]>(`/companies/${companyId}/council/rooms/${issueId}/seats`),
   addSeat: (companyId: string, issueId: string, input: CouncilSeatInput) =>
     api.post<CouncilSeat>(`/companies/${companyId}/council/rooms/${issueId}/seats`, input),
+  updateSeat: (
+    companyId: string,
+    issueId: string,
+    seatId: string,
+    patch: { name?: string; persona?: string; model?: string; active?: boolean },
+  ) => api.patch<CouncilSeat>(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`, patch),
   removeSeat: (companyId: string, issueId: string, seatId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),
   // A round waits for the slowest seat, so give it far longer than the default request timeout.
