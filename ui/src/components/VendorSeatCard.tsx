@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 /** Models measured in our own benchmark, per vendor (matched by connection name prefix). */
 export const MODEL_CATALOG: Record<string, Array<{ model: string; note: string }>> = {
   Ollama: [
-    { model: "qwen3.5:4b", note: "local · vision · ~2s (thinking off)" },
+    { model: "gemma4:26b", note: "local · vision · ~1s · accurate (default)" },
+    { model: "qwen3.5:4b", note: "local · vision · ~1s · small, weaker on maths" },
     { model: "glm-4.7-flash", note: "local · deep but slow ~30s" },
   ],
   Gemini: [
