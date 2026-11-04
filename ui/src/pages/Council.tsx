@@ -158,7 +158,8 @@ export function Council() {
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
   const [pendingDefaultRoomId, setPendingDefaultRoomId] = useState<string | null>(null);
-  const [pendingTemplateId, setPendingTemplateId] = useState<CouncilTemplateId | null>(null);
+  const [pendingTemplate, setPendingTemplate] = useState<{ roomId: string; templateId: CouncilTemplateId } | null>(null);
+  const [defaultsReadyRoomId, setDefaultsReadyRoomId] = useState<string | null>(null);
   const [steps, setSteps] = useState<string[]>([]);
   const [stepIdx, setStepIdx] = useState(0);
   const [compactedTurns, setCompactedTurns] = useState(0);
@@ -199,7 +200,7 @@ export function Council() {
   useEffect(() => setRequireApproval(exportSettingQuery.data?.requireApproval ?? false), [exportSettingQuery.data?.requireApproval, roomId]);
   const saveBrief = useMutation({ mutationFn: (savedRoomId: string) => councilApi.updateBrief(companyId, savedRoomId, brief), onSuccess: (data, savedRoomId) => { if (savedRoomId === roomId) setBrief(data.brief); void briefQuery.refetch(); } });
   const saveArtifact = useMutation({ mutationFn: (input: { companyId: string; roomId: string; artifact: { key: string; title: string; markdown: string } }) => councilApi.saveArtifact(input.companyId, input.roomId, input.artifact), onSuccess: (artifact, input) => { if (input.companyId === companyId && input.roomId === roomId) { setSelectedArtifactKey(artifact.key); setSelectedRevision(null); } setArtifactDraft(null); void artifactsQuery.refetch(); } });
-  const saveExportSetting = useMutation({ mutationFn: (value: boolean) => councilApi.updateExportSetting(companyId, roomId!, value), onSuccess: (data) => setRequireApproval(data.requireApproval) });
+  const saveExportSetting = useMutation({ mutationFn: ({ targetRoomId, value }: { targetRoomId: string; value: boolean }) => councilApi.updateExportSetting(companyId, targetRoomId, value), onSuccess: (data, { targetRoomId }) => { if (targetRoomId === roomId) setRequireApproval(data.requireApproval); } });
   const comments = useQuery({
     queryKey: ["council", companyId, roomId, "comments"],
     queryFn: () => issuesApi.listComments(roomId!, { order: "asc" }),
@@ -275,7 +276,11 @@ export function Council() {
         if (d?.auto) await createSeatFor(targetRoomId, conn, { name: d.name, model: d.model, persona: d.persona, role: conn.name.startsWith("Groq") ? "moderator" : "none" });
       }
     },
-    onSettled: (_data, _error, targetRoomId) => void refreshSeatsFor(targetRoomId),
+    onSettled: async (_data, _error, targetRoomId) => {
+      setDefaultsReadyRoomId(targetRoomId);
+      await seats.refetch();
+      void refreshSeatsFor(targetRoomId);
+    },
     onError: (e) => setError(errorText(e)),
   });
 
@@ -298,7 +303,8 @@ export function Council() {
       setLastResults((current) => ({ ...current, [room.id]: {} }));
       setRoundDetails((current) => ({ ...current, [room.id]: [] }));
       setPendingDefaultRoomId(room.id);
-      setPendingTemplateId(selectedTemplate);
+      setDefaultsReadyRoomId(null);
+      setPendingTemplate({ roomId: room.id, templateId: selectedTemplate });
       void refresh("rooms");
     },
     onError: (e) => setError(errorText(e)),
@@ -313,19 +319,22 @@ export function Council() {
   }, [addDefaults, connectionOptions.length, connections.isSuccess, pendingDefaultRoomId]);
 
   useEffect(() => {
-    if (!pendingTemplateId || !roomId || addDefaults.isPending || !seats.isSuccess) return;
-    const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === pendingTemplateId)!;
+    if (!pendingTemplate) return;
+    if (pendingTemplate.roomId !== roomId) { setPendingTemplate(null); return; }
+    if (addDefaults.isPending || !seats.isSuccess || defaultsReadyRoomId !== roomId) return;
+    const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === pendingTemplate.templateId)!;
+    if (!Object.keys(template.roles).every((name) => allSeats.some((seat) => seat.name === name))) return;
     const roleUpdates = allSeats.filter((seat) => template.roles[seat.name] && seat.role !== template.roles[seat.name]);
     if (roleUpdates.length) {
-      setPendingTemplateId(null);
-      void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, roomId, seat.id, { role: template.roles[seat.name] })))
-        .then(() => refreshSeatsFor(roomId))
+      setPendingTemplate(null);
+      void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, { name: seat.name, role: template.roles[seat.name] })))
+        .then(() => refreshSeatsFor(pendingTemplate.roomId))
         .catch((e) => setError(errorText(e)));
     } else {
-      setPendingTemplateId(null);
+      setPendingTemplate(null);
     }
-    if (template.requireApproval !== (exportSettingQuery.data?.requireApproval ?? false)) saveExportSetting.mutate(template.requireApproval);
-  }, [addDefaults.isPending, companyId, exportSettingQuery.data?.requireApproval, pendingTemplateId, refreshSeatsFor, roomId, saveExportSetting, seats.isSuccess]);
+    if (template.requireApproval !== (exportSettingQuery.data?.requireApproval ?? false)) saveExportSetting.mutate({ targetRoomId: pendingTemplate.roomId, value: template.requireApproval });
+  }, [addDefaults.isPending, allSeats, companyId, defaultsReadyRoomId, exportSettingQuery.data?.requireApproval, pendingTemplate, refreshSeatsFor, roomId, saveExportSetting, seats.isSuccess]);
 
   const deleteRoom = useMutation({
     mutationFn: (id: string) => issuesApi.remove(id),
@@ -590,7 +599,7 @@ export function Council() {
           <button
             type="button"
             aria-label="New war room"
-            onClick={() => setCreating(true)}
+            onClick={() => { setCreating(true); applyTemplate(DEFAULT_COUNCIL_TEMPLATE_ID); }}
             className="shrink-0 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50"
           >
             + New
@@ -758,7 +767,7 @@ export function Council() {
                 Artifacts <span className="ml-1 rounded-full bg-muted px-1.5 text-(length:--text-nano)">{artifactsQuery.data?.length ?? 0}</span>
               </button>
               <label className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground" title="Ask before downloading exports">
-                <input type="checkbox" checked={requireApproval} onChange={(e) => saveExportSetting.mutate(e.target.checked)} disabled={!roomId || saveExportSetting.isPending} />
+                <input type="checkbox" checked={requireApproval} onChange={(e) => roomId && saveExportSetting.mutate({ targetRoomId: roomId, value: e.target.checked })} disabled={!roomId || saveExportSetting.isPending} />
                 <span className="council-export-label">Ask before downloading exports</span>
               </label>
             </div>
