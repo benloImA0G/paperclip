@@ -65,6 +65,39 @@ function councilTurn(speaker: string, body: string): string {
   return `<turn speaker="${safeSpeaker}">\n${safeBody}\n</turn>`;
 }
 
+/** Rough token estimate (about 4 characters per token) used only to decide when to compact. */
+const COMPACT_TOKEN_BUDGET = 2_000;
+const SEAT_DIGEST_CHARS = 160;
+const QUESTION_DIGEST_CHARS = 600;
+
+/**
+ * Free tiers meter input tokens, and every discussion turn re-sends the thread. Once the thread passes
+ * the budget, everything before the latest round shrinks to a short digest. The latest round, the
+ * newest question and any seat "Summary" stay verbatim. Stored comments are never changed.
+ */
+export function compactCouncilHistory(
+  history: Array<{ authorUserId: string | null; body: string }>,
+  budgetTokens = COMPACT_TOKEN_BUDGET,
+): { bodies: string[]; compacted: number } {
+  const verbatim = history.map((c) => c.body);
+  const estimate = history.reduce((n, c) => n + c.body.length, 0) / 4;
+  if (estimate <= budgetTokens) return { bodies: verbatim, compacted: 0 };
+  const isSeat = (c: { authorUserId: string | null }) => !!c.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX);
+  let start = history.length;
+  while (start > 0 && isSeat(history[start - 1])) start--;
+  if (start > 0) start--; // the question or focus note that opened the latest round
+  let compacted = 0;
+  const bodies = history.map((c, i) => {
+    if (i >= start || /^\W*summary\b/i.test(c.body)) return c.body;
+    const limit = isSeat(c) ? SEAT_DIGEST_CHARS : QUESTION_DIGEST_CHARS;
+    const flat = c.body.replace(/\s+/g, " ").trim();
+    if (flat.length <= limit) return c.body;
+    compacted++;
+    return `${flat.slice(0, limit)}… [shortened earlier turn]`;
+  });
+  return { bodies, compacted };
+}
+
 function seatSystemPrompt(seat: { name: string; persona: string }): string {
   return [
     `You are "${seat.name}", one seat on a council of different AI models answering the same question.`,
@@ -410,8 +443,9 @@ export function councilChatService(db: Db) {
     // History is loaded before this round's replies exist, which keeps round 1 blind.
     const history = (await issueSvc.listComments(issueId, { order: "asc" })).slice(-HISTORY_COMMENTS);
     const names = new Map(seats.map((s) => [`${COUNCIL_SEAT_AUTHOR_PREFIX}${s.id}`, s.name]));
-    const turns = history.map((c) =>
-      councilTurn(c.authorUserId ? (names.get(c.authorUserId) ?? "Ben") : "Ben", c.body),
+    const compact = compactCouncilHistory(history);
+    const turns = history.map((c, i) =>
+      councilTurn(c.authorUserId ? (names.get(c.authorUserId) ?? "Ben") : "Ben", compact.bodies[i]),
     );
 
     if ((discuss || summarize) && !history.some((c) => c.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX))) {
@@ -456,7 +490,7 @@ export function councilChatService(db: Db) {
         runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, images, maxOutputTokens, signal }),
       ),
     );
-    return { roundId, userCommentId: userComment?.id ?? null, results };
+    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
   }
 
   return { getRoom, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound };

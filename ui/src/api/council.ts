@@ -50,6 +50,8 @@ export interface CouncilSeatResult {
 export interface CouncilRoundResult {
   roundId: string;
   userCommentId: string | null;
+  /** Older turns sent to the seats as short digests to save free-tier tokens. */
+  compactedTurns: number;
   results: CouncilSeatResult[];
 }
 

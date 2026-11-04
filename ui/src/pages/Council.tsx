@@ -218,6 +218,7 @@ export function Council() {
   const [autoSummary, setAutoSummary] = useState(false);
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
+  const [compactedTurns, setCompactedTurns] = useState(0);
   const [images, setImages] = useState<Array<{ name: string; mediaType: string; data: string }>>([]);
   const [seatForm, setSeatForm] = useState({ name: "", grantKey: "", model: "", thinkingOff: false, vision: false, fallbackKey: "", fallbackModel: "" });
 
@@ -361,7 +362,12 @@ export function Council() {
           controller.signal,
         );
       const merged: CouncilSeatResult[] = [];
-      const collect = (r: { results: CouncilSeatResult[] }) => merged.push(...r.results);
+      let compacted = 0;
+      const collect = (r: { results: CouncilSeatResult[]; compactedTurns?: number }) => {
+        merged.push(...r.results);
+        compacted = Math.max(compacted, r.compactedTurns ?? 0);
+        setCompactedTurns(compacted);
+      };
       const text = message.trim();
       const pics = images.map(({ mediaType, data }) => ({ mediaType, data }));
       setProgress(mode === "ask" ? "Round 1: seats answering…" : mode === "discuss" ? "Seats discussing…" : "Writing summary…");
@@ -436,6 +442,7 @@ export function Council() {
               onClick={() => {
                 setRoomId(r.id);
                 setLastResults({});
+                setCompactedTurns(0);
               }}
               className={`shrink-0 rounded-full border px-3 py-1 text-sm ${r.id === roomId ? "border-primary bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"}`}
             >
@@ -577,6 +584,11 @@ export function Council() {
           </div>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {compactedTurns > 0 ? (
+            <p className="text-xs text-emerald-600">
+              Token saver: {compactedTurns} older turn{compactedTurns > 1 ? "s were" : " was"} sent to the seats as short digests. The full text stays in this thread.
+            </p>
+          ) : null}
 
           {comments.data && !comments.data.length && activeSeats.length ? (
             <div className="grid gap-2 md:grid-cols-3">
