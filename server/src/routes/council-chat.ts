@@ -168,7 +168,9 @@ export function councilChatRoutes(db: Db) {
     const userId = boardUserId(req);
     const abort = new AbortController();
     res.on("close", () => { if (!res.writableFinished) abort.abort(); });
-    res.json(await council.reviewArtifact({ companyId, issueId: req.params.issueId as string, userId, key: req.params.key as string, signal: abort.signal }));
+    const result = await council.reviewArtifact({ companyId, issueId: req.params.issueId as string, userId, key: req.params.key as string, signal: abort.signal });
+    await logActivity(db, { companyId, actorType: "user", actorId: userId, action: "council.artifact_reviewed", entityType: "issue", entityId: req.params.issueId as string, issueId: req.params.issueId as string, details: { key: req.params.key, revision: result.revision, baseRevision: result.revision - 1, failedCritiquePersistences: result.failedCritiquePersistences } });
+    res.json(result);
   });
 
   router.get("/companies/:companyId/council/rooms/:issueId/export-setting", async (req, res) => {

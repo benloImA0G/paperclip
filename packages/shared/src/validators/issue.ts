@@ -1102,6 +1102,7 @@ export const issueCommentMetadataSchema = z
   .object({
     version: z.literal(1),
     councilReliability: z.object({
+      councilKind: z.literal("critique").optional(),
       durationMs: z.number().nonnegative().optional(),
       fallbackUsed: z.boolean().optional(),
       usage: z.object({ inputTokens: z.number().nonnegative(), outputTokens: z.number().nonnegative(), totalTokens: z.number().nonnegative() }).strict().optional(),

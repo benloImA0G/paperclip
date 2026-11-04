@@ -63,7 +63,7 @@ export interface CouncilRoundResult {
 }
 export interface CouncilArtifactSummary { key: string; title: string | null; latestRevisionNumber: number; updatedAt: string; }
 export interface CouncilArtifact extends CouncilArtifactSummary { body: string; revisions: Array<{ revisionNumber: number; createdAt: string }>; }
-export interface CouncilArtifactReview { critiques: CouncilSeatResult[]; revision: number; revisedMarkdownPreview: string; }
+export interface CouncilArtifactReview { critiques: CouncilSeatResult[]; revision: number; revisedMarkdownPreview: string; failedCritiquePersistences: number; }
 export interface CouncilReliabilitySeat { seatId: string; seatName: string; replies: number; averageLatencyMs: number | null; fallbackRate: number | null; }
 export interface CouncilReliability { seats: CouncilReliabilitySeat[]; totals: Omit<CouncilReliabilitySeat, "seatId" | "seatName">; }
 

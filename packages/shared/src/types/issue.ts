@@ -1184,6 +1184,7 @@ export interface IssueCommentMetadataSection {
 export interface IssueCommentMetadata {
   version: 1;
   councilReliability?: {
+    councilKind?: "critique";
     durationMs?: number;
     fallbackUsed?: boolean;
     usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
