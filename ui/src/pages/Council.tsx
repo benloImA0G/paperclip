@@ -1,17 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Loader2, MessagesSquare, Plus, Send, Square, Users, X } from "lucide-react";
+import { ImagePlus, Loader2, MessagesSquare, Plus, Send, Sparkles, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { MarkdownBody } from "../components/MarkdownBody";
 import { EmptyState } from "../components/EmptyState";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 
 const SEAT_AUTHOR_PREFIX = "council-seat:";
+const SEAT_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#8b5cf6", "#ef4444", "#84cc16"];
+
+/** One-click starting council; a preset is skipped when its connection is not set up. */
+const DEFAULT_SEATS = [
+  { name: "Qwen 4B (local)", connection: "Ollama", model: "qwen3.5:4b", thinkingOff: true, vision: true, fallback: "gemini-3.5-flash-lite" },
+  { name: "GLM 4.7 Flash (local)", connection: "Ollama", model: "glm-4.7-flash" },
+  { name: "Gemini 3.5 Flash-Lite", connection: "Gemini", model: "gemini-3.5-flash-lite", vision: true },
+  { name: "Gemini 3.6 Flash", connection: "Gemini", model: "gemini-3.6-flash", vision: true },
+  { name: "Groq gpt-oss-120b", connection: "Groq", model: "openai/gpt-oss-120b" },
+  { name: "NVIDIA Nemotron", connection: "NVIDIA", model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" },
+] as const;
 
 /** Shrink to at most 1280px and re-encode as JPEG so a round request stays small. */
 async function readImage(file: File): Promise<{ name: string; mediaType: string; data: string }> {
@@ -34,14 +46,16 @@ function SeatCard({
   result,
   onRemove,
   onMention,
+  color,
 }: {
+  color: string;
   seat: CouncilSeat;
   result?: CouncilSeatResult;
   onRemove: () => void;
   onMention: () => void;
 }) {
   return (
-    <div className="flex min-w-[11rem] flex-col gap-1 rounded-md border bg-card px-3 py-2 text-sm">
+    <div className="flex min-w-[11rem] flex-col gap-1 rounded-md border bg-card px-3 py-2 text-sm" style={{ borderLeft: `3px solid ${color}` }}>
       <div className="flex items-center justify-between gap-2">
         <button type="button" title="Click to @mention this seat" onClick={onMention} className="text-left font-medium hover:underline">
           {seat.name}
@@ -99,6 +113,10 @@ export function Council() {
   }, [roomId, rooms.data]);
 
   const connectionOptions = ((connections.data as { connections?: Array<{ id: string; grantId: string; name: string }> } | undefined)?.connections ?? []);
+  const seatColor = (seatId: string) => {
+    const i = (seats.data ?? []).findIndex((s) => s.id === seatId);
+    return SEAT_COLORS[(i < 0 ? 0 : i) % SEAT_COLORS.length];
+  };
   const seatNames = new Map((seats.data ?? []).map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s.name]));
   const refresh = (what: "rooms" | "seats" | "comments") =>
     queryClient.invalidateQueries({ queryKey: what === "rooms" ? ["council", companyId, "rooms"] : ["council", companyId, roomId, what] });
@@ -139,12 +157,49 @@ export function Council() {
     onError: (e) => setError(errorText(e)),
   });
 
+  const addDefaults = useMutation({
+    mutationFn: async () => {
+      const find = (prefix: string) => connectionOptions.find((c) => c.name.startsWith(prefix));
+      for (const preset of DEFAULT_SEATS) {
+        const conn = find(preset.connection);
+        if (!conn) continue;
+        const fb = "fallback" in preset ? find("Gemini") : undefined;
+        await councilApi.addSeat(companyId, roomId!, {
+          name: preset.name,
+          connectionId: conn.id,
+          grantId: conn.grantId,
+          model: preset.model,
+          ...("thinkingOff" in preset ? { reasoningEffort: "none" as const } : {}),
+          ...("vision" in preset ? { acceptsImages: true } : {}),
+          ...(fb && "fallback" in preset
+            ? { fallbacks: [{ connectionId: fb.id, grantId: fb.grantId, model: preset.fallback }] }
+            : {}),
+        });
+      }
+    },
+    onSettled: () => void refresh("seats"),
+    onError: (e) => setError(errorText(e)),
+  });
+
+  const deleteRoom = useMutation({
+    mutationFn: (id: string) => issuesApi.remove(id),
+    onSuccess: (_d, id) => {
+      if (id === roomId) setRoomId(null);
+      void refresh("rooms");
+    },
+    onError: (e) => setError(errorText(e)),
+  });
+
   const removeSeat = useMutation({
     mutationFn: (seatId: string) => councilApi.removeSeat(companyId, roomId!, seatId),
     onSuccess: () => void refresh("seats"),
     onError: (e) => setError(errorText(e)),
   });
 
+  const threadEndRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ block: "end" });
+  }, [comments.data?.length, roomId]);
   const abortRef = useRef<AbortController | null>(null);
   const ask = useMutation({
     mutationFn: (mode: "ask" | "discuss" | "summarize") => {
@@ -195,16 +250,27 @@ export function Council() {
         </form>
         <div className="flex flex-col gap-1">
           {(rooms.data ?? []).map((room) => (
-            <button
-              key={room.id}
-              onClick={() => {
-                setRoomId(room.id);
-                setLastResults({});
-              }}
-              className={`rounded-md px-3 py-2 text-left text-sm ${room.id === roomId ? "bg-accent font-medium" : "hover:bg-accent/50"}`}
-            >
-              {room.title}
-            </button>
+            <div key={room.id} className={`group flex items-center rounded-md ${room.id === roomId ? "bg-accent font-medium" : "hover:bg-accent/50"}`}>
+              <button
+                onClick={() => {
+                  setRoomId(room.id);
+                  setLastResults({});
+                }}
+                className="min-w-0 flex-1 truncate px-3 py-2 text-left text-sm"
+              >
+                {room.title}
+              </button>
+              <button
+                aria-label={`Delete ${room.title}`}
+                title="Delete room"
+                className="mr-2 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                onClick={() => {
+                  if (window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ))}
           {rooms.data && !rooms.data.length ? <p className="text-xs text-muted-foreground">No rooms yet. Create one above.</p> : null}
         </div>
@@ -221,6 +287,7 @@ export function Council() {
                   key={seat.id}
                   seat={seat}
                   result={lastResults[seat.id]}
+                  color={seatColor(seat.id)}
                   onRemove={() => removeSeat.mutate(seat.id)}
                   onMention={() => setMessage((m) => `${m}${m && !m.endsWith(" ") ? " " : ""}@${seat.name.split(/\s+/)[0]} `)}
                 />
@@ -287,21 +354,34 @@ export function Council() {
               {(comments.data ?? []).map((c) => {
                 const seatAuthor = c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX);
                 const speaker = seatAuthor ? (seatNames.get(c.authorUserId!) ?? "Seat") : "Ben";
+                const color = seatAuthor ? seatColor(c.authorUserId!.slice(SEAT_AUTHOR_PREFIX.length)) : undefined;
                 return (
-                  <div key={c.id} className={seatAuthor ? "rounded-md bg-muted/50 p-3" : "rounded-md border-l-2 border-primary pl-3"}>
+                  <div
+                    key={c.id}
+                    className={seatAuthor ? "rounded-md bg-muted/50 p-3" : "ml-auto max-w-[85%] rounded-md bg-primary/10 p-3"}
+                    style={color ? { borderLeft: `3px solid ${color}` } : undefined}
+                  >
                     <div className="mb-1 text-xs font-semibold text-muted-foreground">{speaker}</div>
-                    <div className="whitespace-pre-wrap text-sm">{c.body}</div>
+                    <MarkdownBody className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
                   </div>
                 );
               })}
               {comments.data && !comments.data.length ? (
-                <p className="text-sm text-muted-foreground">Add seats, then ask the whole council one question.</p>
+                <div className="flex flex-col items-start gap-2 text-sm text-muted-foreground">
+                  <p>{(seats.data?.length ?? 0) ? "Ask the whole council one question." : "This room has no seats yet."}</p>
+                  {(seats.data?.length ?? 0) === 0 ? (
+                    <Button size="sm" onClick={() => addDefaults.mutate()} disabled={addDefaults.isPending}>
+                      <Sparkles /> {addDefaults.isPending ? "Adding seats…" : "Add the default council"}
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
               {ask.isPending ? (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Seats are answering…
                 </p>
               ) : null}
+              <div ref={threadEndRef} />
             </div>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -345,7 +425,7 @@ export function Council() {
               <Textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Ask every seat… (@Name to ask one seat, click a seat name to mention it)"
+                placeholder="Ask every seat…"
                 rows={2}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit();
@@ -396,6 +476,9 @@ export function Council() {
                 )}
               </div>
             </form>
+            <p className="text-xs text-muted-foreground">
+              Tip: type <code>@Groq</code> to ask one seat, <code>@all</code> for everyone, or click a seat name to mention it. Ctrl+Enter sends.
+            </p>
           </>
         )}
       </section>
