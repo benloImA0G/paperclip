@@ -723,9 +723,9 @@ export function Council() {
               <button type="button" aria-expanded={artifactsOpen} onClick={() => setArtifactsOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
                 Artifacts <span className="ml-1 rounded-full bg-muted px-1.5 text-(length:--text-nano)">{artifactsQuery.data?.length ?? 0}</span>
               </button>
-              <label className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground">
+              <label className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground" title="Ask before downloading exports">
                 <input type="checkbox" checked={requireApproval} onChange={(e) => saveExportSetting.mutate(e.target.checked)} disabled={!roomId || saveExportSetting.isPending} />
-                Ask before downloading exports
+                <span className="council-export-label">Ask before downloading exports</span>
               </label>
             </div>
             {briefOpen ? <div id="council-brief" className="mt-2 border-t pt-2"><QueryState label="the brief" loading={briefQuery.isLoading} error={briefQuery.isError} onRetry={() => void briefQuery.refetch()} />{!briefQuery.isLoading && !briefQuery.isError ? <div className="flex gap-2"><Textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} rows={2} placeholder="Shared context for every vendor in this room…" className="min-h-0 flex-1" /><Button type="button" size="sm" onClick={() => roomId && saveBrief.mutate(roomId)} disabled={saveBrief.isPending || brief.length > 4000}>Save</Button></div> : null}</div> : null}
@@ -905,9 +905,9 @@ export function Council() {
               aria-label="Message the council"
               onChange={(e) => setMessage(e.target.value)}
               placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a vendor"}`}
-              rows={2}
+              rows={1}
               onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 144)}px`; }}
-              className="min-w-0 flex-1 border-0 shadow-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="council-message-input field-sizing-fixed min-h-0 min-w-0 flex-1 resize-none border-0 text-sm shadow-none focus-visible:ring-2 focus-visible:ring-primary"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -932,7 +932,7 @@ export function Council() {
               </div>
             ) : null}
             <div className="relative flex flex-wrap items-center gap-2 text-xs">
-              <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" onClick={() => setOptionsOpen((v) => !v)} aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /> Options</Button>
+              <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="council-options-trigger" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /><span>Options</span></Button>
               {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover p-2 shadow-lg">
               <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-muted-foreground hover:bg-accent">
                 <ImagePlus className="h-3.5 w-3.5" /> upload

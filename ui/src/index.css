@@ -661,12 +661,26 @@
   }
 
   .council-thread-shell {
-    min-height: 40dvh;
+    min-height: 50dvh;
   }
 
   .council-message-thread {
-    min-height: 40dvh;
+    min-height: 50dvh;
     padding-bottom: calc(var(--tc-composer-editor-max-height) + var(--spacing) * 6);
+  }
+
+  .council-message-input {
+    max-height: calc(var(--spacing) * 24);
+    overflow-y: auto;
+  }
+
+  .council-options-trigger {
+    padding-inline: var(--spacing-2);
+  }
+
+  .council-options-trigger span,
+  .council-export-label {
+    display: none;
   }
 
   .council-shell .mobile-nav-composer {

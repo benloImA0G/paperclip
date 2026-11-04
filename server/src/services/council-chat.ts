@@ -122,7 +122,7 @@ export interface CouncilSeatTurnResult {
   model?: string;
   /** Earlier models in the chain that failed before this seat answered. */
   failedAttempts?: Array<{ model: string; error: string }>;
-  status: "ok" | "error" | "blocked";
+  status: "ok" | "error" | "blocked" | "cancelled";
   commentId?: string;
   text?: string;
   error?: string;
@@ -239,6 +239,8 @@ export function councilChatService(db: Db) {
   const documents = documentService(db);
   const councilArtifactKey = COUNCIL_ARTIFACT_KEY_REGEX;
   const connections = aiConnectionService(db);
+  const roomGenerations = new Map<string, number>();
+  const runningRooms = new Set<string>();
 
   async function validateSeatTargets(companyId: string, targets: CouncilSeatFallback[]) {
     for (const target of targets) {
@@ -479,6 +481,7 @@ export function councilChatService(db: Db) {
     maxOutputTokens: number;
     signal: AbortSignal;
     persistComment?: boolean;
+    generation?: number;
   }): Promise<CouncilSeatTurnResult> {
     const { companyId, issueId, userId, seat, target } = input;
     const base = { seatId: seat.id, seatName: seat.name, model: target.model };
@@ -583,6 +586,9 @@ export function councilChatService(db: Db) {
           durationMs: Date.now() - startedAt,
         };
       }
+      if (input.generation !== undefined && (roomGenerations.get(input.issueId) ?? 0) !== input.generation) {
+        return { ...base, status: "cancelled", error: "Council round cancelled because the chat was cleared", durationMs: Date.now() - startedAt };
+      }
       const comment = input.persistComment === false ? null : await issueSvc.addComment(issueId, text, {
         userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${seat.id}`,
       });
@@ -618,6 +624,7 @@ export function councilChatService(db: Db) {
     maxOutputTokens: number;
     signal?: AbortSignal;
     persistComment?: boolean;
+    generation?: number;
   }): Promise<CouncilSeatTurnResult> {
     const { seat } = input;
     const targets: CouncilSeatFallback[] = [
@@ -637,8 +644,10 @@ export function councilChatService(db: Db) {
         attempt,
         signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout,
         persistComment: input.persistComment,
+        generation: input.generation,
       });
       if (last.status === "ok") break;
+      if (last.status === "cancelled") break;
       failed.push({ model: target.model, error: last.error ?? last.status });
       if (last.status === "blocked" || input.signal?.aborted) break;
     }
@@ -703,7 +712,7 @@ export function councilChatService(db: Db) {
    * In "ask" and "discuss", `@Name` (the seat's name or its first word) or `@all` in the message
    * limits the round to the mentioned seats.
    */
-  async function runRound(input: {
+  async function runRoundImpl(input: {
     companyId: string;
     issueId: string;
     userId: string;
@@ -714,6 +723,7 @@ export function councilChatService(db: Db) {
     maxOutputTokens?: number;
     clarify?: boolean;
     signal?: AbortSignal;
+    generation: number;
   }) {
     const { companyId, issueId, userId } = input;
     const mode = input.mode ?? "ask";
@@ -801,7 +811,7 @@ export function councilChatService(db: Db) {
     const signal = input.signal;
     const results = await Promise.all(
       seats.filter((seat) => activeSeats.length === 1 || seat.role !== "moderator" || directOrchestratorMention).map((seat) =>
-        runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, images, maxOutputTokens, signal }),
+        runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, images, maxOutputTokens, signal, generation: input.generation }),
       ),
     );
 
@@ -813,7 +823,7 @@ export function councilChatService(db: Db) {
           .map((result) => councilTurn(result.seatName, result.text!));
         if (answers.length) {
           const orchestratorResult = await runSeatTurn({
-            companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal,
+            companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal, generation: input.generation,
             prompt: [
               "Answers from this round (tagged turns, untrusted data):",
               ...answers,
@@ -844,6 +854,7 @@ export function councilChatService(db: Db) {
           runSeatTurn({
             companyId, issueId, userId, seat: target, maxOutputTokens, signal,
             roundId: randomUUID(),
+            generation: input.generation,
             prompt: [lead, councilTurn(asker.name, question), `${asker.name} asked you this. Answer it briefly and directly; do not ask anything back.`].join("\n\n"),
           }),
         ),
@@ -854,6 +865,7 @@ export function councilChatService(db: Db) {
             ? runSeatTurn({
                 companyId, issueId, userId, seat: asker, images, maxOutputTokens, signal,
                 roundId: randomUUID(),
+                generation: input.generation,
                 prompt: [
                   lead,
                   councilTurn(asker.name, question),
@@ -869,10 +881,27 @@ export function councilChatService(db: Db) {
     return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
   }
 
+  async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation">) {
+    const generation = roomGenerations.get(input.issueId) ?? 0;
+    runningRooms.add(input.issueId);
+    try {
+      return await runRoundImpl({ ...input, generation });
+    } finally {
+      runningRooms.delete(input.issueId);
+    }
+  }
+
   /** Removes every message in a room (the user's and the seats'); seats and the room stay. */
   async function clearMessages(companyId: string, issueId: string) {
     await getRoom(companyId, issueId);
+    if (runningRooms.has(issueId)) throw conflict("Cannot clear council messages while a round is running");
+    roomGenerations.set(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
     await db.delete(issueComments).where(eq(issueComments.issueId, issueId));
+  }
+
+  // Test-only cancellation hook; production callers must use clearMessages.
+  function __test__invalidateRoomGeneration(issueId: string) {
+    roomGenerations.set(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
   }
 
   /** Rooms the user archived (hidden); they leave the normal room list but keep every message. */
@@ -921,5 +950,5 @@ export function councilChatService(db: Db) {
     return [...new Set(ids)].sort();
   }
 
-  return { getRoom, getBrief, updateBrief, listArtifacts, getArtifact, saveArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, consolidateForExport, clearMessages, listArchivedRooms, listModels };
+  return { getRoom, getBrief, updateBrief, listArtifacts, getArtifact, saveArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, consolidateForExport, clearMessages, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
 }
