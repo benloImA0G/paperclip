@@ -82,10 +82,11 @@ export function VendorSeatCard({
   onActivate: (draft: VendorDraft) => void;
   onRemove?: () => void;
   onMention?: () => void;
-  onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole }) => void;
+  onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole }) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState<VendorDraft>(draftDefaults);
   const active = !!seat?.active;
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const name = seat?.name ?? draft.name;
   const persona = seat?.persona ?? draft.persona;
   const model = seat?.model || draft.model || models[0] || "";
@@ -93,7 +94,10 @@ export function VendorSeatCard({
   const note = catalog.find((m) => m.model === model)?.note;
   const rest = models.filter((m) => !catalog.some((c) => c.model === m || `${c.model}:latest` === m));
   const change = (patch: Partial<VendorDraft> & { role?: CouncilSeatRole }) => {
-    if (seat) onUpdate(patch);
+    if (seat) {
+      setSaveState("saving");
+      void onUpdate(patch).then(() => { setSaveState("saved"); }).catch(() => setSaveState("error"));
+    }
     else setDraft((d) => ({ ...d, ...patch }));
   };
   const presetMatch = PERSONAS.find((p) => p.text === persona.trim())?.label ?? (persona.trim() ? "__custom" : "");
@@ -115,10 +119,12 @@ export function VendorSeatCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color }}>Vendor</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Vendor</div>
           <div className="truncate font-semibold leading-tight" title={vendor.replace(/\s*\(council\)/i, "")}>{vendorIcon(vendor)} {vendor.replace(/\s*\(council\)/i, "")}</div>
         </div>
         <div className="flex items-center gap-1">
+          {seat && saveState !== "idle" ? <span className={`text-[10px] ${saveState === "error" ? "text-destructive" : "text-muted-foreground"}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Couldn’t save"}</span> : null}
+          {seat && saveState === "error" ? <button type="button" className="text-[10px] underline" onClick={() => { setSaveState("saving"); void onUpdate({}).then(() => setSaveState("saved")).catch(() => setSaveState("error")); }}>Retry</button> : null}
           <button
             type="button"
             aria-pressed={active}
@@ -140,7 +146,7 @@ export function VendorSeatCard({
 
       <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span className="flex justify-between">
-          Bot name
+        Name
           {seat && onMention ? (
             <button type="button" onClick={onMention} className="hover:underline">Direct @mention</button>
           ) : (
@@ -158,13 +164,13 @@ export function VendorSeatCard({
       <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span>Role</span>
         <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => change({ role: e.target.value as CouncilSeatRole })}>
-          <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option><option value="moderator">Moderator</option>
+          <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option><option value="moderator">Orchestrator</option>
         </select>
       </label>
 
       <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span className="flex justify-between">
-          Select model
+            Model
           {modelsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{models.length || catalog.length} available</span>}
         </span>
         <select
@@ -202,9 +208,9 @@ export function VendorSeatCard({
       </label>
 
       <details className="group rounded-md border border-border/70 px-2">
-        <summary className="cursor-pointer list-none py-1 text-[11px] font-medium text-muted-foreground">Persona</summary>
+        <summary className="cursor-pointer list-none py-1 text-[11px] font-medium text-muted-foreground">Advanced</summary>
       <label className="flex flex-col gap-0.5 pb-2 text-[11px] text-muted-foreground">
-        Persona / prompt
+        What this assistant should do
         <select
           className="h-7 rounded-md border bg-background px-1 text-xs text-foreground"
           value={presetMatch}

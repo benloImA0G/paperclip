@@ -50,6 +50,7 @@ export interface CouncilSeatResult {
   inputTokens?: number | null;
   outputTokens?: number | null;
   latencyMs?: number;
+  orchestrator?: boolean;
 }
 
 export interface CouncilRoundResult {

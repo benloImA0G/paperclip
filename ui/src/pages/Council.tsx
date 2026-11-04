@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, Plus, RotateCcw, Send, Square, Trash2, Users, X } from "lucide-react";
+import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, Plus, RotateCcw, Send, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -129,7 +129,8 @@ export function Council() {
   const [autoSummary, setAutoSummary] = useState(false);
   const [clarify, setClarify] = useState(false);
   const [showArchives, setShowArchives] = useState(false);
-  const [cardsOpen, setCardsOpen] = useState(true);
+  const [cardsOpen, setCardsOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(true);
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
@@ -229,7 +230,7 @@ export function Council() {
     mutationFn: async (targetRoomId: string) => {
       for (const conn of connectionOptions) {
         const d = defaultsFor(conn.name);
-        if (d?.auto) await createSeatFor(targetRoomId, conn, { name: d.name, model: d.model, persona: d.persona });
+        if (d?.auto) await createSeatFor(targetRoomId, conn, { name: d.name, model: d.model, persona: d.persona, role: conn.name.startsWith("Groq") ? "moderator" : "none" });
       }
     },
     onSettled: () => void refresh("seats"),
@@ -301,8 +302,10 @@ export function Council() {
   }, [foldedSeats.map((s) => `${s.id}${s.active}`).join()]);
 
   const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const threadScrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    threadEndRef.current?.scrollIntoView({ block: "end" });
+    const thread = threadScrollRef.current;
+    if (thread) thread.scrollTop = thread.scrollHeight;
   }, [comments.data?.length, roomId]);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -408,7 +411,7 @@ export function Council() {
   const room = rooms.data?.find((r) => r.id === roomId);
   const seatById = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s]));
   const latestRound = roundDetails[roomId ?? ""]?.at(-1) ?? [];
-  const roleLabel = (role: CouncilSeat["role"]) => role === "none" ? "Participant" : role[0].toUpperCase() + role.slice(1);
+  const roleLabel = (role: CouncilSeat["role"]) => role === "none" ? "Participant" : role === "moderator" ? "Orchestrator" : role[0].toUpperCase() + role.slice(1);
   const latestUserMessage = [...(comments.data ?? [])].reverse().find((c) => !c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
   const finalVendorReply = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
   const requestedDocumentExport = DOCUMENT_EXPORT_REQUEST.test(latestUserMessage?.body ?? "") ? latestUserMessage?.body ?? "" : "";
@@ -428,10 +431,10 @@ export function Council() {
           <p className="text-xs text-muted-foreground">Post an engineering challenge; vendors debate and reconcile into a unified vision.</p>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
-          <Toggle label="2-Way Clarify:" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" />
-          <Toggle label="1-Page Summary:" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" />
-          <label className="flex flex-col justify-center rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Sets how many rounds vendors comment on each other">
-            Debate rounds
+          <Toggle label="Clarify" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" />
+          <Toggle label="Summary" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" />
+          <label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground" title="Sets how many rounds vendors comment on each other">
+            Rounds
             <select
               className="h-7 rounded-md border bg-background px-1 text-xs normal-case text-foreground"
               value={discussion ? depth : "off"}
@@ -451,34 +454,15 @@ export function Council() {
               ))}
             </select>
           </label>
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground" disabled={!roomId || setArchived.isPending} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}>
-            <Archive /> Archive Thread
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 border-0 px-2 text-xs text-muted-foreground shadow-none hover:bg-destructive/10 hover:text-destructive"
-            disabled={!roomId || !room || running}
-            title={running ? "Stop the running round first" : undefined}
-            onClick={() => {
-              if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id);
-            }}
-          >
-            <Trash2 /> Delete Thread
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-foreground" onClick={() => setShowArchives((v) => !v)}>
-            Archives <span className="rounded-full bg-accent px-1.5 text-xs">{archived.data?.length ?? 0}</span>
-          </Button>
-          <Button
-            variant="ghost"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            disabled={!roomId || !comments.data?.length || clearChat.isPending}
-            onClick={() => {
-              if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate();
-            }}
-          >
-            Clear Chat
-          </Button>
+          <div className="relative">
+            <Button type="button" variant="outline" size="sm" aria-expanded={moreOpen} aria-controls="council-more-actions" onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal /> More</Button>
+            {moreOpen ? <div id="council-more-actions" className="absolute right-0 z-20 mt-1 flex min-w-44 flex-col rounded-lg border bg-popover p-1 shadow-lg">
+              <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || setArchived.isPending} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}><Archive /> Archive Thread</Button>
+              <Button variant="ghost" size="sm" className="justify-start text-destructive" disabled={!roomId || !room || running} title={running ? "Stop the running round first" : undefined} onClick={() => { if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id); }}><Trash2 /> Delete Thread</Button>
+              <Button variant="ghost" size="sm" className="justify-start" onClick={() => { setShowArchives((v) => !v); setMoreOpen(false); }}>Archives <span className="rounded-full bg-accent px-1.5 text-xs">{archived.data?.length ?? 0}</span></Button>
+              <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || !comments.data?.length || clearChat.isPending} onClick={() => { if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate(); }}>Clear Chat</Button>
+            </div> : null}
+          </div>
         </div>
       </div>
 
@@ -510,9 +494,9 @@ export function Council() {
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2 rounded-lg border p-2">
+      <div className="flex min-w-0 items-center gap-2 rounded-lg border p-2">
         <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">War rooms</span>
-        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto">
+        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto overscroll-x-contain">
           {(rooms.data ?? []).map((r) => (
             <button
               key={r.id}
@@ -534,7 +518,7 @@ export function Council() {
             onClick={() => setCreating(true)}
             className="shrink-0 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50"
           >
-            +
+            + New
           </button>
         </div>
         {creating ? (
@@ -551,7 +535,7 @@ export function Council() {
           </form>
         ) : (
           <Button size="sm" className="shrink-0" onClick={() => setCreating(true)}>
-            <Plus /> New war room
+            <Plus /> New
           </Button>
         )}
       </div>
@@ -604,14 +588,14 @@ export function Council() {
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${participantsOpen ? "rotate-180" : ""}`} />
               </span>
             </summary>
-            <div className="grid gap-1 border-t px-2 py-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="flex flex-wrap gap-1 border-t px-2 py-2">
               {activeSeats.map((seat) => {
                 const result = latestRound.find((candidate) => candidate.seatId === seat.id) ?? lastResults[roomId ?? ""]?.[seat.id];
                 const status = running && !result ? "working…" : result ? (result.status === "ok" ? "answered" : result.status === "blocked" ? "skipped" : "failed") : "waiting";
                 const latency = result?.latencyMs ?? result?.durationMs;
                 const statusTone = status === "answered" ? "text-emerald-600" : status === "failed" ? "text-destructive" : status === "working…" ? "text-primary" : "text-muted-foreground";
                 return (
-                  <div key={seat.id} className="flex min-w-0 items-center gap-2 rounded-md border bg-background/60 px-2 py-1.5">
+                  <div key={seat.id} className="flex min-w-0 items-center gap-2 rounded-md border bg-background/60 px-2 py-1">
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px]" style={{ borderColor: seatColor(seat.id), color: seatColor(seat.id) }}>
                       {vendorIcon(vendorOf(seat))}
                     </span>
@@ -650,7 +634,7 @@ export function Council() {
                   onActivate={(draft) => activateVendor.mutate({ conn, draft })}
                   onRemove={seat ? () => removeSeat.mutate(seat.id) : undefined}
                   onMention={seat ? () => addToMessage(mentionOf(seat)) : undefined}
-                  onUpdate={(patch) => seat && updateSeat.mutate({ seatId: seat.id, patch })}
+                  onUpdate={(patch) => seat ? updateSeat.mutateAsync({ seatId: seat.id, patch }) : Promise.resolve()}
                 />
               );
             })}
@@ -674,14 +658,14 @@ export function Council() {
             </div>
           ) : null}
 
-          <div className="min-h-[18rem] flex-1 space-y-3 overflow-y-auto rounded-md border p-3">
+          <div ref={threadScrollRef} className="flex min-h-[18rem] min-w-0 flex-1 basis-0 flex-col space-y-3 overflow-x-hidden overflow-y-auto rounded-md border p-3">
             {(comments.data ?? []).map((c) => {
               const seat = c.authorUserId ? seatById.get(c.authorUserId) : undefined;
               const seatAuthor = !!c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX);
               if (!seatAuthor) {
                 return (
-                  <div key={c.id} className="ml-auto max-w-[80%] rounded-2xl bg-indigo-600 px-4 py-2 text-white">
-                    <MarkdownBody className="text-sm text-white [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
+                  <div key={c.id} className="ml-auto min-w-0 max-w-[80%] rounded-2xl bg-indigo-600 px-4 py-2 text-white">
+                    <MarkdownBody className="min-w-0 text-sm text-white [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
                     <div className="mt-1 text-right text-[10px] opacity-70">{clock(c.createdAt)}</div>
                   </div>
                 );
@@ -689,7 +673,7 @@ export function Council() {
               const color = seat ? seatColor(seat.id) : "#888";
               const name = seat?.name ?? "Seat";
               return (
-                <div key={c.id} className="flex gap-2">
+                <div key={c.id} className="flex min-w-0 gap-2">
                   <div
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold"
                     style={{ borderColor: color, color }}
@@ -697,14 +681,14 @@ export function Council() {
                     {name.slice(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1 rounded-lg bg-muted/50 p-3" style={{ borderLeft: `3px solid ${color}` }}>
-                    <div className="mb-1 flex items-center justify-between gap-2 text-xs font-semibold" style={{ color }}>
+                    <div className="mb-1 flex items-center justify-between gap-2 text-xs font-semibold">
                       <span>
-                        @{name} • {seat ? vendorOf(seat) : "Vendor"}
+                        {seat?.role === "moderator" ? <span className="mr-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">Orchestrator</span> : null}@{name} • {seat ? vendorOf(seat) : "Vendor"}
                         {seat ? ` (${seat.model})` : ""}
                       </span>
                       <span className="font-normal text-muted-foreground">{clock(c.createdAt)}</span>
                     </div>
-                    <MarkdownBody className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
+                    <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
                     <div className="mt-1 flex justify-end gap-2 text-[10px] text-muted-foreground">
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-[10px]" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
@@ -846,11 +830,11 @@ export function Council() {
             }}
           >
             <div className="rounded-lg border bg-muted/20 p-2">
-              <button type="button" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setArtifactsOpen((v) => !v)}>
+              <button type="button" aria-expanded={artifactsOpen} aria-controls="council-artifacts" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setArtifactsOpen((v) => !v)}>
                 {artifactsOpen ? "▾" : "▸"} Artifacts
               </button>
               {artifactsOpen ? (
-                <div className="mt-2 space-y-2">
+                <div id="council-artifacts" className="mt-2 space-y-2">
                   {artifactDraft ? <div className="space-y-1 border-b pb-2"><input aria-label="Artifact title" className="w-full rounded-md border bg-background px-2 py-1 text-xs" value={artifactDraft.title} onChange={(e) => setArtifactDraft({ ...artifactDraft, title: e.target.value })} /><p className="text-xs text-muted-foreground">Same title adds a new version.</p><Button type="button" size="sm" disabled={saveArtifact.isPending || !artifactDraft.title.trim()} onClick={() => { const slug = artifactDraft.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "draft"; saveArtifact.mutate({ companyId, roomId: roomId!, artifact: { key: `council-output-${slug}`, title: artifactDraft.title.trim(), markdown: artifactDraft.markdown } }); }}>Save artifact</Button></div> : null}
                   <div className="flex flex-wrap gap-1">
                     {(artifactsQuery.data ?? []).map((artifact) => (
@@ -867,18 +851,18 @@ export function Council() {
               ) : null}
             </div>
             <div className="rounded-lg border bg-muted/20 p-2">
-              <button type="button" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setBriefOpen((v) => !v)}>
+              <button type="button" aria-expanded={briefOpen} aria-controls="council-brief" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground" onClick={() => setBriefOpen((v) => !v)}>
                 {briefOpen ? "▾" : "▸"} Brief
               </button>
               {briefOpen ? (
-                <div className="mt-2 flex gap-2">
+                <div id="council-brief" className="mt-2 flex gap-2">
                   <Textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000} rows={3} placeholder="Shared context for every vendor in this room…" className="min-h-0 flex-1" />
                   <Button type="button" size="sm" onClick={() => roomId && saveBrief.mutate(roomId)} disabled={saveBrief.isPending || brief.length > 4000}>Save</Button>
                 </div>
               ) : null}
               <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <input type="checkbox" checked={requireApproval} onChange={(e) => saveExportSetting.mutate(e.target.checked)} disabled={!roomId || saveExportSetting.isPending} />
-                Require my approval before export
+                <span><span className="font-medium text-foreground">Ask before downloading exports</span><span className="block text-[10px]">Confirm each document download before it starts.</span></span>
               </label>
             </div>
             <Textarea
@@ -886,7 +870,7 @@ export function Council() {
               onChange={(e) => setMessage(e.target.value)}
               placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a vendor"}`}
               rows={3}
-              className="border-0 shadow-none focus-visible:ring-0"
+              className="border-0 shadow-none focus-visible:ring-2 focus-visible:ring-primary"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

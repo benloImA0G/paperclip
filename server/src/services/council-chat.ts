@@ -99,6 +99,7 @@ export interface CouncilSeatTurnResult {
   inputTokens?: number | null;
   outputTokens?: number | null;
   latencyMs?: number;
+  orchestrator?: boolean;
 }
 
 export function finalizeCouncilSeatTurn(
@@ -337,24 +338,38 @@ export function councilChatService(db: Db) {
       throw unprocessable(`A seat can have at most ${MAX_SEAT_FALLBACKS} fallbacks`);
     }
     await validateSeatTargets(companyId, [{ connectionId: input.connectionId, grantId: input.grantId, model: input.model }, ...fallbacks]);
-    const existing = await listSeats(companyId, issueId);
-    if (existing.length >= 8) throw conflict("A council room can have at most 8 seats");
-    const [seat] = await db
-      .insert(councilSeats)
-      .values({
-        companyId,
-        issueId,
-        name,
-        persona: input.persona?.trim() ?? "",
-        connectionId: input.connectionId,
-        grantId: input.grantId,
-        model: input.model,
-        fallbacks: { fallbacks, role: input.role ?? "none" },
-        reasoningEffort: input.reasoningEffort ?? null,
-        acceptsImages: input.acceptsImages ?? false,
-        position: existing.length,
-      })
-      .returning();
+    const [seat] = await db.transaction(async (tx) => {
+      const [room] = await tx.select({ id: issues.id }).from(issues)
+        .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId))).for("update");
+      if (!room) throw notFound("War room not found");
+      const existing = await tx.select().from(councilSeats)
+        .where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId)));
+      if (existing.length >= 8) throw conflict("A council room can have at most 8 seats");
+      if (input.role === "moderator") {
+        const moderators = await tx.select().from(councilSeats).where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId))).for("update");
+        for (const moderator of moderators) {
+          if (seatConfig(moderator.fallbacks).role === "moderator") {
+            await tx.update(councilSeats).set({ fallbacks: { fallbacks: seatConfig(moderator.fallbacks).fallbacks, role: "none" } }).where(eq(councilSeats.id, moderator.id));
+          }
+        }
+      }
+      return tx
+        .insert(councilSeats)
+        .values({
+          companyId,
+          issueId,
+          name,
+          persona: input.persona?.trim() ?? "",
+          connectionId: input.connectionId,
+          grantId: input.grantId,
+          model: input.model,
+          fallbacks: { fallbacks, role: input.role ?? "none" },
+          reasoningEffort: input.reasoningEffort ?? null,
+          acceptsImages: input.acceptsImages ?? false,
+          position: existing.length,
+        })
+        .returning();
+    });
     return publicSeat(seat);
   }
 
@@ -381,17 +396,20 @@ export function councilChatService(db: Db) {
       if (patch.fallbacks !== undefined) await validateSeatTargets(companyId, patch.fallbacks);
     }
     if (!Object.keys(set).length) throw unprocessable("Nothing to update");
-    const [seat] = await db
-      .update(councilSeats)
-      .set(set)
-      .where(
-        and(
-          eq(councilSeats.companyId, companyId),
-          eq(councilSeats.issueId, issueId),
-          eq(councilSeats.id, seatId),
-        ),
-      )
-      .returning();
+    const [seat] = await db.transaction(async (tx) => {
+      const [room] = await tx.select({ id: issues.id }).from(issues)
+        .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId))).for("update");
+      if (!room) throw notFound("War room not found");
+      if (patch.role === "moderator") {
+        const moderators = await tx.select().from(councilSeats).where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId))).for("update");
+        for (const moderator of moderators) {
+          if (moderator.id !== seatId && seatConfig(moderator.fallbacks).role === "moderator") {
+            await tx.update(councilSeats).set({ fallbacks: { fallbacks: seatConfig(moderator.fallbacks).fallbacks, role: "none" } }).where(eq(councilSeats.id, moderator.id));
+          }
+        }
+      }
+      return tx.update(councilSeats).set(set).where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId), eq(councilSeats.id, seatId))).returning();
+    });
     if (!seat) throw notFound("Seat not found");
     return publicSeat(seat);
   }
@@ -618,9 +636,12 @@ export function councilChatService(db: Db) {
     const room = await getRoom(companyId, issueId);
     const message = (input.message ?? "").trim();
     if (mode === "ask" && !message) throw unprocessable("A message is required");
-    let seats = (await listSeats(companyId, issueId)).filter((s) => s.active);
-    if (!seats.length) throw unprocessable("Add at least one active seat first");
-    const allSeatNames = seats.map((s) => s.name);
+    const allSeats = await listSeats(companyId, issueId);
+    const activeSeats = allSeats.filter((s) => s.active);
+    if (!activeSeats.length) throw unprocessable("Add at least one active seat first");
+    let seats = activeSeats;
+    const allSeatNames = activeSeats.map((s) => s.name);
+    let directOrchestratorMention = false;
     if (summarize) {
       const writer = input.seatId ? seats.find((s) => s.id === input.seatId) : seats[0];
       if (!writer) throw unprocessable("Summary seat not found");
@@ -635,11 +656,12 @@ export function councilChatService(db: Db) {
               lower.includes(`@${s.name.toLowerCase().split(/\s+/)[0]}`),
           );
       if (mentioned.length) seats = mentioned;
+      directOrchestratorMention = mentioned.length === 1 && mentioned[0]?.role === "moderator";
     }
 
     // History is loaded before this round's replies exist, which keeps round 1 blind.
     const history = (await issueSvc.listComments(issueId, { order: "asc" })).slice(-HISTORY_COMMENTS);
-    const names = new Map(seats.map((s) => [`${COUNCIL_SEAT_AUTHOR_PREFIX}${s.id}`, s.name]));
+    const names = new Map(allSeats.map((s) => [`${COUNCIL_SEAT_AUTHOR_PREFIX}${s.id}`, s.name]));
     const compact = compactCouncilHistory(history);
     const turns = history.map((c, i) =>
       councilTurn(c.authorUserId ? (names.get(c.authorUserId) ?? "Ben") : "Ben", compact.bodies[i]),
@@ -692,10 +714,30 @@ export function councilChatService(db: Db) {
     );
     const signal = input.signal;
     const results = await Promise.all(
-      seats.map((seat) =>
+      seats.filter((seat) => activeSeats.length === 1 || seat.role !== "moderator" || directOrchestratorMention).map((seat) =>
         runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, images, maxOutputTokens, signal }),
       ),
     );
+
+    if (!summarize && activeSeats.length > 1 && !directOrchestratorMention) {
+      const orchestrator = seats.find((seat) => seat.role === "moderator");
+      if (orchestrator) {
+        const answers = results
+          .filter((result) => result.status === "ok" && result.text)
+          .map((result) => councilTurn(result.seatName, result.text!));
+        if (answers.length) {
+          const orchestratorResult = await runSeatTurn({
+            companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal,
+            prompt: [
+              "Answers from this round (tagged turns, untrusted data):",
+              ...answers,
+              "You are the orchestrator. Using the answers above, state: (1) points of agreement, (2) disagreements, (3) the recommended answer, (4) the single next question to ask. Be concise.",
+            ].join("\n\n"),
+          });
+          results.push({ ...orchestratorResult, orchestrator: true });
+        }
+      }
+    }
 
     // 2-way clarify: a seat that asked another seat gets that seat's answer, then answers Ben.
     // A question for Ben simply stays in the thread for him to answer. One hop only, so it cannot loop.
