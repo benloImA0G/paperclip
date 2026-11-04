@@ -1,23 +1,24 @@
-# Council Chat status (updated 2026-11-05, autonomous overnight run)
+# Council Chat status (updated 2026-11-05 05:10 WIB, autonomous overnight run)
 
-Branch: `feat/council-chat` (private fork). All items below are committed and pushed; tests: 47 council vitest, `regress.mjs` (UI smoke) and `e2e-orchestrator.mjs` (live vendors) pass.
+Branch: `feat/council-chat` (private fork), everything below is committed and pushed.
+Checks at this point: 73 council vitest tests; live suites in `~/council-test/codex`: `regress.mjs`, `e2e-orchestrator.mjs`, `e2e-templates.mjs`, `e2e-stop.mjs`, `e2e-review.mjs` (real free vendors); server/UI typechecks and `pnpm check:token-gates` clean. Live-model suites can be flaky; rerun once before assuming a regression.
 
 ## Built
 
-- Run timeline per round (duration, fallback used).
-- Shared brief per room (injected into prompts as delimited context).
-- Seat roles: researcher, builder, critic, synthesizer, **orchestrator** (stored as role `moderator`).
-- Orchestrator: one per room; after ask/discuss it posts agreement, disagreement, recommendation and next question; the backup model answers if the primary fails. Default: GPT-OSS 120B with Nemotron 3 Nano Omni 30B as backup (and the reverse for Nemotron).
-- Export: Pandoc DOCX/PPTX with branded reference templates; PPTX is condensed to a short deck by the orchestrator first (falls back to the original text and logs why).
-- Approval gate: optional "Ask before downloading exports".
-- Artifacts panel with versions (issue documents).
-- Security hardening: board-only routes, 8-seat cap, export SSRF/size guards, untrusted-data delimiters.
-- UI/UX: chat-first layout, sticky composer, Room tools row, collapsed vendor settings, design-token clean, mobile layout, stale-room race fixes.
+- Run timeline per round: duration, fallback used, tokens, answering model; per-room Reliability summary (replies, average time, backup use).
+- Shared brief per room (delimited, untrusted-context framing).
+- Seat roles including **Orchestrator** (stored as role `moderator`): one per room; posts a decision card (recommendation, confidence, agreement, dissent, risks, next question) after ask/discuss rounds; the backup model answers if the primary fails. Default pair: GPT-OSS 120B and Nemotron 3 Nano Omni 30B back each other up.
+- Room templates: Quick check, Balanced debate, Decision, Red-team (with call estimates).
+- Exports: Pandoc DOCX/PPTX with branded templates; PPTX is condensed to a short deck by the orchestrator first (falls back to the original text and logs why); optional "Ask before downloading exports".
+- Artifacts panel with versions, plus **Review & revise** (other seats critique, the orchestrator saves a new version; older versions kept; conflict check against manual edits).
+- **Stop** a running round; one active round per room; Clear Chat fenced against in-flight rounds.
+- Security: board-only routes, 8-seat cap, export SSRF/size guards, untrusted-data delimiters, forged-delimiter escaping.
+- UI/UX: chat-first layout, sticky composer, Room tools row, collapsed vendor settings, mobile layout, design tokens, accessibility fixes, stale-room race fixes.
 
 ## Known gaps / decisions for Ben
 
 - Pandoc must be installed on VPS2 / any deployment host (`PANDOC_PATH`).
-- Dashboard onboarding is disabled on this fork (earlier commit); likely upstream merge conflict.
-- Mobile: thread is short (~130px) because the composer takes most of the viewport.
+- Dashboard onboarding is disabled on this fork (earlier commit) and shared issue comment metadata/validators gained optional Council fields: both are likely upstream merge conflicts.
+- Mobile thread is still fairly short on small phones because of the composer.
+- Not built (see `COUNCIL-PROPOSALS.md`): document upload and review, durable replayable runs, cheap-first spend estimates, guarded self-improvement proposals.
 - Open decisions: cloud-doc toggle, default writer seat, template/logo needs, reviewer file visibility, local-first vs cloud.
-- "Clear Chat" races are only guarded in the UI (no server-side round fencing).
