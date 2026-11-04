@@ -781,7 +781,10 @@ export function Council() {
                         </div>
                         <div className="border-t border-border/60 pt-2">
                           <p className="text-xs font-semibold text-muted-foreground">Next question</p>
-                          <Button type="button" variant="outline" size="sm" className="mt-1 w-full justify-start text-left" onClick={() => setMessage(decision.nextQuestion)} aria-label="Ask this next question">Ask this: {decision.nextQuestion}</Button>
+                          <Button type="button" variant="outline" size="sm" className="mt-1 h-auto w-full flex-col items-start gap-0.5 text-left" onClick={() => setMessage(decision.nextQuestion)} aria-label={`Ask this question: ${decision.nextQuestion}`}>
+                            <span className="font-semibold">Ask this question</span>
+                            <span className="text-muted-foreground">{decision.nextQuestion}</span>
+                          </Button>
                         </div>
                       </section>
                     ) : <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>}

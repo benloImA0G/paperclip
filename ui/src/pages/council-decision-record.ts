@@ -19,6 +19,10 @@ function bullets(value: string): string[] {
   return value.split("\n").map((line) => line.replace(/^\s*[-*+]\s+/, "").trim()).filter(Boolean);
 }
 
+function withoutConfidence(text: string): string {
+  return text.replace(/^\*\*Confidence:\*\*\s*(?:High|Medium|Low)\b[^\n]*(?:\n|$)/im, "").trim();
+}
+
 export function parseCouncilDecisionRecord(markdown: string): CouncilDecisionRecord | null {
   const recommendation = section(markdown, "Recommendation", "Where seats agree");
   const agreementText = section(markdown, "Where seats agree", "Disagreement / dissent");
@@ -27,5 +31,5 @@ export function parseCouncilDecisionRecord(markdown: string): CouncilDecisionRec
   const nextQuestion = section(markdown, "Next question", "__end__");
   const confidence = markdown.match(/^\*\*Confidence:\*\*\s*(High|Medium|Low)\b([^\n]*)/im);
   if (!recommendation || !agreementText || !dissentText || !risksText || !nextQuestion || !confidence) return null;
-  return { recommendation, confidence: `${confidence[1]}${confidence[2]}`.trim(), agreement: bullets(agreementText), dissent: dissentText.toLowerCase() === "none" ? [] : bullets(dissentText), risks: bullets(risksText), nextQuestion };
+  return { recommendation: withoutConfidence(recommendation), confidence: `${confidence[1]}${confidence[2]}`.trim(), agreement: bullets(agreementText), dissent: dissentText.toLowerCase() === "none" ? [] : bullets(dissentText), risks: bullets(risksText), nextQuestion };
 }
