@@ -57,6 +57,9 @@ export interface CouncilRoundResult {
 
 export const councilApi = {
   listRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms`),
+  listArchivedRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms?archived=1`),
+  listModels: (companyId: string, connectionId: string, grantId: string) =>
+    api.get<string[]>(`/companies/${companyId}/council/connections/${connectionId}/models?grantId=${grantId}`),
   createRoom: (companyId: string, title: string) => api.post<Issue>(`/companies/${companyId}/council/rooms`, { title }),
   listSeats: (companyId: string, issueId: string) =>
     api.get<CouncilSeat[]>(`/companies/${companyId}/council/rooms/${issueId}/seats`),
@@ -80,6 +83,7 @@ export const councilApi = {
       seatId?: string;
       images?: Array<{ mediaType: string; data: string }>;
       maxOutputTokens?: number;
+      clarify?: boolean;
     },
     signal?: AbortSignal,
   ) =>
@@ -91,6 +95,7 @@ export const councilApi = {
         ...(input.seatId ? { seatId: input.seatId } : {}),
         ...(input.images?.length ? { images: input.images } : {}),
         ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
+        ...(input.clarify ? { clarify: true } : {}),
       },
       { signal },
     ),

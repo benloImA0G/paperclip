@@ -56,6 +56,7 @@ const roundSchema = z
       .max(3)
       .optional(),
     maxOutputTokens: z.number().int().min(64).max(4096).optional(),
+    clarify: z.boolean().optional(),
   })
   .strict();
 
@@ -77,8 +78,19 @@ export function councilChatRoutes(db: Db) {
   router.get("/companies/:companyId/council/rooms", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
+    if (req.query.archived === "1") {
+      res.json(await council.listArchivedRooms(companyId));
+      return;
+    }
     const rooms = await issueSvc.list(companyId, { originKind: COUNCIL_ORIGIN_KIND });
     res.json(rooms);
+  });
+
+  router.get("/companies/:companyId/council/connections/:connectionId/models", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const grantId = z.string().uuid().parse(req.query.grantId);
+    res.json(await council.listModels(companyId, boardUserId(req), req.params.connectionId as string, grantId));
   });
 
   router.post("/companies/:companyId/council/rooms", validate(createRoomSchema), async (req, res) => {
@@ -141,6 +153,7 @@ export function councilChatRoutes(db: Db) {
         seatId: req.body.seatId,
         images: req.body.images,
         maxOutputTokens: req.body.maxOutputTokens,
+        clarify: req.body.clarify,
         signal: abort.signal,
       }),
     );

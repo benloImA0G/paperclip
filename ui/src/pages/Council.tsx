@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImagePlus, Loader2, MessagesSquare, Plus, Send, Sparkles, Square, Trash2, Users, X } from "lucide-react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Archive, ImagePlus, Loader2, MessagesSquare, Plus, RotateCcw, Send, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { VendorSeatCard, mentionOf, vendorIcon, type VendorDraft } from "../components/VendorSeatCard";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { EmptyState } from "../components/EmptyState";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 
 const SEAT_AUTHOR_PREFIX = "council-seat:";
-const SEAT_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#8b5cf6", "#ef4444", "#84cc16"];
+const SEAT_COLORS = ["#10b981", "#06b6d4", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#ef4444", "#84cc16"];
 
 const QUICK_PROMPTS = [
   { title: "Architecture debate", hint: "Compare SQLite vs Postgres for state", text: "Compare SQLite and Postgres for storing our app state. Recommend one and say what would change your mind." },
@@ -21,48 +22,28 @@ const QUICK_PROMPTS = [
   { title: "Security audit", hint: "Audit JWT refresh & replay protection", text: "Audit a JWT refresh-token flow for replay and theft risks. List concrete fixes." },
 ];
 
-/** One-click starting council; a preset is skipped when its connection is not set up. */
-const DEFAULT_SEATS = [
-  { name: "Qwen 4B (local)", connection: "Ollama", model: "qwen3.5:4b", thinkingOff: true, vision: true, fallback: "gemini-3.5-flash-lite" },
-  { name: "GLM 4.7 Flash (local)", connection: "Ollama", model: "glm-4.7-flash" },
-  { name: "Gemini 3.5 Flash-Lite", connection: "Gemini", model: "gemini-3.5-flash-lite", vision: true },
-  { name: "Gemini 3.6 Flash", connection: "Gemini", model: "gemini-3.6-flash", vision: true },
-  { name: "Groq gpt-oss-120b", connection: "Groq", model: "openai/gpt-oss-120b" },
-  { name: "NVIDIA Nemotron", connection: "NVIDIA", model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" },
-] as const;
+/** Starting choices per vendor (matched by connection name prefix); `auto` vendors join every new room. */
+const VENDOR_DEFAULTS: Record<
+  string,
+  { name: string; model: string; persona: string; thinkingOff?: boolean; vision?: boolean; fallback?: string; auto?: boolean }
+> = {
+  NVIDIA: { name: "Techie", model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", persona: "A highly technical assistant who loves to explain complex topics.", auto: true },
+  Groq: { name: "Creative", model: "openai/gpt-oss-120b", persona: "A creative thinker who loves brainstorming new ideas.", auto: true },
+  Gemini: { name: "Friendly", model: "gemini-3.5-flash-lite", persona: "A warm, friendly conversationalist who is supportive and kind.", vision: true, auto: true },
+  Ollama: { name: "CodeBot", model: "qwen3.5:4b", persona: "A pragmatic code specialist who gives direct, working code and short answers.", thinkingOff: true, vision: true, fallback: "gemini-3.5-flash-lite", auto: true },
+};
+
+function defaultsFor(vendor: string) {
+  return VENDOR_DEFAULTS[Object.keys(VENDOR_DEFAULTS).find((k) => vendor.startsWith(k)) ?? ""];
+}
 
 type RoundMode = "ask" | "discuss" | "summarize";
 
-/** Models measured in our own benchmark, per vendor (matched by connection name prefix). */
-const MODEL_CATALOG: Record<string, Array<{ model: string; note: string }>> = {
-  Ollama: [
-    { model: "qwen3.5:4b", note: "local · vision · ~2s (thinking off)" },
-    { model: "glm-4.7-flash", note: "local · deep but slow ~30s" },
-  ],
-  Gemini: [
-    { model: "gemini-3.5-flash-lite", note: "free tier · vision · ~1.5s" },
-    { model: "gemini-3.6-flash", note: "free tier · vision · ~4s" },
-  ],
-  Groq: [
-    { model: "openai/gpt-oss-20b", note: "fastest · ~0.5s" },
-    { model: "openai/gpt-oss-120b", note: "strong reasoning · ~1s" },
-  ],
-  NVIDIA: [{ model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", note: "reasoning · ~1.6s" }],
-};
-
-const PERSONAS = [
-  { label: "Architect", text: "A highly technical architect who explains complex trade-offs clearly." },
-  { label: "Creative", text: "A creative thinker who loves brainstorming new ideas." },
-  { label: "Auditor", text: "A skeptical auditor who hunts for risks, failure modes and edge cases." },
-  { label: "Pragmatic coder", text: "A pragmatic engineer who gives direct, working code and short answers." },
-  { label: "Friendly", text: "A warm, supportive conversationalist who keeps things simple." },
-];
-
 /** Discussion depth: how many debate rounds run after the first answers, and how hard seats push. */
 const DEPTHS = {
-  low: { label: "Low (1 turn · quick takes)", rounds: 1, focus: "Keep it brief: name one point you agree with and one you disagree with." },
-  medium: { label: "Medium (2 turns · trade-offs)", rounds: 2, focus: "Weigh the trade-offs between the proposals. Concede points you got wrong and say what you would now change." },
-  high: { label: "High (3 turns · deep debate)", rounds: 3, focus: "Challenge assumptions, rebut specific claims by name, and in the final turn converge on one recommendation with remaining risks." },
+  low: { label: "1 Round (Fast)", rounds: 1, focus: "Keep it brief: name one point you agree with and one you disagree with." },
+  medium: { label: "2 Rounds (Trade-offs)", rounds: 2, focus: "Weigh the trade-offs between the proposals. Concede points you got wrong and say what you would now change." },
+  high: { label: "3 Rounds (Deep debate)", rounds: 3, focus: "Challenge assumptions, rebut specific claims by name, and in the final turn converge on one recommendation with remaining risks." },
 } as const;
 type Depth = keyof typeof DEPTHS;
 
@@ -82,123 +63,23 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function mentionOf(seat: CouncilSeat): string {
-  return `@${seat.name.split(/\s+/)[0]}`;
+function clock(value: unknown): string {
+  const d = new Date(value as string);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function SeatCard({
-  seat,
-  vendor,
-  result,
-  color,
-  onRemove,
-  onMention,
-  onUpdate,
-}: {
-  seat: CouncilSeat;
-  vendor: string;
-  result?: CouncilSeatResult;
-  color: string;
-  onRemove: () => void;
-  onMention: () => void;
-  onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean }) => void;
-}) {
-  const models = MODEL_CATALOG[Object.keys(MODEL_CATALOG).find((k) => vendor.startsWith(k)) ?? ""] ?? [];
-  const currentNote = models.find((m) => m.model === seat.model)?.note;
+function Toggle({ label, on, onClick, title }: { label: string; on: boolean; onClick: () => void; title?: string }) {
   return (
-    <div
-      className={`flex w-60 shrink-0 flex-col gap-2 rounded-lg border bg-card p-3 text-sm ${seat.active ? "" : "opacity-50"}`}
-      style={{ borderTop: `3px solid ${color}` }}
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      title={title}
+      className={`rounded-lg border px-3 py-1.5 text-left text-xs font-medium leading-tight ${on ? "border-primary bg-accent" : "text-muted-foreground"}`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color }}>Vendor</div>
-          <div className="truncate font-semibold">{vendor}</div>
-        </div>
-        <button
-          type="button"
-          onClick={() => onUpdate({ active: !seat.active })}
-          className={`rounded-full border px-2 py-0.5 text-xs font-medium ${seat.active ? "border-emerald-500 text-emerald-600" : "text-muted-foreground"}`}
-          title="Toggle this seat on or off"
-        >
-          {seat.active ? "✓ Active" : "Off"}
-        </button>
-        <button aria-label={`Remove ${seat.name}`} onClick={onRemove} className="text-muted-foreground hover:text-foreground">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
-        <span className="flex justify-between">
-          Name <button type="button" onClick={onMention} className="hover:underline">@mention</button>
-        </span>
-        <Input
-          key={`n-${seat.name}`}
-          defaultValue={seat.name}
-          className="h-8 text-sm"
-          onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== seat.name && onUpdate({ name: e.target.value })}
-        />
-      </label>
-      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
-        Select model
-        <select
-          className="h-8 rounded-md border bg-background px-1 text-xs text-foreground"
-          value={models.some((m) => m.model === seat.model) ? seat.model : "__custom"}
-          onChange={(e) => {
-            if (e.target.value === "__custom") {
-              const custom = window.prompt("Model id", seat.model)?.trim();
-              if (custom && custom !== seat.model) onUpdate({ model: custom });
-            } else if (e.target.value !== seat.model) onUpdate({ model: e.target.value });
-          }}
-        >
-          {models.map((m) => (
-            <option key={m.model} value={m.model}>
-              ★ {m.model}
-            </option>
-          ))}
-          <option value="__custom">{models.some((m) => m.model === seat.model) ? "Custom model…" : `Custom: ${seat.model}`}</option>
-        </select>
-        {currentNote ? <span className="text-[10px]">{currentNote}</span> : null}
-      </label>
-      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
-        Persona / prompt
-        <select
-          className="h-7 rounded-md border bg-background px-1 text-xs text-foreground"
-          value=""
-          onChange={(e) => {
-            const p = PERSONAS.find((x) => x.label === e.target.value);
-            if (p) onUpdate({ persona: p.text });
-          }}
-        >
-          <option value="">Preset persona…</option>
-          {PERSONAS.map((p) => (
-            <option key={p.label} value={p.label}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-        <Textarea
-          key={`p-${seat.persona}`}
-          defaultValue={seat.persona}
-          rows={2}
-          className="min-h-0 text-xs"
-          placeholder="e.g. A pragmatic reviewer who is direct."
-          onBlur={(e) => e.target.value.trim() !== seat.persona.trim() && onUpdate({ persona: e.target.value })}
-        />
-      </label>
-      <span className="text-xs text-muted-foreground">
-        {seat.reasoningEffort === "none" ? "thinking off" : "default thinking"}
-        {seat.acceptsImages ? " · vision" : ""}
-        {seat.fallbacks.length ? ` · ${seat.fallbacks.length} fallback${seat.fallbacks.length > 1 ? "s" : ""}` : ""}
-      </span>
-      {result ? (
-        <span className={`text-xs ${result.status === "ok" ? "text-emerald-600" : "text-destructive"}`}>
-          {result.status === "ok" ? "answered" : result.status}
-          {result.latencyMs ? ` · ${(result.latencyMs / 1000).toFixed(1)}s` : ""}
-          {result.outputTokens ? ` · ${result.outputTokens} tok` : ""}
-          {result.failedAttempts?.length ? ` · fell back from ${result.failedAttempts[0].model}` : ""}
-        </span>
-      ) : null}
-    </div>
+      {label}
+      <div className="font-semibold">{on ? "ON" : "OFF"}</div>
+    </button>
   );
 }
 
@@ -212,26 +93,33 @@ export function Council() {
   const [message, setMessage] = useState("");
   const [lastResults, setLastResults] = useState<Record<string, CouncilSeatResult>>({});
   const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
   const [discussion, setDiscussion] = useState(false);
   const [depth, setDepth] = useState<Depth>("medium");
   const [autoSummary, setAutoSummary] = useState(false);
+  const [clarify, setClarify] = useState(false);
+  const [showArchives, setShowArchives] = useState(false);
+  const [cardsOpen, setCardsOpen] = useState(true);
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
+  const [running, setRunning] = useState(false);
+  const [steps, setSteps] = useState<string[]>([]);
+  const [stepIdx, setStepIdx] = useState(0);
   const [compactedTurns, setCompactedTurns] = useState(0);
   const [images, setImages] = useState<Array<{ name: string; mediaType: string; data: string }>>([]);
-  const [seatForm, setSeatForm] = useState({ name: "", grantKey: "", model: "", thinkingOff: false, vision: false, fallbackKey: "", fallbackModel: "" });
 
   useEffect(() => setBreadcrumbs([{ label: "Council" }]), [setBreadcrumbs]);
   const companyId = selectedCompanyId ?? "";
 
   const rooms = useQuery({ queryKey: ["council", companyId, "rooms"], queryFn: () => councilApi.listRooms(companyId), enabled: !!companyId });
+  const archived = useQuery({ queryKey: ["council", companyId, "archived"], queryFn: () => councilApi.listArchivedRooms(companyId), enabled: !!companyId });
   const connections = useQuery({ queryKey: ["council", companyId, "connections"], queryFn: () => aiConnectionsApi.list(companyId), enabled: !!companyId });
   const seats = useQuery({ queryKey: ["council", companyId, roomId, "seats"], queryFn: () => councilApi.listSeats(companyId, roomId!), enabled: !!companyId && !!roomId });
   const comments = useQuery({
     queryKey: ["council", companyId, roomId, "comments"],
     queryFn: () => issuesApi.listComments(roomId!, { order: "asc" }),
     enabled: !!roomId,
+    // each vendor's reply shows up as soon as it lands, not only when the whole debate ends
+    refetchInterval: running ? 1500 : false,
   });
 
   useEffect(() => {
@@ -239,20 +127,71 @@ export function Council() {
   }, [roomId, rooms.data]);
 
   const connectionOptions = ((connections.data as { connections?: Array<{ id: string; grantId: string; name: string }> } | undefined)?.connections ?? []);
+  const modelLists = useQueries({
+    queries: connectionOptions.map((c) => ({
+      queryKey: ["council", companyId, "models", c.id, c.grantId],
+      queryFn: () => councilApi.listModels(companyId, c.id, c.grantId),
+      enabled: !!companyId,
+      staleTime: 10 * 60_000,
+      retry: false,
+    })),
+  });
   const allSeats = seats.data ?? [];
-  const activeSeats = allSeats.filter((s) => s.active);
+  // one card per vendor connection; extra seats of the same connection are folded away and switched off
+  const seatOf = (connectionId: string) => allSeats.find((s) => s.connectionId === connectionId);
+  const primarySeats = connectionOptions.map((c) => seatOf(c.id)).filter((s): s is CouncilSeat => !!s);
+  const foldedSeats = allSeats.filter((s) => !primarySeats.includes(s));
+  const activeSeats = primarySeats.filter((s) => s.active);
   const vendorOf = (s: CouncilSeat) => connectionOptions.find((c) => c.id === s.connectionId)?.name ?? "";
-  // default summary writer: a fast non-reasoning vendor rather than whichever seat is first
   const fastSeatId = (activeSeats.find((s) => /^(gemini|groq)/i.test(vendorOf(s))) ?? activeSeats[0])?.id;
-  const hasAnswers =!!comments.data?.some((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
-  const seatColor = (seatId: string) => {
-    const i = allSeats.findIndex((s) => s.id === seatId);
+  const hasAnswers = !!comments.data?.some((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
+  const colorOfConnection = (connectionId: string) => {
+    const i = connectionOptions.findIndex((c) => c.id === connectionId);
     return SEAT_COLORS[(i < 0 ? 0 : i) % SEAT_COLORS.length];
   };
-  const seatNames = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s.name]));
-  const refresh = (what: "rooms" | "seats" | "comments") =>
-    queryClient.invalidateQueries({ queryKey: what === "rooms" ? ["council", companyId, "rooms"] : ["council", companyId, roomId, what] });
+  const seatColor = (seatId: string) => colorOfConnection(allSeats.find((s) => s.id === seatId)?.connectionId ?? "");
+  const refresh = (what: "rooms" | "seats" | "comments" | "archived") =>
+    queryClient.invalidateQueries({
+      queryKey: what === "rooms" || what === "archived" ? ["council", companyId, what] : ["council", companyId, roomId, what],
+    });
   const addToMessage = (text: string) => setMessage((m) => `${m}${m && !m.endsWith(" ") ? " " : ""}${text} `);
+
+  const createSeatFor = (targetRoomId: string, conn: { id: string; grantId: string; name: string }, draft: VendorDraft) => {
+    const d = defaultsFor(conn.name);
+    return councilApi.addSeat(companyId, targetRoomId, {
+      name: draft.name.trim() || conn.name,
+      persona: draft.persona,
+      connectionId: conn.id,
+      grantId: conn.grantId,
+      model: draft.model.trim(),
+      ...(d?.thinkingOff && draft.model === d.model ? { reasoningEffort: "none" as const } : {}),
+      ...(d?.vision && draft.model === d.model ? { acceptsImages: true } : {}),
+      ...(d?.fallback && draft.model === d.model
+        ? (() => {
+            const fb = connectionOptions.find((c) => c.name.startsWith("Gemini"));
+            return fb ? { fallbacks: [{ connectionId: fb.id, grantId: fb.grantId, model: d.fallback! }] } : {};
+          })()
+        : {}),
+    });
+  };
+
+  const activateVendor = useMutation({
+    mutationFn: ({ conn, draft }: { conn: { id: string; grantId: string; name: string }; draft: VendorDraft }) =>
+      createSeatFor(roomId!, conn, draft),
+    onSettled: () => void refresh("seats"),
+    onError: (e) => setError(errorText(e)),
+  });
+
+  const addDefaults = useMutation({
+    mutationFn: async (targetRoomId: string) => {
+      for (const conn of connectionOptions) {
+        const d = defaultsFor(conn.name);
+        if (d?.auto) await createSeatFor(targetRoomId, conn, { name: d.name, model: d.model, persona: d.persona });
+      }
+    },
+    onSettled: () => void refresh("seats"),
+    onError: (e) => setError(errorText(e)),
+  });
 
   const createRoom = useMutation({
     mutationFn: () => councilApi.createRoom(companyId, newTitle.trim()),
@@ -262,56 +201,9 @@ export function Council() {
       setRoomId(room.id);
       setLastResults({});
       void refresh("rooms");
+      // a new war room starts with the default vendors switched on
+      addDefaults.mutate(room.id);
     },
-    onError: (e) => setError(errorText(e)),
-  });
-
-  const addSeat = useMutation({
-    mutationFn: () => {
-      const primary = connectionOptions.find((c) => `${c.id}:${c.grantId}` === seatForm.grantKey);
-      const fallback = connectionOptions.find((c) => `${c.id}:${c.grantId}` === seatForm.fallbackKey);
-      if (!primary) throw new Error("Pick a connection");
-      return councilApi.addSeat(companyId, roomId!, {
-        name: seatForm.name.trim() || seatForm.model.trim(),
-        connectionId: primary.id,
-        grantId: primary.grantId,
-        model: seatForm.model.trim(),
-        ...(seatForm.thinkingOff ? { reasoningEffort: "none" as const } : {}),
-        ...(seatForm.vision ? { acceptsImages: true } : {}),
-        ...(fallback && seatForm.fallbackModel.trim()
-          ? { fallbacks: [{ connectionId: fallback.id, grantId: fallback.grantId, model: seatForm.fallbackModel.trim() }] }
-          : {}),
-      });
-    },
-    onSuccess: () => {
-      setAdding(false);
-      setSeatForm({ name: "", grantKey: "", model: "", thinkingOff: false, vision: false, fallbackKey: "", fallbackModel: "" });
-      void refresh("seats");
-    },
-    onError: (e) => setError(errorText(e)),
-  });
-
-  const addDefaults = useMutation({
-    mutationFn: async () => {
-      const find = (prefix: string) => connectionOptions.find((c) => c.name.startsWith(prefix));
-      for (const preset of DEFAULT_SEATS) {
-        const conn = find(preset.connection);
-        if (!conn) continue;
-        const fb = "fallback" in preset ? find("Gemini") : undefined;
-        await councilApi.addSeat(companyId, roomId!, {
-          name: preset.name,
-          connectionId: conn.id,
-          grantId: conn.grantId,
-          model: preset.model,
-          ...("thinkingOff" in preset ? { reasoningEffort: "none" as const } : {}),
-          ...("vision" in preset ? { acceptsImages: true } : {}),
-          ...(fb && "fallback" in preset
-            ? { fallbacks: [{ connectionId: fb.id, grantId: fb.grantId, model: preset.fallback }] }
-            : {}),
-        });
-      }
-    },
-    onSettled: () => void refresh("seats"),
     onError: (e) => setError(errorText(e)),
   });
 
@@ -320,7 +212,30 @@ export function Council() {
     onSuccess: (_d, id) => {
       if (id === roomId) setRoomId(null);
       void refresh("rooms");
+      void refresh("archived");
     },
+    onError: (e) => setError(errorText(e)),
+  });
+
+  const setArchived = useMutation({
+    mutationFn: ({ id, on }: { id: string; on: boolean }) => issuesApi.update(id, { hiddenAt: on ? new Date().toISOString() : null }),
+    onSuccess: (_d, { id, on }) => {
+      if (on && id === roomId) setRoomId(null);
+      void refresh("rooms");
+      void refresh("archived");
+    },
+    onError: (e) => setError(errorText(e)),
+  });
+
+  const clearChat = useMutation({
+    mutationFn: async () => {
+      for (const c of comments.data ?? []) await issuesApi.deleteComment(roomId!, c.id);
+    },
+    onSuccess: () => {
+      setLastResults({});
+      setCompactedTurns(0);
+    },
+    onSettled: () => void refresh("comments"),
     onError: (e) => setError(errorText(e)),
   });
 
@@ -337,6 +252,11 @@ export function Council() {
     onError: (e) => setError(errorText(e)),
   });
 
+  useEffect(() => {
+    for (const s of foldedSeats) if (s.active) updateSeat.mutate({ seatId: s.id, patch: { active: false } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foldedSeats.map((s) => `${s.id}${s.active}`).join()]);
+
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ block: "end" });
@@ -348,7 +268,7 @@ export function Council() {
     mutationFn: async (mode: RoundMode) => {
       const controller = new AbortController();
       abortRef.current = controller;
-      const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }> } = {}) =>
+      const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }>; clarify?: boolean } = {}) =>
         councilApi.runRound(
           companyId,
           roomId!,
@@ -370,27 +290,48 @@ export function Council() {
       };
       const text = message.trim();
       const pics = images.map(({ mediaType, data }) => ({ mediaType, data }));
-      setProgress(mode === "ask" ? "Round 1: seats answering…" : mode === "discuss" ? "Seats discussing…" : "Writing summary…");
+      const debate = mode === "ask" && discussion && activeSeats.length > 1 ? DEPTHS[depth] : null;
+      const plan =
+        mode === "ask"
+          ? [
+              "Answers",
+              ...Array.from({ length: debate?.rounds ?? 0 }, (_, i) => `Discussion ${i + 1}`),
+              ...(autoSummary ? ["Summary"] : []),
+            ]
+          : [mode === "discuss" ? "Discussion" : "Summary"];
+      let step = 0;
+      const begin = (label: string) => {
+        setStepIdx(step++);
+        setProgress(label);
+      };
+      setSteps(plan);
       if (mode === "ask") {
-        collect(await run("ask", { message: text, images: pics }));
-        if (discussion && activeSeats.length > 1) {
-          const { rounds, focus } = DEPTHS[depth];
-          for (let i = 1; i <= rounds && !controller.signal.aborted; i++) {
-            setProgress(`Discussion turn ${i} of ${rounds}…`);
+        begin("Round 1: every vendor answers in parallel…");
+        collect(await run("ask", { message: text, images: pics, clarify }));
+        if (debate) {
+          for (let i = 1; i <= debate.rounds && !controller.signal.aborted; i++) {
             await refresh("comments");
-            collect(await run("discuss", { message: focus }));
+            begin(`Discussion turn ${i} of ${debate.rounds}: vendors read each other…`);
+            collect(await run("discuss", { message: debate.focus }));
           }
         }
         if (autoSummary && !controller.signal.aborted) {
-          setProgress("Writing 1-page summary…");
+          await refresh("comments");
+          begin("Writing the 1-page summary…");
           collect(await run("summarize"));
         }
       } else {
+        begin(mode === "discuss" ? "Vendors discussing…" : "Writing summary…");
         collect(await run(mode, { message: mode === "discuss" ? text : undefined }));
       }
       return merged;
     },
-    onMutate: () => setError(null),
+    onMutate: () => {
+      setError(null);
+      setRunning(true);
+      // fold the vendor cards so the live conversation gets the screen
+      setCardsOpen(false);
+    },
     onSuccess: (results) => {
       setMessage("");
       setImages([]);
@@ -401,6 +342,8 @@ export function Council() {
     },
     onSettled: () => {
       setProgress("");
+      setRunning(false);
+      setSteps([]);
       void refresh("comments");
     },
   });
@@ -409,29 +352,98 @@ export function Council() {
 
   const canSend = !ask.isPending && !!message.trim() && activeSeats.length > 0;
   const room = rooms.data?.find((r) => r.id === roomId);
+  const seatById = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s]));
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-semibold">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <div className="w-60 shrink-0">
+          <h1 className="flex items-center gap-2 text-xl font-semibold leading-tight">
             <MessagesSquare className="h-5 w-5" /> Multi-Vendor Council Chat
           </h1>
-          <p className="text-xs text-muted-foreground">Post a challenge. Models from different vendors answer, debate and reconcile.</p>
+          <p className="text-xs text-muted-foreground">Post an engineering challenge; vendors debate and reconcile into a unified vision.</p>
         </div>
-        {roomId && room ? (
+        <div className="flex flex-wrap items-stretch gap-2">
+          <Toggle label="2-Way Clarify:" on={clarify} onClick={() => setClarify((v) => !v)} title="Vendors may ask one clarifying question before answering" />
+          <Toggle label="1-Page Summary:" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="A vendor writes a short summary at the end" />
+          <label className="flex flex-col justify-center rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Debate rounds
+            <select
+              className="h-7 rounded-md border bg-background px-1 text-xs normal-case text-foreground"
+              value={discussion ? depth : "off"}
+              onChange={(e) => {
+                if (e.target.value === "off") setDiscussion(false);
+                else {
+                  setDiscussion(true);
+                  setDepth(e.target.value as Depth);
+                }
+              }}
+            >
+              <option value="off">No debate</option>
+              {(Object.keys(DEPTHS) as Depth[]).map((d) => (
+                <option key={d} value={d}>
+                  {DEPTHS[d].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button variant="outline" size="sm" className="h-auto" disabled={!roomId || setArchived.isPending} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}>
+            <Archive /> Archive Thread
+          </Button>
           <Button
             variant="outline"
             size="sm"
-            className="text-destructive"
+            className="h-auto text-destructive"
+            disabled={!roomId || !room}
             onClick={() => {
-              if (window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id);
+              if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id);
             }}
           >
-            <Trash2 /> Delete room
+            <Trash2 /> Delete Thread
           </Button>
-        ) : null}
+          <Button variant="outline" size="sm" className="h-auto" onClick={() => setShowArchives((v) => !v)}>
+            Archives <span className="rounded-full bg-accent px-1.5 text-xs">{archived.data?.length ?? 0}</span>
+          </Button>
+          <Button
+            variant="ghost"
+            className="h-auto"
+            disabled={!roomId || !comments.data?.length || clearChat.isPending}
+            onClick={() => {
+              if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate();
+            }}
+          >
+            Clear Chat
+          </Button>
+        </div>
       </div>
+
+      {showArchives ? (
+        <div className="rounded-lg border p-2 text-sm">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Archived war rooms</div>
+          {archived.data?.length ? (
+            archived.data.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-2 py-1">
+                <span>{r.title}</span>
+                <span className="flex gap-1">
+                  <Button size="sm" variant="outline" onClick={() => setArchived.mutate({ id: r.id, on: false })}>
+                    <RotateCcw /> Restore
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => window.confirm(`Delete "${r.title}" for good?`) && deleteRoom.mutate(r.id)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">Nothing archived.</p>
+          )}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2 rounded-lg border p-2">
         <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">War rooms</span>
@@ -446,9 +458,18 @@ export function Council() {
               }}
               className={`shrink-0 rounded-full border px-3 py-1 text-sm ${r.id === roomId ? "border-primary bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"}`}
             >
+              <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${r.id === roomId ? "bg-emerald-400" : "bg-muted-foreground/50"}`} />
               {r.title}
             </button>
           ))}
+          <button
+            type="button"
+            aria-label="New war room"
+            onClick={() => setCreating(true)}
+            className="shrink-0 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50"
+          >
+            +
+          </button>
         </div>
         {creating ? (
           <form
@@ -474,110 +495,121 @@ export function Council() {
       ) : (
         <>
           <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold uppercase tracking-wide text-muted-foreground">
-              Participating vendors · {activeSeats.length} of {allSeats.length} active
+            <span className="font-semibold uppercase tracking-wide text-rose-400">
+              ● Select participating vendors <span className="font-normal normal-case">· click Active / Inactive to include a vendor · selected vendors respond concurrently</span>
             </span>
-            <Button variant="outline" size="sm" onClick={() => setAdding((v) => !v)}>
-              <Plus /> Add seat
-            </Button>
+            <span className="flex items-center gap-2">
+              <button type="button" onClick={() => setCardsOpen((v) => !v)} className="rounded-md border px-2 py-0.5 text-[11px] hover:bg-accent">
+                {cardsOpen ? "▴ Hide vendor settings" : "▾ Show vendor settings"}
+              </button>
+              <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                {activeSeats.length} model{activeSeats.length === 1 ? "" : "s"} selected
+              </span>
+            </span>
           </div>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {allSeats.map((seat) => (
-              <SeatCard
-                key={seat.id}
-                seat={seat}
-                vendor={connectionOptions.find((c) => c.id === seat.connectionId)?.name ?? "Vendor"}
-                result={lastResults[seat.id]}
-                color={seatColor(seat.id)}
-                onRemove={() => removeSeat.mutate(seat.id)}
-                onMention={() => addToMessage(mentionOf(seat))}
-                onUpdate={(patch) => updateSeat.mutate({ seatId: seat.id, patch })}
-              />
-            ))}
-            {!allSeats.length ? (
-              <Button size="sm" onClick={() => addDefaults.mutate()} disabled={addDefaults.isPending}>
-                <Sparkles /> {addDefaults.isPending ? "Adding seats…" : "Add the default council"}
-              </Button>
-            ) : null}
+          {!cardsOpen ? (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {connectionOptions.map((conn) => {
+                const seat = seatOf(conn.id);
+                const color = colorOfConnection(conn.id);
+                return (
+                  <button
+                    key={`${conn.id}:${conn.grantId}`}
+                    type="button"
+                    disabled={!seat}
+                    onClick={() => seat && updateSeat.mutate({ seatId: seat.id, patch: { active: !seat.active } })}
+                    className={`flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs ${seat?.active ? "" : "opacity-50"}`}
+                    style={{ borderColor: seat?.active ? color : undefined }}
+                    title="Click to switch this vendor on or off"
+                  >
+                    {vendorIcon(conn.name)} <b>{seat?.name ?? conn.name}</b>
+                    <span className="text-muted-foreground">{seat?.model ?? "not in this room"}</span>
+                    {running && seat?.active ? <Loader2 className="h-3 w-3 animate-spin" /> : seat?.active ? "✓" : ""}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <div className={`${cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
+            {connectionOptions.map((conn, i) => {
+              const seat = seatOf(conn.id);
+              const d = defaultsFor(conn.name);
+              return (
+                <VendorSeatCard
+                  key={`${conn.id}:${conn.grantId}`}
+                  vendor={conn.name}
+                  color={colorOfConnection(conn.id)}
+                  seat={seat}
+                  draftDefaults={{ name: d?.name ?? conn.name.split(/\s+/)[0], model: d?.model ?? "", persona: d?.persona ?? "" }}
+                  models={modelLists[i]?.data ?? []}
+                  modelsLoading={modelLists[i]?.isLoading}
+                  result={seat ? lastResults[seat.id] : undefined}
+                  running={running}
+                  onActivate={(draft) => activateVendor.mutate({ conn, draft })}
+                  onRemove={seat ? () => removeSeat.mutate(seat.id) : undefined}
+                  onMention={seat ? () => addToMessage(mentionOf(seat)) : undefined}
+                  onUpdate={(patch) => seat && updateSeat.mutate({ seatId: seat.id, patch })}
+                />
+              );
+            })}
+            {!connectionOptions.length ? <p className="text-sm text-muted-foreground">No AI connections yet. Add one in Settings.</p> : null}
           </div>
 
-          {adding ? (
-            <form
-              className="grid gap-2 rounded-md border p-3 text-sm md:grid-cols-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                addSeat.mutate();
-              }}
-            >
-              <select
-                className="h-9 rounded-md border bg-background px-2"
-                value={seatForm.grantKey}
-                onChange={(e) => setSeatForm({ ...seatForm, grantKey: e.target.value })}
-                aria-label="Connection"
-              >
-                <option value="">Connection…</option>
-                {connectionOptions.map((c) => (
-                  <option key={`${c.id}:${c.grantId}`} value={`${c.id}:${c.grantId}`}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <Input placeholder="Model id (e.g. qwen3.5:4b)" value={seatForm.model} onChange={(e) => setSeatForm({ ...seatForm, model: e.target.value })} />
-              <Input placeholder="Seat name (optional)" value={seatForm.name} onChange={(e) => setSeatForm({ ...seatForm, name: e.target.value })} />
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={seatForm.thinkingOff} onChange={(e) => setSeatForm({ ...seatForm, thinkingOff: e.target.checked })} />
-                Thinking off (fast local models)
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={seatForm.vision} onChange={(e) => setSeatForm({ ...seatForm, vision: e.target.checked })} />
-                Can see images (vision model)
-              </label>
-              <select
-                className="h-9 rounded-md border bg-background px-2"
-                value={seatForm.fallbackKey}
-                onChange={(e) => setSeatForm({ ...seatForm, fallbackKey: e.target.value })}
-                aria-label="Fallback connection"
-              >
-                <option value="">Fallback connection (optional)…</option>
-                {connectionOptions.map((c) => (
-                  <option key={`${c.id}:${c.grantId}`} value={`${c.id}:${c.grantId}`}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <Input placeholder="Fallback model id" value={seatForm.fallbackModel} onChange={(e) => setSeatForm({ ...seatForm, fallbackModel: e.target.value })} />
-              <div className="md:col-span-2">
-                <Button type="submit" size="sm" disabled={addSeat.isPending || !seatForm.model.trim() || !seatForm.grantKey}>
-                  Add seat
-                </Button>
-              </div>
-            </form>
+          {running && steps.length ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 text-xs">
+              {steps.map((label, i) => (
+                <span
+                  key={label}
+                  className={`rounded-full border px-2 py-0.5 ${i < stepIdx ? "border-emerald-500 text-emerald-600" : i === stepIdx ? "border-primary bg-accent font-medium" : "text-muted-foreground"}`}
+                >
+                  {i < stepIdx ? "✓ " : ""}
+                  {label}
+                </span>
+              ))}
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> {progress}
+              </span>
+            </div>
           ) : null}
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-md border p-3">
+          <div className="min-h-[18rem] flex-1 space-y-3 overflow-y-auto rounded-md border p-3">
             {(comments.data ?? []).map((c) => {
-              const seatAuthor = c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX);
-              const speaker = seatAuthor ? (seatNames.get(c.authorUserId!) ?? "Seat") : "Ben";
-              const color = seatAuthor ? seatColor(c.authorUserId!.slice(SEAT_AUTHOR_PREFIX.length)) : undefined;
+              const seat = c.authorUserId ? seatById.get(c.authorUserId) : undefined;
+              const seatAuthor = !!c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX);
+              if (!seatAuthor) {
+                return (
+                  <div key={c.id} className="ml-auto max-w-[80%] rounded-2xl bg-indigo-600 px-4 py-2 text-white">
+                    <MarkdownBody className="text-sm text-white [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
+                    <div className="mt-1 text-right text-[10px] opacity-70">{clock(c.createdAt)}</div>
+                  </div>
+                );
+              }
+              const color = seat ? seatColor(seat.id) : "#888";
+              const name = seat?.name ?? "Seat";
               return (
-                <div
-                  key={c.id}
-                  className={seatAuthor ? "rounded-md bg-muted/50 p-3" : "ml-auto max-w-[85%] rounded-md bg-primary/10 p-3"}
-                  style={color ? { borderLeft: `3px solid ${color}` } : undefined}
-                >
-                  <div className="mb-1 text-xs font-semibold text-muted-foreground">{speaker}</div>
-                  <MarkdownBody className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
+                <div key={c.id} className="flex gap-2">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold"
+                    style={{ borderColor: color, color }}
+                  >
+                    {name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1 rounded-lg bg-muted/50 p-3" style={{ borderLeft: `3px solid ${color}` }}>
+                    <div className="mb-1 flex items-center justify-between gap-2 text-xs font-semibold" style={{ color }}>
+                      <span>
+                        @{name} • {seat ? vendorOf(seat) : "Vendor"}
+                        {seat ? ` (${seat.model})` : ""}
+                      </span>
+                      <span className="font-normal text-muted-foreground">{clock(c.createdAt)}</span>
+                    </div>
+                    <MarkdownBody className="text-sm [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
+                  </div>
                 </div>
               );
             })}
             {comments.data && !comments.data.length ? (
               <p className="text-sm text-muted-foreground">
-                {allSeats.length ? "Ask the whole council one question, or start from an example below." : "This room has no seats yet."}
-              </p>
-            ) : null}
-            {ask.isPending ? (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> {progress || "Seats are answering…"}
+                {activeSeats.length ? "Ask the council one question, or start from an example below." : "Switch at least one vendor to Active, then ask."}
               </p>
             ) : null}
             <div ref={threadEndRef} />
@@ -586,19 +618,14 @@ export function Council() {
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {compactedTurns > 0 ? (
             <p className="text-xs text-emerald-600">
-              Token saver: {compactedTurns} older turn{compactedTurns > 1 ? "s were" : " was"} sent to the seats as short digests. The full text stays in this thread.
+              Token saver: {compactedTurns} older turn{compactedTurns > 1 ? "s were" : " was"} sent to the vendors as short digests. The full text stays in this thread.
             </p>
           ) : null}
 
-          {comments.data && !comments.data.length && activeSeats.length ? (
-            <div className="grid gap-2 md:grid-cols-3">
+          {activeSeats.length ? (
+            <div className="grid shrink-0 gap-2 md:grid-cols-3">
               {QUICK_PROMPTS.map((q) => (
-                <button
-                  key={q.title}
-                  type="button"
-                  onClick={() => setMessage(q.text)}
-                  className="rounded-lg border p-2 text-left hover:bg-accent/50"
-                >
+                <button key={q.title} type="button" onClick={() => setMessage(q.text)} className="rounded-lg border p-2 text-left hover:bg-accent/50">
                   <div className="text-sm font-medium">{q.title}</div>
                   <div className="text-xs text-muted-foreground">{q.hint}</div>
                 </button>
@@ -607,7 +634,7 @@ export function Council() {
           ) : null}
 
           <form
-            className="flex flex-col gap-2 rounded-xl border p-2"
+            className="flex shrink-0 flex-col gap-2 rounded-xl border p-2"
             onSubmit={(e) => {
               e.preventDefault();
               if (canSend) ask.mutate("ask");
@@ -616,7 +643,7 @@ export function Council() {
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Ask the council… type detailed instructions, paste code, or tag a seat with @"
+              placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a vendor"}`}
               rows={3}
               className="border-0 shadow-none focus-visible:ring-0"
               onKeyDown={(e) => {
@@ -636,7 +663,7 @@ export function Council() {
                     </button>
                   </span>
                 ))}
-                <span>Only seats marked "vision" can see them.</span>
+                <span>Only vendors with vision can see them.</span>
               </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -682,7 +709,7 @@ export function Council() {
                   aria-pressed={discussion}
                   onClick={() => setDiscussion((v) => !v)}
                   className={`rounded-full border px-3 py-1 font-medium ${discussion ? "border-primary bg-accent" : "text-muted-foreground"}`}
-                  title="After the first answers, seats read each other and debate"
+                  title="After the first answers, vendors read each other and debate"
                 >
                   <MessagesSquare className="mr-1 inline h-3.5 w-3.5" /> Discussion: {discussion ? "ON" : "OFF"}
                 </button>
@@ -699,36 +726,27 @@ export function Council() {
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  aria-pressed={autoSummary}
-                  onClick={() => setAutoSummary((v) => !v)}
-                  className={`rounded-full border px-3 py-1 font-medium ${autoSummary ? "border-primary bg-accent" : "text-muted-foreground"}`}
-                  title="A seat writes a short summary at the end"
-                >
-                  1-page summary: {autoSummary ? "ON" : "OFF"}
-                </button>
                 <select
                   className="h-8 rounded-md border bg-background px-2"
                   aria-label="Summary by"
                   value={summarySeatId}
                   onChange={(e) => setSummarySeatId(e.target.value)}
                 >
-                  <option value="">Summary by (auto: fast seat)</option>
+                  <option value="">Summary by (auto: fast vendor)</option>
                   {activeSeats.map((s) => (
                     <option key={s.id} value={s.id}>
                       Summary by {s.name}
                     </option>
                   ))}
                 </select>
-                <Button type="button" variant="outline" size="sm" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>
+                <Button type="button" variant="outline" size="sm" className="border-primary/60 bg-primary/10" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>
                   Summary
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  title="Seats read the others' answers and react. Your note is optional."
+                  title="Vendors read the others' answers and react. Your note is optional."
                   disabled={ask.isPending || activeSeats.length < 2 || !hasAnswers}
                   onClick={() => ask.mutate("discuss")}
                 >
@@ -747,7 +765,7 @@ export function Council() {
             </div>
           </form>
           <p className="text-xs text-muted-foreground">
-            Enter sends, Shift+Enter adds a line. <code>@Groq</code> asks one seat, <code>@all</code> asks everyone.
+            Enter sends, Shift+Enter adds a line. Tag one vendor with its @name, or <code>@all</code> for everyone.
           </p>
         </>
       )}
