@@ -49,6 +49,7 @@ export interface CouncilSeatResult {
   fallbackUsed?: boolean;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
   latencyMs?: number;
   orchestrator?: boolean;
 }

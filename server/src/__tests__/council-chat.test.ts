@@ -32,12 +32,12 @@ it("includes a saved listSeats role in the system prompt built for a seat attemp
 describe("council seat run metadata", () => {
   it("records duration and whether a fallback was used", () => {
     const result = finalizeCouncilSeatTurn(
-      { seatId: "seat", seatName: "Seat", model: "fallback-model", status: "ok" },
+      { seatId: "seat", seatName: "Seat", model: "fallback-model", status: "ok", usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 } },
       [{ model: "primary-model", error: "timed out" }],
       1234,
     );
 
-    expect(result).toMatchObject({ durationMs: 1234, fallbackUsed: true, failedAttempts: [{ model: "primary-model" }] });
+    expect(result).toMatchObject({ durationMs: 1234, fallbackUsed: true, model: "fallback-model", usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 }, failedAttempts: [{ model: "primary-model" }] });
   });
 });
 

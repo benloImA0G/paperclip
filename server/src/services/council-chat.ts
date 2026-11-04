@@ -132,6 +132,7 @@ export interface CouncilSeatTurnResult {
   fallbackUsed?: boolean;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
   latencyMs?: number;
   orchestrator?: boolean;
 }
@@ -541,6 +542,9 @@ export function councilChatService(db: Db) {
       });
       const latencyMs = Date.now() - requestStartedAt.getTime();
       const receipt = providerUsageReceipt(result);
+      const usage = result.usage && typeof result.usage.inputTokens === "number" && typeof result.usage.outputTokens === "number" && typeof result.usage.totalTokens === "number"
+        ? { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, totalTokens: result.usage.totalTokens }
+        : undefined;
       const provider = aiConnectionCatalogSlug(selected.provider, metadata.routing);
 
       await withAccountingTransaction(db, companyId, async (tx, pubs) => {
@@ -584,6 +588,7 @@ export function councilChatService(db: Db) {
           outputTokens: receipt.outputTokens,
           latencyMs,
           durationMs: Date.now() - startedAt,
+          ...(usage ? { usage } : {}),
         };
       }
       if (input.generation !== undefined && (roomGenerations.get(input.issueId) ?? 0) !== input.generation) {
@@ -601,6 +606,7 @@ export function councilChatService(db: Db) {
         outputTokens: receipt.outputTokens,
         latencyMs,
         durationMs: Date.now() - startedAt,
+        ...(usage ? { usage } : {}),
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Seat call failed";

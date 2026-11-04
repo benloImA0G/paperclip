@@ -857,22 +857,21 @@ export function Council() {
             })}
             {(roundDetails[roomId ?? ""] ?? []).map((results, index) => (
               <details key={`round-details-${index}`} className="rounded-md border border-border/60 bg-muted/20 text-xs text-muted-foreground">
-                <summary className="cursor-pointer px-2.5 py-1.5 font-medium hover:text-foreground">Run details · round {index + 1}</summary>
-                <div className="divide-y divide-border/50 border-t border-border/50">
+                <summary className="cursor-pointer px-2.5 py-1.5 font-medium hover:text-foreground" aria-label={`Show run details for round ${index + 1}`}>Run details · round {index + 1}</summary>
+                <div className="overflow-x-auto border-t border-border/50">
+                  <table className="w-full text-left">
+                    <thead className="text-(length:--text-nano) text-muted-foreground"><tr className="border-b border-border/50"><th className="px-2.5 py-1.5 font-medium">Seat</th><th className="px-2.5 py-1.5 font-medium">Time</th><th className="px-2.5 py-1.5 font-medium">Tokens in</th><th className="px-2.5 py-1.5 font-medium">Tokens out</th><th className="px-2.5 py-1.5 font-medium">Model</th><th className="px-2.5 py-1.5 font-medium">Status</th></tr></thead>
+                    <tbody className="divide-y divide-border/50">
                   {results.map((result, resultIndex) => {
                     const seat = allSeats.find((candidate) => candidate.id === result.seatId);
                     const status = result.status === "ok" ? "ok" : result.status === "blocked" ? "skipped" : "failed";
                     return (
-                      <div key={`${result.seatId}-${resultIndex}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-1.5">
-                        <span className="font-medium text-foreground">{seat ? vendorOf(seat) : "Unknown vendor"}</span>
-                        <span>{result.model ?? "model unavailable"}</span>
-                        <span>{result.durationMs == null ? "duration unavailable" : `${(result.durationMs / 1000).toFixed(1)}s`}</span>
-                        <span className={status === "ok" ? "text-emerald-600" : status === "failed" ? "text-destructive" : ""}>{status}</span>
-                        {result.fallbackUsed ? <span>fallback used</span> : null}
-                        {result.error ? <span className="min-w-0 truncate" title={result.error}>— {result.error.slice(0, 120)}</span> : null}
-                      </div>
+                      <tr key={`${result.seatId}-${resultIndex}`}><td className="px-2.5 py-1.5 font-medium text-foreground">{seat ? vendorOf(seat) : "Unknown vendor"}{result.orchestrator ? " (orchestrator)" : ""}</td><td className="px-2.5 py-1.5">{result.latencyMs == null ? "—" : `${(result.latencyMs / 1000).toFixed(1)}s`}</td><td className="px-2.5 py-1.5">{result.usage?.inputTokens ?? "—"}</td><td className="px-2.5 py-1.5">{result.usage?.outputTokens ?? "—"}</td><td className="max-w-40 truncate px-2.5 py-1.5" title={result.model}>{result.model ?? "—"}{result.fallbackUsed ? " (fallback)" : ""}</td><td className={status === "ok" ? "px-2.5 py-1.5 text-emerald-600" : status === "failed" ? "px-2.5 py-1.5 text-destructive" : "px-2.5 py-1.5"}>{status}{result.error ? ` — ${result.error.slice(0, 80)}` : ""}</td></tr>
                     );
                   })}
+                    </tbody>
+                  </table>
+                  <div className="border-t border-border/50 px-2.5 py-1.5 font-medium text-foreground">Round total · wall time {(() => { const seatTime = Math.max(0, ...results.filter((result) => !result.orchestrator).map((result) => result.durationMs ?? 0)); const orchestratorTime = results.find((result) => result.orchestrator)?.durationMs ?? 0; return `${((seatTime + orchestratorTime) / 1000).toFixed(1)}s`; })()} · tokens {(() => { const total = results.reduce((sum, result) => sum + (result.usage?.totalTokens ?? 0), 0); return results.some((result) => result.usage) ? total : "—"; })()}</div>
                 </div>
               </details>
             ))}
