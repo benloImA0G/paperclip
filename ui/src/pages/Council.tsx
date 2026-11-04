@@ -37,7 +37,16 @@ function saveBlobFile(filename: string, blob: Blob) {
   a.remove();
   URL.revokeObjectURL(url);
 }
-const SEAT_COLORS = ["#10b981", "#06b6d4", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#ef4444", "#84cc16"];
+const SEAT_COLORS = [
+  "var(--council-seat-color-1)",
+  "var(--council-seat-color-2)",
+  "var(--council-seat-color-3)",
+  "var(--council-seat-color-4)",
+  "var(--council-seat-color-5)",
+  "var(--council-seat-color-6)",
+  "var(--council-seat-color-7)",
+  "var(--council-seat-color-8)",
+];
 
 const QUICK_PROMPTS = [
   { title: "Architecture debate", hint: "Compare SQLite vs Postgres for state", text: "Compare SQLite and Postgres for storing our app state. Recommend one and say what would change your mind." },
@@ -107,7 +116,7 @@ function Toggle({ label, on, onClick, title }: { label: string; on: boolean; onC
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium leading-tight ${on ? "border-primary bg-accent text-foreground" : "border-border text-muted-foreground"}`}
     >
       {label}
-      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${on ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{on ? "ON" : "OFF"}</span>
+      <span className={`rounded-full px-1.5 py-0.5 text-(length:--text-nano) font-semibold ${on ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{on ? "ON" : "OFF"}</span>
     </button>
   );
 }
@@ -588,10 +597,10 @@ export function Council() {
               ● Select participating vendors <span className="council-vendor-helper font-normal normal-case">· click Active / Inactive to include a vendor · selected vendors respond concurrently</span>
             </span>
             <span className="flex items-center gap-2">
-              <button type="button" onClick={() => setCardsOpen((v) => !v)} className="rounded-md border px-2 py-0.5 text-[11px] hover:bg-accent">
+              <button type="button" onClick={() => setCardsOpen((v) => !v)} className="rounded-md border px-2 py-0.5 text-(length:--text-micro) hover:bg-accent">
                 {cardsOpen ? "▴ Hide vendor settings" : "▾ Show vendor settings"}
               </button>
-              <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+              <span className="rounded-full border px-2 py-0.5 text-(length:--text-nano) font-semibold uppercase tracking-wide text-primary">
                 {activeSeats.length} model{activeSeats.length === 1 ? "" : "s"} selected
               </span>
             </span>
@@ -612,7 +621,7 @@ export function Council() {
                     title="Click to switch this vendor on or off"
                   >
                     {vendorIcon(conn.name)} <b>{seat?.name ?? conn.name}</b>
-                    {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">Orchestrator</span> : null}
+                    {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-(length:--text-nano) text-primary">Orchestrator</span> : null}
                     <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} />
                   </button>
                 );
@@ -635,17 +644,17 @@ export function Council() {
                 const statusTone = status === "answered" ? "text-emerald-600" : status === "failed" ? "text-destructive" : status === "working…" ? "text-primary" : "text-muted-foreground";
                 return (
                   <div key={seat.id} className="flex min-w-0 items-center gap-2 rounded-md border bg-background/60 px-2 py-1">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px]" style={{ borderColor: seatColor(seat.id), color: seatColor(seat.id) }}>
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-(length:--text-nano)" style={{ borderColor: seatColor(seat.id), color: seatColor(seat.id) }}>
                       {vendorIcon(vendorOf(seat))}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-1.5 text-xs">
                         <span className="truncate font-medium" title={seat.name}>{seat.name}</span>
-                        <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] text-muted-foreground">{roleLabel(seat.role)}</span>
+                        <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-(length:--text-nano) text-muted-foreground">{roleLabel(seat.role)}</span>
                       </div>
-                      <div className="truncate text-[10px] text-muted-foreground" title={`${vendorOf(seat)} · ${seat.model}`}>{vendorOf(seat)}</div>
+                      <div className="truncate text-(length:--text-nano) text-muted-foreground" title={`${vendorOf(seat)} · ${seat.model}`}>{vendorOf(seat)}</div>
                     </div>
-                    <div className={`flex shrink-0 flex-col items-end gap-0.5 text-[10px] ${statusTone}`}>
+                    <div className={`flex shrink-0 flex-col items-end gap-0.5 text-(length:--text-nano) ${statusTone}`}>
                       <span className="rounded-full bg-muted px-1.5 py-0.5 font-medium leading-tight">{status}</span>
                       <span className="text-muted-foreground">{latency != null ? `${(latency / 1000).toFixed(1)}s` : "—"}</span>
                     </div>
@@ -703,10 +712,10 @@ export function Council() {
             <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs">
               <span className="mr-1 shrink-0 font-semibold text-muted-foreground">Room tools</span>
               <button type="button" aria-expanded={briefOpen} onClick={() => setBriefOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
-                Brief <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px]">{brief.trim() ? "set" : "empty"}</span>
+                Brief <span className="ml-1 rounded-full bg-muted px-1.5 text-(length:--text-nano)">{brief.trim() ? "set" : "empty"}</span>
               </button>
               <button type="button" aria-expanded={artifactsOpen} onClick={() => setArtifactsOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
-                Artifacts <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px]">{artifactsQuery.data?.length ?? 0}</span>
+                Artifacts <span className="ml-1 rounded-full bg-muted px-1.5 text-(length:--text-nano)">{artifactsQuery.data?.length ?? 0}</span>
               </button>
               <label className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground">
                 <input type="checkbox" checked={requireApproval} onChange={(e) => saveExportSetting.mutate(e.target.checked)} disabled={!roomId || saveExportSetting.isPending} />
@@ -723,18 +732,18 @@ export function Council() {
               const seatAuthor = !!c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX);
               if (!seatAuthor) {
                 return (
-                  <div key={c.id} className="ml-auto min-w-0 max-w-[80%] rounded-2xl bg-indigo-600 px-4 py-2 text-white">
+                  <div key={c.id} className="ml-auto min-w-0 max-w-(--council-message-max-width) rounded-2xl bg-indigo-600 px-4 py-2 text-white">
                     <MarkdownBody className="min-w-0 text-sm text-white [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
-                    <div className="mt-1 text-right text-[10px] opacity-70">{clock(c.createdAt)}</div>
+                    <div className="mt-1 text-right text-(length:--text-nano) opacity-70">{clock(c.createdAt)}</div>
                   </div>
                 );
               }
-              const color = seat ? seatColor(seat.id) : "#888";
+              const color = seat ? seatColor(seat.id) : "var(--council-seat-color-fallback)";
               const name = seat?.name ?? "Seat";
               return (
                 <div key={c.id} className="flex min-w-0 gap-2">
                   <div
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-(length:--text-micro) font-semibold"
                     style={{ borderColor: color, color }}
                   >
                     {name.slice(0, 2).toUpperCase()}
@@ -748,15 +757,15 @@ export function Council() {
                       <span className="font-normal text-muted-foreground">{clock(c.createdAt)}</span>
                     </div>
                     <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>
-                    <div className="mt-1 flex justify-end gap-2 text-[10px] text-muted-foreground">
-                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-[10px]" disabled={saveArtifact.isPending} onClick={() => {
+                    <div className="mt-1 flex justify-end gap-2 text-(length:--text-nano) text-muted-foreground">
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
                         setArtifactDraft({ markdown: c.body, title: `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
                         setArtifactsOpen(true);
                       }}>Save as artifact</Button>
                       <select
                         aria-label="Save reply as"
-                        className="h-6 rounded-md border bg-background px-1 text-[10px] text-foreground"
+                        className="h-6 rounded-md border bg-background px-1 text-(length:--text-nano) text-foreground"
                         value=""
                         disabled={!!exportingReply}
                         onChange={async (e) => {
@@ -812,7 +821,7 @@ export function Council() {
                             {exportingReply === `${c.id}:pptx` ? <Loader2 className="animate-spin" /> : null} {exportingReply === `${c.id}:pptx` && consolidatePptx ? "Condensing…" : "Download PowerPoint"}
                           </Button>
                         ) : null}
-                        {requestedFormats.pptx ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" aria-label="Condense into 3-4 slides first" checked={consolidatePptx} onChange={(event) => setConsolidatePptx(event.target.checked)} /> <span>Condense into 3-4 slides first <span className="text-[10px]">(keeps the key facts and numbers)</span></span></label> : null}
+                        {requestedFormats.pptx ? <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" aria-label="Condense into 3-4 slides first" checked={consolidatePptx} onChange={(event) => setConsolidatePptx(event.target.checked)} /> <span>Condense into 3-4 slides first <span className="text-(length:--text-nano)">(keeps the key facts and numbers)</span></span></label> : null}
                         {lastExportNote ? <span role="status" className="text-xs text-muted-foreground">{lastExportNote}</span> : null}
                         {requestedFormats.docx ? (
                           <Button

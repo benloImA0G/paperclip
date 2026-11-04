@@ -141,17 +141,17 @@ export function VendorSeatCard({
 
   return (
     <div
-      className={`flex min-w-0 flex-col gap-1.5 rounded-xl border border-border border-t-[3px] bg-card p-3 text-sm transition-opacity ${active ? "" : "opacity-60"}`}
+      className={`flex min-w-0 flex-col gap-1.5 rounded-xl border border-border border-t-(--council-seat-border-width) bg-card p-3 text-sm transition-opacity ${active ? "" : "opacity-60"}`}
       style={{ borderTopColor: color }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Vendor</div>
+          <div className="text-(length:--text-nano) font-semibold uppercase tracking-wide text-muted-foreground">Vendor</div>
           <div className="truncate font-semibold leading-tight" title={vendor.replace(/\s*\(council\)/i, "")}>{vendorIcon(vendor)} {vendor.replace(/\s*\(council\)/i, "")}</div>
         </div>
         <div className="flex items-center gap-1">
-          {seat && saveState !== "idle" ? <span className={`text-[10px] ${saveState === "error" ? "text-destructive" : "text-muted-foreground"}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Couldn’t save"}</span> : null}
-          {seat && saveState === "error" ? <button type="button" className="text-[10px] underline" onClick={() => { setSaveState("saving"); void onUpdate({}).then(() => setSaveState("saved")).catch(() => setSaveState("error")); }}>Retry</button> : null}
+          {seat && saveState !== "idle" ? <span className={`text-(length:--text-nano) ${saveState === "error" ? "text-destructive" : "text-muted-foreground"}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Couldn’t save"}</span> : null}
+          {seat && saveState === "error" ? <button type="button" className="text-(length:--text-nano) underline" onClick={() => { setSaveState("saving"); void onUpdate({}).then(() => setSaveState("saved")).catch(() => setSaveState("error")); }}>Retry</button> : null}
           <button
             type="button"
             aria-pressed={active}
@@ -171,7 +171,7 @@ export function VendorSeatCard({
         </div>
       </div>
 
-      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+      <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
         <span className="flex justify-between">
         Name
           {seat && onMention ? (
@@ -188,14 +188,14 @@ export function VendorSeatCard({
         />
       </label>
 
-      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+      <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
         <span>Role</span>
         <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => change({ role: e.target.value as CouncilSeatRole })}>
           <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option><option value="moderator">Orchestrator</option>
         </select>
       </label>
 
-      <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+      <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
         <span className="flex justify-between">
             Model
           {modelsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <span>{models.length || catalog.length} available</span>}
@@ -231,12 +231,12 @@ export function VendorSeatCard({
           {model && !catalog.some((c) => c.model === model) && !rest.includes(model) ? <option value={model}>{model}</option> : null}
           <option value="__custom">Custom model…</option>
         </select>
-        <span className="min-h-3 text-[10px]"><span style={{ color }}>●</span> {note ?? (seat?.reasoningEffort === "none" ? "thinking off" : "tested model")}{seat?.acceptsImages && !note?.includes("vision") ? " · vision" : ""}{seat?.fallbacks.length ? ` · ${seat.fallbacks.length} fallback` : ""}</span>
+        <span className="min-h-3 text-(length:--text-nano)"><span style={{ color }}>●</span> {note ?? (seat?.reasoningEffort === "none" ? "thinking off" : "tested model")}{seat?.acceptsImages && !note?.includes("vision") ? " · vision" : ""}{seat?.fallbacks.length ? ` · ${seat.fallbacks.length} fallback` : ""}</span>
       </label>
 
       <details className="group rounded-md border border-border/70 px-2">
-        <summary className="cursor-pointer list-none py-1 text-[11px] font-medium text-muted-foreground">Advanced</summary>
-      <label className="flex flex-col gap-0.5 pb-2 text-[11px] text-muted-foreground">
+        <summary className="cursor-pointer list-none py-1 text-(length:--text-micro) font-medium text-muted-foreground">Advanced</summary>
+      <label className="flex flex-col gap-0.5 pb-2 text-(length:--text-micro) text-muted-foreground">
         What this assistant should do
         <select
           className="h-7 rounded-md border bg-background px-1 text-xs text-foreground"
