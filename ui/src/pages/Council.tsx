@@ -157,6 +157,7 @@ export function Council() {
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
+  const [stoppedNote, setStoppedNote] = useState(false);
   const [pendingDefaultRoomId, setPendingDefaultRoomId] = useState<string | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<{ roomId: string; templateId: CouncilTemplateId } | null>(null);
   const [defaultsReadyRoomId, setDefaultsReadyRoomId] = useState<string | null>(null);
@@ -457,6 +458,7 @@ export function Council() {
     },
     onMutate: () => {
       setError(null);
+      setStoppedNote(false);
       setRunning(true);
       // fold the vendor cards so the live conversation gets the screen
       setCardsOpen(false);
@@ -483,6 +485,17 @@ export function Council() {
       void refresh("comments");
     },
   });
+
+  const stopRound = async () => {
+    if (!roomId) return;
+    try {
+      await councilApi.stopRound(companyId, roomId);
+      abortRef.current?.abort();
+      setStoppedNote(true);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
 
   if (!selectedCompanyId) return <EmptyState icon={Users} message="Select an organization to use Council." />;
 
@@ -952,6 +965,7 @@ export function Council() {
           </div>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {stoppedNote ? <p className="text-sm text-muted-foreground">Stopped. Replies that already arrived are kept.</p> : null}
           {compactedTurns > 0 ? (
             <p className="text-xs text-emerald-600">
               Token saver: {compactedTurns} older turn{compactedTurns > 1 ? "s were" : " was"} sent to the vendors as short digests. The full text stays in this thread.
@@ -981,7 +995,7 @@ export function Council() {
                 }
               }}
             />
-            {ask.isPending ? <Button type="button" variant="destructive" onClick={() => abortRef.current?.abort()}><Square /> Stop</Button> : <Button type="submit" disabled={!canSend}><Send /> Send</Button>}
+            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <Button type="submit" disabled={!canSend}><Send /> Send</Button>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
             {images.length ? (

@@ -242,6 +242,7 @@ export function councilChatService(db: Db) {
   const connections = aiConnectionService(db);
   const roomGenerations = new Map<string, number>();
   const runningRooms = new Set<string>();
+  const roundControllers = new Map<string, AbortController>();
 
   async function validateSeatTargets(companyId: string, targets: CouncilSeatFallback[]) {
     for (const target of targets) {
@@ -591,7 +592,7 @@ export function councilChatService(db: Db) {
           ...(usage ? { usage } : {}),
         };
       }
-      if (input.generation !== undefined && (roomGenerations.get(input.issueId) ?? 0) !== input.generation) {
+      if (input.signal.aborted || (input.generation !== undefined && (roomGenerations.get(input.issueId) ?? 0) !== input.generation)) {
         return { ...base, status: "cancelled", error: "Council round cancelled because the chat was cleared", durationMs: Date.now() - startedAt };
       }
       const comment = input.persistComment === false ? null : await issueSvc.addComment(issueId, text, {
@@ -609,6 +610,9 @@ export function councilChatService(db: Db) {
         ...(usage ? { usage } : {}),
       };
     } catch (err) {
+      if (input.signal.aborted || (err instanceof Error && err.name === "AbortError")) {
+        return { ...base, status: "cancelled", error: "Council round stopped", durationMs: Date.now() - startedAt };
+      }
       const message = err instanceof Error ? err.message : "Seat call failed";
       return { ...base, status: "error", error: message.slice(0, 500), durationMs: Date.now() - startedAt };
     }
@@ -822,7 +826,7 @@ export function councilChatService(db: Db) {
     );
 
     if (!summarize && activeSeats.length > 1 && !directOrchestratorMention) {
-      const orchestrator = seats.find((seat) => seat.role === "moderator");
+      const orchestrator = input.signal?.aborted ? undefined : seats.find((seat) => seat.role === "moderator");
       if (orchestrator) {
         const answers = results
           .filter((result) => result.status === "ok" && result.text)
@@ -897,12 +901,25 @@ export function councilChatService(db: Db) {
 
   async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation">) {
     const generation = roomGenerations.get(input.issueId) ?? 0;
+    const controller = new AbortController();
+    const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     runningRooms.add(input.issueId);
+    roundControllers.set(input.issueId, controller);
     try {
-      return await runRoundImpl({ ...input, generation });
+      return await runRoundImpl({ ...input, signal, generation });
     } finally {
       runningRooms.delete(input.issueId);
+      if (roundControllers.get(input.issueId) === controller) roundControllers.delete(input.issueId);
     }
+  }
+
+  async function stopRound(companyId: string, issueId: string) {
+    await getRoom(companyId, issueId);
+    const controller = roundControllers.get(issueId);
+    if (!controller) return { stopped: false };
+    roomGenerations.set(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
+    controller.abort();
+    return { stopped: true };
   }
 
   /** Removes every message in a room (the user's and the seats'); seats and the room stay. */
@@ -964,5 +981,5 @@ export function councilChatService(db: Db) {
     return [...new Set(ids)].sort();
   }
 
-  return { getRoom, getBrief, updateBrief, listArtifacts, getArtifact, saveArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, consolidateForExport, clearMessages, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
+  return { getRoom, getBrief, updateBrief, listArtifacts, getArtifact, saveArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, consolidateForExport, clearMessages, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
 }

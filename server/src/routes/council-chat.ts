@@ -229,7 +229,7 @@ export function councilChatRoutes(db: Db) {
     const userId = boardUserId(req);
     const abort = new AbortController();
     res.on("close", () => {
-      if (!res.writableEnded) abort.abort();
+      if (!res.writableFinished) abort.abort();
     });
     res.json(
       await council.runRound({
@@ -247,13 +247,22 @@ export function councilChatRoutes(db: Db) {
     );
   });
 
+  router.post("/companies/:companyId/council/rooms/:issueId/rounds/stop", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(await council.stopRound(companyId, req.params.issueId as string));
+  });
+
   router.post("/companies/:companyId/council/export", validate(exportSchema), async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const userId = boardUserId(req);
     const abort = new AbortController();
     const deadline = AbortSignal.timeout(45_000);
-    req.on("close", () => abort.abort());
+    res.on("close", () => {
+      if (!res.writableFinished) abort.abort();
+    });
     const { roomId, format, title, markdown, approved } = req.body;
     // This confirmation is client-asserted for the single board user, not a security boundary.
     if ((await council.getExportSetting(companyId, roomId)).requireApproval && approved !== true) {

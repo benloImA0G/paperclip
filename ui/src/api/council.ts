@@ -41,7 +41,7 @@ export interface CouncilSeatResult {
   seatName: string;
   model?: string;
   failedAttempts?: Array<{ model: string; error: string }>;
-  status: "ok" | "error" | "blocked";
+  status: "ok" | "error" | "blocked" | "cancelled";
   commentId?: string;
   text?: string;
   error?: string;
@@ -95,6 +95,8 @@ export const councilApi = {
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),
   clearMessages: (companyId: string, issueId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/messages`),
+  stopRound: (companyId: string, issueId: string) =>
+    api.post<{ stopped: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/rounds/stop`, {}),
   // A round waits for the slowest seat, so give it far longer than the default request timeout.
   runRound: (
     companyId: string,
