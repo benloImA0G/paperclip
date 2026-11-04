@@ -136,12 +136,15 @@ export function Dashboard() {
   // start the wizard at the front door with no company, and the new-company
   // path there would create a *second* company instead of giving this one an
   // agent.
-  const shouldOpenOnboarding = shouldRouteAgentlessCompanyToOnboarding({
-    pathname: location.pathname,
-    agentsLoaded: agents !== undefined,
-    agentsRefreshing,
-    agentCount: agents?.length ?? 0,
-  });
+  // Fork: Council Chat needs no agent, so an agentless company is not sent to the wizard.
+  const shouldOpenOnboarding =
+    false &&
+    shouldRouteAgentlessCompanyToOnboarding({
+      pathname: location.pathname,
+      agentsLoaded: agents !== undefined,
+      agentsRefreshing,
+      agentCount: agents?.length ?? 0,
+    });
   // Auto-open once per company. Every input to the effect sits behind a query,
   // so a refetch re-runs it, and the customer can also navigate away and come
   // back — both would otherwise call `openOnboarding` again and reopen a
@@ -319,7 +322,8 @@ export function Dashboard() {
   // Same rule as the auto-offer above: a list still being refreshed may be the
   // empty one cached before the first hire, and the banner's "Create one here"
   // opens the same agent step the offer does.
-  const hasNoAgents = agents !== undefined && !agentsRefreshing && agents.length === 0;
+  // Fork: the "You have no agents" banner is hidden (Council Chat works without agents).
+  const hasNoAgents = false && agents !== undefined && !agentsRefreshing && agents.length === 0;
   const pausedBanner = derivePausedAgentBanner(agents);
   const pausedImportedCount =
     pausedBanner?.kind === "imported" ? pausedBanner.pausedImportedAgentIds.length : 0;
