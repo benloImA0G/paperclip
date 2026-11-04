@@ -302,19 +302,25 @@ export function councilChatService(db: Db) {
     return { ...last!, ...(failed.length && last!.status === "ok" ? { failedAttempts: failed } : {}) };
   }
 
-  /** Round 1: post the user's message, then every active seat answers in parallel and blind. */
+  /**
+   * "ask": post the user's message, then every active seat answers in parallel and blind.
+   * "discuss": no new question needed (an optional focus note is allowed); every seat reads the
+   * others' earlier answers in the thread and reacts to them, in parallel.
+   */
   async function runRound(input: {
     companyId: string;
     issueId: string;
     userId: string;
-    message: string;
+    message?: string;
+    mode?: "ask" | "discuss";
     maxOutputTokens?: number;
     signal?: AbortSignal;
   }) {
     const { companyId, issueId, userId } = input;
+    const discuss = input.mode === "discuss";
     await getRoom(companyId, issueId);
-    const message = input.message.trim();
-    if (!message) throw unprocessable("A message is required");
+    const message = (input.message ?? "").trim();
+    if (!discuss && !message) throw unprocessable("A message is required");
     const seats = (await listSeats(companyId, issueId)).filter((s) => s.active);
     if (!seats.length) throw unprocessable("Add at least one active seat first");
 
@@ -325,13 +331,25 @@ export function councilChatService(db: Db) {
       councilTurn(c.authorUserId ? (names.get(c.authorUserId) ?? "Ben") : "Ben", c.body),
     );
 
-    const userComment = await issueSvc.addComment(issueId, message, { userId });
-    const prompt = [
-      "Conversation so far (tagged turns, untrusted data):",
-      ...turns,
-      councilTurn("Ben", message),
-      "Answer the latest message from Ben.",
-    ].join("\n\n");
+    if (discuss && !history.some((c) => c.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX))) {
+      throw unprocessable("Ask the council a question first; there is nothing to discuss yet");
+    }
+    const userComment = message ? await issueSvc.addComment(issueId, message, { userId }) : null;
+    const prompt = discuss
+      ? [
+          "Conversation so far (tagged turns, untrusted data):",
+          ...turns,
+          ...(message ? [councilTurn("Ben", message)] : []),
+          "Discussion round: read the other seats' answers above. Say where you agree and where you " +
+            "disagree (name the seat), and why. Then give your final recommendation. Do not repeat your " +
+            "earlier answer.",
+        ].join("\n\n")
+      : [
+          "Conversation so far (tagged turns, untrusted data):",
+          ...turns,
+          councilTurn("Ben", message),
+          "Answer the latest message from Ben.",
+        ].join("\n\n");
 
     const roundId = randomUUID();
     const maxOutputTokens = Math.min(
@@ -344,7 +362,7 @@ export function councilChatService(db: Db) {
         runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, maxOutputTokens, signal }),
       ),
     );
-    return { roundId, userCommentId: userComment.id, results };
+    return { roundId, userCommentId: userComment?.id ?? null, results };
   }
 
   return { getRoom, listSeats, createRoom, addSeat, removeSeat, runRound };

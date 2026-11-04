@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Plus, Send, Users, X } from "lucide-react";
+import { Loader2, MessagesSquare, Plus, Send, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -118,7 +118,7 @@ export function Council() {
   });
 
   const ask = useMutation({
-    mutationFn: () => councilApi.runRound(companyId, roomId!, message.trim()),
+    mutationFn: (mode: "ask" | "discuss") => councilApi.runRound(companyId, roomId!, message.trim(), mode),
     onMutate: () => setError(null),
     onSuccess: (round) => {
       setMessage("");
@@ -255,7 +255,7 @@ export function Council() {
               className="flex items-end gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (message.trim() && (seats.data?.length ?? 0) > 0) ask.mutate();
+                if (message.trim() && (seats.data?.length ?? 0) > 0) ask.mutate("ask");
               }}
             >
               <Textarea
@@ -267,9 +267,20 @@ export function Council() {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit();
                 }}
               />
-              <Button type="submit" disabled={ask.isPending || !message.trim() || !(seats.data?.length ?? 0)}>
-                <Send /> Ask all
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button type="submit" disabled={ask.isPending || !message.trim() || !(seats.data?.length ?? 0)}>
+                  <Send /> Ask all
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  title="Every seat reads the others' answers and reacts. Your note above is optional."
+                  disabled={ask.isPending || (seats.data?.length ?? 0) < 2 || !comments.data?.some((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))}
+                  onClick={() => ask.mutate("discuss")}
+                >
+                  <MessagesSquare /> Discuss
+                </Button>
+              </div>
             </form>
           </>
         )}

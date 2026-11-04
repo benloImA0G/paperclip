@@ -47,7 +47,7 @@ export interface CouncilSeatResult {
 
 export interface CouncilRoundResult {
   roundId: string;
-  userCommentId: string;
+  userCommentId: string | null;
   results: CouncilSeatResult[];
 }
 
@@ -61,10 +61,10 @@ export const councilApi = {
   removeSeat: (companyId: string, issueId: string, seatId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),
   // A round waits for the slowest seat, so give it far longer than the default request timeout.
-  runRound: (companyId: string, issueId: string, message: string, maxOutputTokens?: number) =>
+  runRound: (companyId: string, issueId: string, message: string, mode: "ask" | "discuss" = "ask", maxOutputTokens?: number) =>
     api.post<CouncilRoundResult>(
       `/companies/${companyId}/council/rooms/${issueId}/rounds`,
-      { message, ...(maxOutputTokens ? { maxOutputTokens } : {}) },
+      { ...(message ? { message } : {}), mode, ...(maxOutputTokens ? { maxOutputTokens } : {}) },
       { timeoutMs: 600_000 },
     ),
 };
