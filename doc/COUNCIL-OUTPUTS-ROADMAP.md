@@ -178,3 +178,33 @@ Council as a controlled workstream, not parallel bots. Priority order:
 5. Moderator that routes who speaks and records disagreement (needs 2).
 6. Layout: Participants drawer on the right; centre is brief, discussion and final decision.
 Contract: normalised run events (message, status, tool call, artifact, evidence, approval request, error); reference AG-UI.
+
+## Event contract
+
+Council should expose one append-only, normalised event stream per run, inspired by
+the AG-UI protocol idea: typed events make live UI, replay, audit, and other
+consumers independent of provider-specific response shapes. The canonical event
+names are `message`, `status`, `tool_call`, `artifact`, `evidence`,
+`approval_request`, and `error`.
+
+Each event carries `runId`, `sequence`, `at`, and `type`; the examples below show
+the proposed payload shape. `message`, `status`, `artifact`, and `error` are
+partly implemented by existing Council output/result data; the normalised stream
+and `tool_call`/`evidence` envelopes remain proposed.
+
+```json
+{"type":"message","runId":"r1","sequence":1,"at":"2026-11-05T10:00:00Z","role":"seat","seat":"writer","text":"Draft ready."}
+{"type":"status","runId":"r1","sequence":2,"at":"2026-11-05T10:00:01Z","state":"completed","round":1,"durationMs":4200,"fallbackUsed":false}
+{"type":"tool_call","runId":"r1","sequence":3,"at":"2026-11-05T10:00:02Z","name":"export_markdown","status":"started","input":{"format":"md"}}
+{"type":"artifact","runId":"r1","sequence":4,"at":"2026-11-05T10:00:03Z","artifactId":"a1","kind":"file","name":"decision.md","round":1}
+{"type":"evidence","runId":"r1","sequence":5,"at":"2026-11-05T10:00:04Z","source":"rounds.results[0]","claim":"All seats support the recommendation","ref":"result-0"}
+{"type":"approval_request","runId":"r1","sequence":6,"at":"2026-11-05T10:00:05Z","gate":"export","action":"publish","state":"pending","artifacts":["a1"]}
+{"type":"error","runId":"r1","sequence":7,"at":"2026-11-05T10:00:06Z","code":"provider_timeout","message":"Seat did not respond","retryable":true}
+```
+
+Mapping to current Council output: `rounds[].results` feeds `message` and
+`evidence`; `durationMs` and `fallbackUsed` feed `status`; generated `artifacts`
+feed `artifact`; and the existing approval gate feeds `approval_request`.
+Provider failures should become `error`. Persisting and streaming these event
+records, including stable ordering and replay, is proposed; the source fields
+and approval gate are implemented today.

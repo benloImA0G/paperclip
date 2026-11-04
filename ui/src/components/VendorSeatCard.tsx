@@ -158,7 +158,7 @@ export function VendorSeatCard({
       <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span>Role</span>
         <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => change({ role: e.target.value as CouncilSeatRole })}>
-          <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option>
+          <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option><option value="moderator">Moderator</option>
         </select>
       </label>
 

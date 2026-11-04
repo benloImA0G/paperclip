@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { inflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { markdownToDocx, markdownToPptx, splitForSlides } from "../services/council-export.js";
+import { markdownToDocx, markdownToPptx, sanitizeMarkdownForPandoc, splitForSlides } from "../services/council-export.js";
 
 function zipEntries(buffer: Buffer) {
   const entries: Array<{ name: string; data: Buffer }> = [];
@@ -87,4 +87,18 @@ describe.skipIf(!pandocAvailable)("council exports (Pandoc required)", () => {
       expect(xml).not.toContain("ppt/media/");
     }
   });
+});
+
+it("sanitizes remote and local resource references before Pandoc", () => {
+  const safe = sanitizeMarkdownForPandoc([
+    "![diagram](https://evil.test/a.png)",
+    "![local](file:///etc/passwd)",
+    '<img src="data:image/png;base64,AAAA">',
+    '<iframe src="ftp://evil.test/x"></iframe>',
+    '<link rel="stylesheet" href="https://evil.test/x.css">',
+  ].join("\n"));
+  expect(safe).toContain("diagram");
+  expect(safe).toContain("local");
+  expect(safe).not.toMatch(/https?:|ftp:|file:|data:/i);
+  expect(safe).not.toMatch(/<img|<iframe|<link/i);
 });

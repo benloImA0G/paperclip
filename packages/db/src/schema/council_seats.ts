@@ -17,7 +17,7 @@ export interface CouncilSeatFallback {
   grantId: string;
   model: string;
 }
-export type CouncilSeatRole = "none" | "researcher" | "builder" | "critic" | "synthesizer";
+export type CouncilSeatRole = "none" | "researcher" | "builder" | "critic" | "synthesizer" | "moderator";
 export type CouncilSeatStoredConfig = CouncilSeatFallback[] | { fallbacks: CouncilSeatFallback[]; role?: CouncilSeatRole };
 
 /**

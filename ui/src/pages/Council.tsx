@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ImagePlus, Loader2, MessagesSquare, Plus, RotateCcw, Send, Square, Trash2, Users, X } from "lucide-react";
+import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, Plus, RotateCcw, Send, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -48,10 +48,10 @@ const QUICK_PROMPTS = [
 /** Starting choices per vendor (matched by connection name prefix); `auto` vendors join every new room. */
 const VENDOR_DEFAULTS: Record<
   string,
-  { name: string; model: string; persona: string; thinkingOff?: boolean; vision?: boolean; fallback?: string; auto?: boolean }
+  { name: string; model: string; persona: string; thinkingOff?: boolean; vision?: boolean; fallback?: string; fallbackVendor?: string; auto?: boolean }
 > = {
-  NVIDIA: { name: "Techie", model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", persona: "A highly technical assistant who loves to explain complex topics.", auto: true },
-  Groq: { name: "Creative", model: "openai/gpt-oss-120b", persona: "A creative thinker who loves brainstorming new ideas.", auto: true },
+  NVIDIA: { name: "Techie", model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", persona: "A highly technical assistant who loves to explain complex topics.", fallback: "openai/gpt-oss-120b", fallbackVendor: "Groq", auto: true },
+  Groq: { name: "Creative", model: "openai/gpt-oss-120b", persona: "A creative thinker who loves brainstorming new ideas.", fallback: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", fallbackVendor: "NVIDIA", auto: true },
   Gemini: { name: "Friendly", model: "gemini-3.5-flash-lite", persona: "A warm, friendly conversationalist who is supportive and kind.", vision: true, auto: true },
   Ollama: { name: "CodeBot", model: "gemma4:26b", persona: "A pragmatic code specialist who gives direct, working code and short answers.", thinkingOff: true, vision: true, fallback: "gemini-3.5-flash-lite", auto: true },
 };
@@ -130,6 +130,7 @@ export function Council() {
   const [clarify, setClarify] = useState(false);
   const [showArchives, setShowArchives] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(true);
+  const [participantsOpen, setParticipantsOpen] = useState(true);
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
@@ -210,7 +211,7 @@ export function Council() {
       ...(d?.vision && draft.model === d.model ? { acceptsImages: true } : {}),
       ...(d?.fallback && draft.model === d.model
         ? (() => {
-            const fb = connectionOptions.find((c) => c.name.startsWith("Gemini"));
+            const fb = connectionOptions.find((c) => c.name.startsWith(d.fallbackVendor ?? "Gemini"));
             return fb ? { fallbacks: [{ connectionId: fb.id, grantId: fb.grantId, model: d.fallback! }] } : {};
           })()
         : {}),
@@ -406,6 +407,8 @@ export function Council() {
   const canSend = !ask.isPending && !!message.trim() && activeSeats.length > 0;
   const room = rooms.data?.find((r) => r.id === roomId);
   const seatById = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s]));
+  const latestRound = roundDetails[roomId ?? ""]?.at(-1) ?? [];
+  const roleLabel = (role: CouncilSeat["role"]) => role === "none" ? "Participant" : role[0].toUpperCase() + role.slice(1);
   const latestUserMessage = [...(comments.data ?? [])].reverse().find((c) => !c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
   const finalVendorReply = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
   const requestedDocumentExport = DOCUMENT_EXPORT_REQUEST.test(latestUserMessage?.body ?? "") ? latestUserMessage?.body ?? "" : "";
@@ -593,6 +596,42 @@ export function Council() {
               })}
             </div>
           ) : null}
+          <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className="shrink-0 rounded-lg border bg-muted/10">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Participants <span className="font-normal text-muted-foreground">{activeSeats.length} active</span></span>
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <span>{participantsOpen ? "Hide" : "Show"}</span>
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${participantsOpen ? "rotate-180" : ""}`} />
+              </span>
+            </summary>
+            <div className="grid gap-1 border-t px-2 py-2 sm:grid-cols-2 xl:grid-cols-3">
+              {activeSeats.map((seat) => {
+                const result = latestRound.find((candidate) => candidate.seatId === seat.id) ?? lastResults[roomId ?? ""]?.[seat.id];
+                const status = running && !result ? "working…" : result ? (result.status === "ok" ? "answered" : result.status === "blocked" ? "skipped" : "failed") : "waiting";
+                const latency = result?.latencyMs ?? result?.durationMs;
+                const statusTone = status === "answered" ? "text-emerald-600" : status === "failed" ? "text-destructive" : status === "working…" ? "text-primary" : "text-muted-foreground";
+                return (
+                  <div key={seat.id} className="flex min-w-0 items-center gap-2 rounded-md border bg-background/60 px-2 py-1.5">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px]" style={{ borderColor: seatColor(seat.id), color: seatColor(seat.id) }}>
+                      {vendorIcon(vendorOf(seat))}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                        <span className="truncate font-medium" title={seat.name}>{seat.name}</span>
+                        <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] text-muted-foreground">{roleLabel(seat.role)}</span>
+                      </div>
+                      <div className="truncate text-[10px] text-muted-foreground" title={`${vendorOf(seat)} · ${seat.model}`}>{vendorOf(seat)} · {seat.model}</div>
+                    </div>
+                    <div className={`flex shrink-0 flex-col items-end gap-0.5 text-[10px] ${statusTone}`}>
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 font-medium leading-tight">{status}</span>
+                      <span className="text-muted-foreground">{latency != null ? `${(latency / 1000).toFixed(1)}s` : "—"}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {!activeSeats.length ? <p className="px-1 text-xs text-muted-foreground">No active participants.</p> : null}
+            </div>
+          </details>
           <div className={`${cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 pb-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
             {connectionOptions.map((conn, i) => {
               const seat = seatOf(conn.id);

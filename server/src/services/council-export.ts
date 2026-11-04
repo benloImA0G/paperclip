@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 const PANDOC_ARGS = ["-f", "markdown-raw_html-raw_attribute-raw_tex+pipe_tables", "--sandbox"];
@@ -10,6 +10,15 @@ let activeExports = 0;
 
 const SLIDE_CHAR_LIMIT = 700;
 const SLIDE_LINE_LIMIT = 12;
+const MAX_OUTPUT_BYTES = 20 * 1024 * 1024;
+
+export function sanitizeMarkdownForPandoc(markdown: string): string {
+  return markdown
+    .replace(/!\[([^\]]*)\]\(\s*(?:https?|ftp|file|data):[^)]*\)/gi, "$1")
+    .replace(/<img\b[^>]*\bsrc\s*=\s*["']?\s*(?:https?|ftp|file|data):[^>]*>/gi, "")
+    .replace(/<(?:iframe|link)\b[^>]*\b(?:src|href)\s*=\s*["']?\s*(?:https?|ftp|file|data):[^>]*>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+}
 
 type MarkdownBlock = { kind: "table" | "list" | "code" | "paragraph"; lines: string[] };
 
@@ -205,11 +214,10 @@ async function convert(title: string, markdown: string, format: "docx" | "pptx")
         else finish(new Error(`Pandoc export failed${signal ? ` (${signal})` : ""}: ${stderr.trim() || `exit code ${code}`}`));
       });
       // Never let local file URLs enter Pandoc's resource resolver.
-      const safeMarkdown = (format === "pptx" ? splitForSlides(markdown) : markdown)
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
-        .replace(/!\[([^\]]*)\]\(file:\/\/[^)]*\)/gi, "$1");
+      const safeMarkdown = sanitizeMarkdownForPandoc(format === "pptx" ? splitForSlides(markdown) : markdown);
       child.stdin.end(safeMarkdown);
     });
+    if ((await stat(output)).size > MAX_OUTPUT_BYTES) throw new Error("Council export exceeds the 20 MB limit");
     return await readFile(output);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new PandocUnavailableError();

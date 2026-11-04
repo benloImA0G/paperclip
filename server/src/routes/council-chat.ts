@@ -21,7 +21,7 @@ const addSeatSchema = z
     model: z.string().trim().min(1).max(256),
     reasoningEffort: z.enum(["none", "minimal", "low", "medium", "high"]).optional(),
     acceptsImages: z.boolean().optional(),
-    role: z.enum(["none", "researcher", "builder", "critic", "synthesizer"]).optional(),
+    role: z.enum(["none", "researcher", "builder", "critic", "synthesizer", "moderator"]).optional(),
     fallbacks: z
       .array(
         z
@@ -42,7 +42,8 @@ const updateSeatSchema = z
     persona: z.string().max(2000).optional(),
     model: z.string().trim().min(1).max(256).optional(),
     active: z.boolean().optional(),
-    role: z.enum(["none", "researcher", "builder", "critic", "synthesizer"]).optional(),
+    role: z.enum(["none", "researcher", "builder", "critic", "synthesizer", "moderator"]).optional(),
+    fallbacks: z.array(z.object({ connectionId: z.string().uuid(), grantId: z.string().uuid(), model: z.string().trim().min(1).max(256) }).strict()).max(3).optional(),
   })
   .strict();
 const roundSchema = z
@@ -92,6 +93,7 @@ export function councilChatRoutes(db: Db) {
   router.get("/companies/:companyId/council/rooms", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
+    boardUserId(req);
     if (req.query.archived === "1") {
       res.json(await council.listArchivedRooms(companyId));
       return;
@@ -180,6 +182,7 @@ export function councilChatRoutes(db: Db) {
   router.get("/companies/:companyId/council/rooms/:issueId/seats", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
+    boardUserId(req);
     await council.getRoom(companyId, req.params.issueId as string);
     res.json(await council.listSeats(companyId, req.params.issueId as string));
   });
