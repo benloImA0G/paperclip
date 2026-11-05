@@ -154,7 +154,7 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
   );
 }
 
-export function LinkedTasksPanel({ roomId, companyId }: { roomId: string; companyId?: string }) {
+export function LinkedTasksPanel({ roomId, companyId, onAskInRoom }: { roomId: string; companyId?: string; onAskInRoom?: (text: string) => void }) {
   const agents = useQuery({
     queryKey: queryKeys.agents.list(companyId ?? ""),
     queryFn: () => agentsApi.list(companyId ?? ""),
@@ -196,6 +196,7 @@ export function LinkedTasksPanel({ roomId, companyId }: { roomId: string; compan
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <IssueStatusBadge status={issue.status} displayStatus={issue.displayStatus} />
                 <span>{assigneeLabel(issue, agentNames)}</span>
+                {onAskInRoom ? <Button type="button" variant="outline" size="sm" onClick={() => onAskInRoom(`Follow up on ${issue.identifier ?? issue.id}: ${issue.title} (status: ${issue.status}). What is the latest and what is next?`)}>Ask in room</Button> : null}
               </div>
             </li>
           ))}

@@ -145,6 +145,26 @@ describe("CouncilTaskBridge", () => {
     act(() => root.unmount());
   });
 
+  it("asks in the room about a linked task", async () => {
+    mocks.get.mockResolvedValue({
+      relatedWork: {
+        inbound: [{ issue: { id: "task-1", identifier: "PAP-42", title: "Prepare pricing launch", status: "todo", priority: "medium", assigneeAgentId: "agent-1", assigneeUserId: null }, mentionCount: 1, sources: [] }],
+        outbound: [],
+      },
+    });
+    const onAskInRoom = vi.fn();
+    const root = createRoot(container);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => {
+      root.render(<QueryClientProvider client={client}><LinkedTasksPanel roomId="room-1" onAskInRoom={onAskInRoom} /></QueryClientProvider>);
+    });
+    await flush();
+
+    act(() => (Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Ask in room") as HTMLButtonElement).click());
+    expect(onAskInRoom).toHaveBeenCalledWith("Follow up on PAP-42: Prepare pricing launch (status: todo). What is the latest and what is next?");
+    act(() => root.unmount());
+  });
+
   describe("ActionItemsChecklist", () => {
     const decision: CouncilDecisionRecord = {
       recommendation: "Adopt annual pricing",
