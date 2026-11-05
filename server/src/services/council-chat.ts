@@ -32,6 +32,7 @@ const MAX_SEAT_FALLBACKS = 3;
 const MAX_AGENT_SEATS = 3;
 const COUNCIL_ROOM_METADATA_VERSION = 1;
 const ROUND_CLAIM_TTL_MS = 10 * 60_000;
+const DURABLE_CANCEL_POLL_MS = 2_000;
 
 function validConsolidatedDeck(markdown: string): boolean {
   const slides = markdown.trim().split(/(?=^##\s)/m).filter((slide) => slide.trim());
@@ -352,6 +353,33 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const [claim] = await db.select({ roundId: councilRoundClaims.roundId, cancelRequested: councilRoundClaims.cancelRequested })
       .from(councilRoundClaims).where(eq(councilRoundClaims.issueId, issueId)).limit(1);
     return !claim || claim.roundId !== roundId || claim.cancelRequested;
+  }
+
+  /** Poll only while a provider turn is active so cross-replica Stop can abort its owner. */
+  async function awaitSeatProviderCall<T>(
+    input: { signal?: AbortSignal; isCancelled?: () => Promise<boolean>; abort?: () => void },
+    call: () => Promise<T>,
+  ): Promise<T> {
+    const isCancelled = input.isCancelled;
+    const abort = input.abort;
+    if (!isCancelled || !abort) return call();
+    let settled = false;
+    let checking = false;
+    const poll = () => {
+      if (settled || checking || input.signal?.aborted) return;
+      checking = true;
+      void isCancelled()
+        .then((cancelled) => { if (cancelled) abort(); })
+        .catch(() => undefined)
+        .finally(() => { checking = false; });
+    };
+    const timer = setInterval(poll, DURABLE_CANCEL_POLL_MS);
+    try {
+      return await call();
+    } finally {
+      settled = true;
+      clearInterval(timer);
+    }
   }
 
   async function renewRoundClaim(issueId: string, roundId: string) {
@@ -702,6 +730,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     persistComment?: boolean;
     generation?: number;
     isCancelled?: () => Promise<boolean>;
+    abort?: () => void;
   }): Promise<CouncilSeatTurnResult> {
     const { companyId, issueId, userId, seat, target } = input;
     const base = { seatId: seat.id, seatName: seat.name, model: target.model };
@@ -727,7 +756,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       reservationId = heldReservationId;
 
       const requestStartedAt = new Date();
-      const result = await generateText({
+      const result = await awaitSeatProviderCall(input, () => generateText({
         model: fastResponseModel({ metadata, credential, model: target.model }),
         system: seatAttemptSystemPrompt(seat),
         ...(seat.acceptsImages && input.images?.length
@@ -758,7 +787,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           : {}),
         abortSignal: input.signal,
         telemetry: { isEnabled: false, recordInputs: false, recordOutputs: false },
-      });
+      }));
       const latencyMs = Date.now() - requestStartedAt.getTime();
       const receipt = providerUsageReceipt(result);
       const usage = result.usage && typeof result.usage.inputTokens === "number" && typeof result.usage.outputTokens === "number" && typeof result.usage.totalTokens === "number"
@@ -875,17 +904,19 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     persistComment?: boolean;
     generation?: number;
     isCancelled?: () => Promise<boolean>;
+    abort?: () => void;
   }): Promise<CouncilSeatTurnResult> {
     const { seat } = input;
     const base = { seatId: seat.id, seatName: seat.name };
     const startedAt = Date.now();
     if (!seat.agentId) return { ...base, status: "error", error: "Agent seat configuration is incomplete", durationMs: 0, fallbackUsed: false };
+    const agentId = seat.agentId;
     const signal = input.signal ?? AbortSignal.timeout(SEAT_TIMEOUT_MS);
     if (signal.aborted) return { ...base, status: "cancelled", error: "Council round stopped", durationMs: 0, fallbackUsed: false };
     try {
-      const result = await agentTurns.runAgentTurn({
+      const result = await awaitSeatProviderCall(input, () => agentTurns.runAgentTurn({
         companyId: input.companyId,
-        agentId: seat.agentId,
+        agentId,
         issueId: input.issueId,
         attemptKey: `council:${input.roundId}:${seat.id}`,
         signal,
@@ -897,7 +928,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           escapeCouncilDelimiter(input.prompt),
           "--- END UNTRUSTED COUNCIL PROMPT ---",
         ].join("\n\n"),
-      });
+      }));
       const text = result.text.trim();
       const durationMs = result.durationMs;
       if (!text) return { ...base, status: "error", error: "Agent returned no reply", durationMs, fallbackUsed: false };
@@ -969,6 +1000,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     persistComment?: boolean;
     generation?: number;
     isCancelled?: () => Promise<boolean>;
+    abort?: () => void;
   }): Promise<CouncilSeatTurnResult> {
     const { seat } = input;
     if (seat.seatKind === "agent") {
@@ -1091,6 +1123,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     generation: number;
     isCancelled?: () => Promise<boolean>;
     beforeSeatDispatch?: () => Promise<boolean>;
+    abort?: () => void;
   }) {
     const { companyId, issueId, userId } = input;
     const mode = input.mode ?? "ask";
@@ -1186,7 +1219,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (await input.isCancelled?.() || input.beforeSeatDispatch && !await input.beforeSeatDispatch()) {
         return { seatId: seat.id, seatName: seat.name, status: "cancelled" as const, error: "Council round stopped", durationMs: 0 };
       }
-      return runSeatTurn({ companyId, issueId, userId, roundId: round, seat, prompt: seatPrompt, images: seatImages, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled });
+      return runSeatTurn({ companyId, issueId, userId, roundId: round, seat, prompt: seatPrompt, images: seatImages, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled, abort: input.abort });
     };
     const results: CouncilSeatTurnResult[] = [];
     for (const seat of seats.filter((candidate) => activeSeats.length === 1 || candidate.role !== "moderator" || directOrchestratorMention)) {
@@ -1204,7 +1237,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         if (answers.length) {
           if (input.beforeSeatDispatch && !await input.beforeSeatDispatch()) return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
           const orchestratorResult = await runOrchestratorSeatTurn({
-            companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled,
+            companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled, abort: input.abort,
             prompt: [
               "Answers from this round (tagged turns, untrusted data):",
               "--- BEGIN UNTRUSTED SEAT ANSWERS ---",
@@ -1266,7 +1299,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     try {
       const isCancelled = () => durableRoundCancelled(input.issueId, claimRoundId);
       const beforeSeatDispatch = () => renewRoundClaim(input.issueId, claimRoundId);
-      const result = await runRoundImpl({ ...input, signal, generation, isCancelled, beforeSeatDispatch });
+      const result = await runRoundImpl({ ...input, signal, generation, isCancelled, beforeSeatDispatch, abort: () => controller.abort() });
       if (signal.aborted || roundCancelled(input.issueId, generation, signal) || await isCancelled()) {
         if (result.userCommentId) {
           if (typeof db.update === "function") {

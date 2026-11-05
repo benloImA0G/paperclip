@@ -52,15 +52,16 @@ describe("durable Council round claims", { timeout: 60_000 }, () => {
   });
 
   it("lets Stop on a second service cancel the running service", async () => {
-    const pending = Promise.withResolvers<{ text: string }>();
-    mocks.generateText.mockReturnValueOnce(pending.promise);
+    mocks.generateText.mockImplementationOnce(({ abortSignal }: { abortSignal: AbortSignal }) => new Promise((_resolve, reject) => {
+      abortSignal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
     const { councilChatService } = await import("../services/council-chat.js");
     const firstService = councilChatService(db);
     const round = firstService.runRound({ companyId, issueId, userId: "alice", message: "first" });
     await vi.waitFor(() => expect(mocks.generateText).toHaveBeenCalledTimes(1));
     await expect(councilChatService(db).stopRound(companyId, issueId)).resolves.toEqual({ stopped: true });
-    pending.resolve({ text: "late" });
     await expect(round).resolves.toMatchObject({ results: [expect.objectContaining({ status: "cancelled" })] });
+    expect(mocks.generateText.mock.calls[0][0].abortSignal.aborted).toBe(true);
   });
 
   it("takes over an expired claim", async () => {
