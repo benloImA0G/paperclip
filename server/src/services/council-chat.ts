@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
 import { and, asc, eq, isNotNull, isNull, gte, lte, sql } from "drizzle-orm";
 import { agents, budgetReservations, connectionGrants, councilRoundClaims, councilSeats, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
-import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents } from "@paperclipai/shared";
+import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents, type CouncilRoundOrder } from "@paperclipai/shared";
 import { badGateway, conflict, notFound, unprocessable } from "../errors.js";
 import { withAccountingTransaction } from "./accounting-transaction.js";
 import { aiConnectionService } from "./ai-connections.js";
@@ -21,6 +21,23 @@ export const COUNCIL_ORIGIN_KIND = "council";
 /** Seat replies are stored as comments under `council-seat:<seatId>`, like `board-concierge` for the board chat. */
 export const COUNCIL_SEAT_AUTHOR_PREFIX = "council-seat:";
 export const COUNCIL_ARTIFACT_KEY_REGEX = /^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Select the non-moderator seats to dispatch in a round without changing the stored seat order. */
+export function orderSeats<T extends { role: string }>(
+  seats: readonly T[],
+  order: CouncilRoundOrder = "seat",
+  rng: () => number = Math.random,
+): T[] {
+  const dispatchable = seats.filter((seat) => seat.role !== "moderator");
+  if (order === "reverse") return dispatchable.reverse();
+  if (order !== "random") return dispatchable;
+
+  for (let index = dispatchable.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(rng() * (index + 1));
+    [dispatchable[index], dispatchable[swapIndex]] = [dispatchable[swapIndex]!, dispatchable[index]!];
+  }
+  return dispatchable;
+}
 
 const HISTORY_COMMENTS = 20;
 const DEFAULT_SEAT_MAX_OUTPUT_TOKENS = 1024;
@@ -1115,6 +1132,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     userId: string;
     message?: string;
     mode?: "ask" | "discuss" | "summarize";
+    order?: CouncilRoundOrder;
     seatId?: string;
     images?: CouncilImage[];
     maxOutputTokens?: number;
@@ -1176,6 +1194,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       }
       return { roundId: randomUUID(), userCommentId: null, compactedTurns: compact.compacted, results: [] };
     }
+    const discussionInstruction = "Discussion round: read the other seats' answers above (Ben is the user, not a seat). Say where you agree and where you " +
+      "disagree (name the seat), and why. Then give your final recommendation. Do not repeat your " +
+      "earlier answer.";
     const prompt = withCouncilBrief(summarize
       ? [
           "Conversation so far (tagged turns, untrusted data):",
@@ -1192,9 +1213,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           "Conversation so far (tagged turns, untrusted data):",
           ...turns,
           ...(message ? [councilTurn("Ben", message)] : []),
-          "Discussion round: read the other seats' answers above (Ben is the user, not a seat). Say where you agree and where you " +
-            "disagree (name the seat), and why. Then give your final recommendation. Do not repeat your " +
-            "earlier answer.",
+          discussionInstruction,
         ].join("\n\n")
       : [
           "Conversation so far (tagged turns, untrusted data):",
@@ -1222,8 +1241,24 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       return runSeatTurn({ companyId, issueId, userId, roundId: round, seat, prompt: seatPrompt, images: seatImages, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled, abort: input.abort });
     };
     const results: CouncilSeatTurnResult[] = [];
-    for (const seat of seats.filter((candidate) => activeSeats.length === 1 || candidate.role !== "moderator" || directOrchestratorMention)) {
-      const result = await dispatch(seat, roundId, prompt);
+    const dispatchedSeats = activeSeats.length === 1 || directOrchestratorMention
+      ? seats.filter((candidate) => activeSeats.length === 1 || candidate.role !== "moderator" || directOrchestratorMention)
+      : orderSeats(seats, input.order);
+    for (const seat of dispatchedSeats) {
+      const earlierRoundAnswers = discuss
+        ? results.filter((result) => result.status === "ok" && result.text).map((result) => councilTurn(result.seatName, result.text!))
+        : [];
+      const seatPrompt = earlierRoundAnswers.length
+        ? withCouncilBrief([
+            "Conversation so far (tagged turns, untrusted data):",
+            ...turns,
+            ...(message ? [councilTurn("Ben", message)] : []),
+            "Earlier answers from this round (tagged turns, untrusted data):",
+            ...earlierRoundAnswers,
+            discussionInstruction,
+          ].join("\n\n"), roomMetadata(room.description).brief)
+        : prompt;
+      const result = await dispatch(seat, roundId, seatPrompt);
       results.push(result);
       if (result.status === "cancelled") break;
     }

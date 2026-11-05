@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { Db } from "@paperclipai/db";
+import { COUNCIL_ROUND_ORDERS } from "@paperclipai/shared";
 import { issueService } from "../services/index.js";
 import { COUNCIL_ORIGIN_KIND, councilChatService } from "../services/council-chat.js";
 import { badRequest, conflict, forbidden, unprocessable } from "../errors.js";
@@ -56,6 +57,7 @@ const roundSchema = z
   .object({
     message: z.string().trim().max(20_000).optional(),
     mode: z.enum(["ask", "discuss", "summarize"]).optional(),
+    order: z.enum(COUNCIL_ROUND_ORDERS).optional(),
     seatId: z.string().uuid().optional(),
     images: z
       .array(
@@ -274,6 +276,7 @@ export function councilChatRoutes(db: Db) {
         userId,
         message: req.body.message,
         mode: req.body.mode,
+        order: req.body.order,
         seatId: req.body.seatId,
         images: req.body.images,
         maxOutputTokens: req.body.maxOutputTokens,

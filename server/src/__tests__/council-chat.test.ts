@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COUNCIL_ARTIFACT_KEY_REGEX, finalizeCouncilSeatTurn, mergeSeatConfig, normalizeCouncilBrief, roomDescription, roomMetadata, seatAttemptSystemPrompt, seatSystemPrompt, withCouncilBrief } from "../services/council-chat.js";
+import { COUNCIL_ARTIFACT_KEY_REGEX, finalizeCouncilSeatTurn, mergeSeatConfig, normalizeCouncilBrief, orderSeats, roomDescription, roomMetadata, seatAttemptSystemPrompt, seatSystemPrompt, withCouncilBrief } from "../services/council-chat.js";
 import { normalizeDocumentKey } from "../services/documents.js";
 
 describe("council artifacts", () => {
@@ -10,6 +10,30 @@ describe("council artifacts", () => {
     expect(COUNCIL_ARTIFACT_KEY_REGEX.test("council-output-plan_v2")).toBe(false);
     expect(COUNCIL_ARTIFACT_KEY_REGEX.test("council-output-../private")).toBe(false);
     expect(COUNCIL_ARTIFACT_KEY_REGEX.test("brief")).toBe(false);
+  });
+});
+
+describe("council speaking order", () => {
+  const seats = [
+    { id: "one", role: "none" },
+    { id: "moderator", role: "moderator" },
+    { id: "two", role: "critic" },
+    { id: "three", role: "builder" },
+  ];
+
+  it("keeps seat order and excludes the moderator", () => {
+    expect(orderSeats(seats, "seat").map((seat) => seat.id)).toEqual(["one", "two", "three"]);
+  });
+
+  it("reverses dispatched seat order", () => {
+    expect(orderSeats(seats, "reverse").map((seat) => seat.id)).toEqual(["three", "two", "one"]);
+  });
+
+  it("shuffles with a supplied RNG while retaining every dispatched seat", () => {
+    const values = [0.1, 0.8];
+    const ordered = orderSeats(seats, "random", () => values.shift()!).map((seat) => seat.id);
+    expect(ordered).not.toEqual(["one", "two", "three"]);
+    expect(ordered.sort()).toEqual(["one", "three", "two"]);
   });
 });
 

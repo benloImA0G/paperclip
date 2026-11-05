@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
 
 const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
@@ -60,7 +61,7 @@ describe("Council round stop", () => {
       next();
     });
     server.use("/api", councilChatRoutes(db));
-    server.use((error: { status?: number; message?: string }, _req: unknown, res: express.Response, _next: unknown) => res.status(error.status ?? 500).json({ error: error.message }));
+    server.use((error: { status?: number; message?: string }, _req: unknown, res: express.Response, _next: unknown) => res.status(error instanceof ZodError ? 400 : (error.status ?? 500)).json({ error: error.message }));
     return server;
   }
 
@@ -128,5 +129,11 @@ describe("Council round stop", () => {
     const response = await request(await app(dbFor([seat("seat")]))).post(`/api/companies/${companyId}/council/rooms/${issueId}/rounds`).send({ message: "Question" });
     expect(response.status).toBe(200);
     expect(response.body.results).toEqual([expect.objectContaining({ status: "ok", text: "reply" })]);
+  });
+
+  it("rejects an invalid speaking order before starting a round", async () => {
+    const response = await request(await app(dbFor([seat("seat")]))).post(`/api/companies/${companyId}/council/rooms/${issueId}/rounds`).send({ message: "Question", order: "clockwise" });
+    expect(response.status).toBe(400);
+    expect(mocks.generateText).not.toHaveBeenCalled();
   });
 });

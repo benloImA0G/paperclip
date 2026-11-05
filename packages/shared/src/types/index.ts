@@ -1,4 +1,5 @@
 export { decisionEffectTargetIssueIds } from "./decision.js";
+export { COUNCIL_ROUND_ORDERS, type CouncilRoundOrder } from "./council.js";
 export { WORKSPACE_SOURCE_VERIFICATION_REASONS, type WorkspaceSourceVerificationFailure,
   type WorkspaceSourceInspection } from "./workspace-source-verification.js";
 export {
