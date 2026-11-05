@@ -76,10 +76,21 @@ export interface CouncilArtifact extends CouncilArtifactSummary { body: string; 
 export interface CouncilArtifactReview { critiques: CouncilSeatResult[]; revision: number; revisedMarkdownPreview: string; failedCritiquePersistences: number; }
 export interface CouncilReliabilitySeat { seatId: string; seatName: string; replies: number; averageLatencyMs: number | null; fallbackRate: number | null; }
 export interface CouncilReliability { seats: CouncilReliabilitySeat[]; totals: Omit<CouncilReliabilitySeat, "seatId" | "seatName">; }
+export type CouncilEstimateMode = "ask" | "discuss" | "summarize";
+export interface CouncilEstimate {
+  mode: CouncilEstimateMode;
+  label: "estimate";
+  calls: number;
+  estimatedCostCents: { low: number; high: number } | null;
+  unpricedSeats: number;
+  estimatedSeconds: { low: number; high: number };
+  seats: Array<{ seatId: string; label: string; kind: "model" | "agent"; calls: number; estimatedCostCents: number | null; basis: "history" | "none" }>;
+}
 
 export const councilApi = {
   getBrief: (companyId: string, issueId: string) => api.get<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`),
   getReliability: (companyId: string, issueId: string) => api.get<CouncilReliability>(`/companies/${companyId}/council/rooms/${issueId}/stats`),
+  getEstimate: (companyId: string, roomId: string, mode: CouncilEstimateMode) => api.get<CouncilEstimate>(`/companies/${companyId}/council/rooms/${roomId}/estimate?mode=${mode}`),
   updateBrief: (companyId: string, issueId: string, brief: string) => api.put<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`, { brief }),
   listArtifacts: (companyId: string, issueId: string) => api.get<CouncilArtifactSummary[]>(`/companies/${companyId}/council/rooms/${issueId}/artifacts`),
   getArtifact: (companyId: string, issueId: string, key: string, revision?: number | null) => api.get<CouncilArtifact>(`/companies/${companyId}/council/rooms/${issueId}/artifacts/${encodeURIComponent(key)}${revision ? `?revision=${revision}` : ""}`),

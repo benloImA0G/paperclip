@@ -15,6 +15,7 @@ import { useCompany } from "../context/CompanyContext";
 import { parseCouncilDecisionRecord } from "./council-decision-record";
 import { CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
+import { CouncilEstimate } from "../components/CouncilEstimate";
 import { queryKeys } from "../lib/queryKeys";
 import { Link } from "../lib/router";
 import { CouncilTemplates } from "../components/CouncilTemplates";
@@ -1129,6 +1130,7 @@ export function Council() {
                   <button type="button" aria-pressed={discussion} onClick={() => setDiscussion((v) => !v)} className={`rounded-full border px-3 py-1 font-medium ${discussion ? "border-primary bg-accent" : "text-muted-foreground"}`} title="After the first answers, vendors read each other and debate"><MessagesSquare className="mr-1 inline h-3.5 w-3.5" /> Discussion: {discussion ? "ON" : "OFF"}</button>
                   <select className="h-8 rounded-md border bg-background px-2 disabled:opacity-50" aria-label="Discussion depth" disabled={!discussion} value={depth} onChange={(e) => setDepth(e.target.value as Depth)}>{(Object.keys(DEPTHS) as Depth[]).map((d) => <option key={d} value={d}>{DEPTHS[d].label}</option>)}</select>
                   <select className="h-8 rounded-md border bg-background px-2" aria-label="Summary by" value={summarySeatId} onChange={(e) => setSummarySeatId(e.target.value)}><option value="">Summary by (auto: fast vendor)</option>{activeSeats.map((s) => <option key={s.id} value={s.id}>Summary by {s.name}</option>)}</select>
+                  {roomId ? <CouncilEstimate roomId={roomId} mode="ask" /> : null}
                   <Button type="button" variant="outline" size="sm" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>Summary</Button>
                   <Button type="button" variant="outline" size="sm" disabled={ask.isPending || activeSeats.length < 2 || !hasAnswers} onClick={() => ask.mutate("discuss")}>Discuss now</Button>
                 </div>

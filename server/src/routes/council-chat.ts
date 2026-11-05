@@ -3,12 +3,13 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import { issueService } from "../services/index.js";
 import { COUNCIL_ORIGIN_KIND, councilChatService } from "../services/council-chat.js";
-import { conflict, forbidden, unprocessable } from "../errors.js";
+import { badRequest, conflict, forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../services/council-export.js";
 import { getCouncilReliability } from "../services/council-reliability.js";
 import { logActivity } from "../services/activity-log.js";
+import { getCouncilEstimate } from "../services/council-estimate.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
 const briefSchema = z.object({ brief: z.string().max(4000) }).strict();
@@ -134,6 +135,15 @@ export function councilChatRoutes(db: Db) {
     boardUserId(req);
     await council.getRoom(companyId, req.params.issueId as string);
     res.json(await getCouncilReliability(db, companyId, req.params.issueId as string));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:roomId/estimate", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    const mode = req.query.mode ?? "ask";
+    if (mode !== "ask" && mode !== "discuss" && mode !== "summarize") throw badRequest("Invalid estimate mode");
+    res.json(await getCouncilEstimate(db, companyId, req.params.roomId as string, mode));
   });
 
   router.put("/companies/:companyId/council/rooms/:issueId/brief", validate(briefSchema), async (req, res) => {
