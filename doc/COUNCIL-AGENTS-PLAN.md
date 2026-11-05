@@ -31,6 +31,24 @@ orchestrator.
 Add a Hermes gateway qualification test using a fake `/v1/runs` endpoint, an
 SSE response stream, and a `/stop` gateway endpoint.
 
+## Security
+
+- Council agents are Hermes-gateway only. Local CLI adapters are excluded because
+  their local working directory, skills, home directory, and tool access cannot
+  be safely disabled by the Council turn service.
+- Tool access is governed by Hermes gateway toolsets. Council deployments must
+  use a dedicated Council Hermes profile with no tools enabled.
+- Council turns pass no workspace or runtime tools, force an ephemeral Hermes
+  session scope, enforce a hard deadline, and propagate cancellation to the
+  gateway's run stop endpoint after a run is created.
+- Every string value of sufficient length in resolved adapter configuration and
+  environment is redacted from returned output, adapter errors, and retained
+  turn logs.
+- Known limits: gateway-side tools and profile isolation remain the Hermes
+  gateway operator's responsibility; process-local in-flight idempotency does
+  not coordinate between server replicas; best-effort remote stop cannot prove
+  a gateway has terminated a run when it is unreachable.
+
 ## Risks to address in every later stage
 
 - Keep every seat, agent lookup, run, and usage record isolated to its company.

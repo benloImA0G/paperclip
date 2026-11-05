@@ -16,11 +16,12 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 - UI/UX: chat-first layout, sticky composer, Room tools row, collapsed vendor settings, mobile layout, design tokens, accessibility fixes, stale-room race fixes.
 
 - Paperclip bridge (2026-11-05): Council spend card on the Costs page (GET /costs/council, no migration; calls already land in the cost ledger as fast_response with billingCode council:<room>); Create task button on decision cards and a Linked tasks panel in Room settings (normal manual tasks, linked through room references; rooms stay out of /tasks); Agents panel with Create agent. Staged plan for real agent seats and a Hermes orchestrator option: doc/COUNCIL-AGENTS-PLAN.md.
+- Agent seats (2026-11-05): Hermes gateway agents can join a room as seats (max 3 per room) and can be the Orchestrator; if an agent orchestrator fails, a model seat takes over. Council turns use a one-shot service (`council-agent-turn.ts`) with a deadline, abort that also stops the remote Hermes run, secret redaction, no tools or workspace requested, and cost recording. Only `hermes_gateway` agents are allowed (local CLI adapters cannot be sandboxed here). Migration 0434 adds `seat_kind` and `agent_id` to `council_seats`. Not live-tested against a real Hermes gateway yet (no Hermes agent exists in the company); covered by mock and fake-gateway tests. Tool access is governed by the Hermes gateway toolsets: use a dedicated no-tools Hermes profile for council agents (see `COUNCIL-AGENTS-PLAN.md` Security).
 
 ## Known gaps / decisions for Ben
 
 - Pandoc must be installed on VPS2 / any deployment host (`PANDOC_PATH`).
-- Dashboard onboarding is disabled on this fork (earlier commit) and shared issue comment metadata/validators gained optional Council fields: both are likely upstream merge conflicts.
+- Dashboard onboarding is disabled on this fork (earlier commit), shared issue comment metadata/validators gained optional Council fields, and migration 0434 plus a deleted old 0429 snapshot touch shared DB files: all likely upstream merge conflicts.
 - Mobile thread is still fairly short on small phones because of the composer.
 - Not built (see `COUNCIL-PROPOSALS.md`): document upload and review, durable replayable runs, cheap-first spend estimates, guarded self-improvement proposals.
 - Open decisions: cloud-doc toggle, default writer seat, template/logo needs, reviewer file visibility, local-first vs cloud.

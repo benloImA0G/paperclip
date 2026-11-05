@@ -13,8 +13,7 @@ import { logActivity } from "../services/activity-log.js";
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
 const briefSchema = z.object({ brief: z.string().max(4000) }).strict();
 const exportSettingSchema = z.object({ requireApproval: z.boolean() }).strict();
-const addSeatSchema = z
-  .object({
+const modelSeatFields = {
     name: z.string().trim().min(1).max(80),
     persona: z.string().max(2000).optional(),
     connectionId: z.string().uuid(),
@@ -35,10 +34,15 @@ const addSeatSchema = z
       )
       .max(3)
       .optional(),
-  })
-  .strict();
+  };
+const addSeatSchema = z.union([
+  z.object({ kind: z.literal("agent"), agentId: z.string().uuid(), name: z.string().trim().min(1).max(80).optional(), persona: z.string().max(2000).optional(), role: z.enum(["none", "researcher", "builder", "critic", "synthesizer", "moderator"]).optional() }).strict(),
+  z.object({ ...modelSeatFields, kind: z.literal("model").optional() }).strict(),
+]);
 const updateSeatSchema = z
   .object({
+    kind: z.enum(["model", "agent"]).optional(),
+    agentId: z.string().uuid().optional(),
     name: z.string().trim().min(1).max(80).optional(),
     persona: z.string().max(2000).optional(),
     model: z.string().trim().min(1).max(256).optional(),

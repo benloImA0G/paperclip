@@ -13,9 +13,12 @@ export interface CouncilSeat {
   issueId: string;
   name: string;
   persona: string;
-  connectionId: string;
-  grantId: string;
-  model: string;
+  kind: "model" | "agent";
+  agentId: string | null;
+  adapterTypeLabel: string;
+  connectionId: string | null;
+  grantId: string | null;
+  model: string | null;
   reasoningEffort: string | null;
   acceptsImages: boolean;
   fallbacks: CouncilSeatFallback[];
@@ -24,7 +27,8 @@ export interface CouncilSeat {
   role: CouncilSeatRole;
 }
 
-export interface CouncilSeatInput {
+export type CouncilSeatInput = {
+  kind?: "model";
   name: string;
   persona?: string;
   connectionId: string;
@@ -34,7 +38,13 @@ export interface CouncilSeatInput {
   acceptsImages?: boolean;
   role?: CouncilSeatRole;
   fallbacks?: CouncilSeatFallback[];
-}
+} | {
+  kind: "agent";
+  agentId: string;
+  name?: string;
+  persona?: string;
+  role?: CouncilSeatRole;
+};
 
 export interface CouncilSeatResult {
   seatId: string;
@@ -94,7 +104,7 @@ export const councilApi = {
     companyId: string,
     issueId: string,
     seatId: string,
-    patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole },
+    patch: { kind?: "model" | "agent"; agentId?: string; name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole },
   ) => api.patch<CouncilSeat>(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`, patch),
   removeSeat: (companyId: string, issueId: string, seatId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),

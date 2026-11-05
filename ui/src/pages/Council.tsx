@@ -128,6 +128,36 @@ function Toggle({ label, on, onClick, title }: { label: string; on: boolean; onC
   );
 }
 
+function agentSeatLabel(seat: CouncilSeat) {
+  return seat.adapterTypeLabel.toLowerCase().includes("hermes") ? "Hermes" : "Agent";
+}
+
+function AgentSeatSettings({ seat, onUpdate, onRemove }: {
+  seat: CouncilSeat;
+  onUpdate: (patch: { name?: string; role?: CouncilSeat["role"] }) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border bg-card p-3 text-sm sm:flex-row sm:items-center">
+      <label className="min-w-0 flex-1">
+        <span className="sr-only">Name for {seat.name}</span>
+        <Input defaultValue={seat.name} className="h-8" aria-label={`Name for ${seat.name}`} onBlur={(event) => {
+          const name = event.target.value.trim();
+          if (name && name !== seat.name) onUpdate({ name });
+        }} />
+        <span className="mt-1 block truncate text-xs text-muted-foreground">{seat.adapterTypeLabel}</span>
+      </label>
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>Role</span>
+        <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" aria-label={`Role for ${seat.name}`} value={seat.role} onChange={(event) => onUpdate({ role: event.target.value as CouncilSeat["role"] })}>
+          <option value="none">None</option><option value="moderator">Orchestrator</option><option value="critic">Critic</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="synthesizer">Synthesizer</option>
+        </select>
+      </label>
+      <Button type="button" variant="outline" size="sm" aria-label={`Remove ${seat.name} from this room`} onClick={onRemove}>Remove</Button>
+    </div>
+  );
+}
+
 export function Council() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -249,14 +279,18 @@ export function Council() {
   // Keep every persisted seat visible. A connection can have multiple seats; display is not mutation authority.
   const seatOf = (connectionId: string) => allSeats.find((s) => s.connectionId === connectionId);
   const activeSeats = allSeats.filter((s) => s.active);
-  const vendorOf = (s: CouncilSeat) => connectionOptions.find((c) => c.id === s.connectionId)?.name ?? "";
+  const vendorOf = (s: CouncilSeat) => s.kind === "agent" ? s.adapterTypeLabel : connectionOptions.find((c) => c.id === s.connectionId)?.name ?? "";
   const fastSeatId = (activeSeats.find((s) => /^(gemini|groq)/i.test(vendorOf(s))) ?? activeSeats[0])?.id;
   const hasAnswers = !!comments.data?.some((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
   const colorOfConnection = (connectionId: string) => {
     const i = connectionOptions.findIndex((c) => c.id === connectionId);
     return SEAT_COLORS[(i < 0 ? 0 : i) % SEAT_COLORS.length];
   };
-  const seatColor = (seatId: string) => colorOfConnection(allSeats.find((s) => s.id === seatId)?.connectionId ?? "");
+  const seatColor = (seatId: string) => {
+    const seat = allSeats.find((candidate) => candidate.id === seatId);
+    if (seat?.connectionId) return colorOfConnection(seat.connectionId);
+    return SEAT_COLORS[Math.max(0, allSeats.findIndex((candidate) => candidate.id === seatId)) % SEAT_COLORS.length];
+  };
   const refresh = (what: "rooms" | "seats" | "comments" | "archived") =>
     queryClient.invalidateQueries({
       queryKey: what === "rooms" || what === "archived" ? ["council", companyId, what] : ["council", companyId, roomId, what],
@@ -288,7 +322,7 @@ export function Council() {
     mutationFn: ({ conn, draft }: { conn: { id: string; grantId: string; name: string }; draft: VendorDraft }) =>
       createSeatFor(roomId!, conn, draft),
     onSettled: () => void refresh("seats"),
-    onError: (e) => setError(errorText(e)),
+    onError: () => setError("Couldn’t add this seat. Try again."),
   });
 
   const addDefaults = useMutation({
@@ -303,7 +337,7 @@ export function Council() {
       await seats.refetch();
       void refreshSeatsFor(targetRoomId);
     },
-    onError: (e) => setError(errorText(e)),
+    onError: () => setError("Couldn’t add the default seats. Try again."),
   });
 
   const applyTemplate = (id: CouncilTemplateId) => {
@@ -329,7 +363,7 @@ export function Council() {
       setPendingTemplate({ roomId: room.id, templateId: selectedTemplate });
       void refresh("rooms");
     },
-    onError: (e) => setError(errorText(e)),
+    onError: () => setError("Couldn’t create this room. Try again."),
   });
 
   useEffect(() => {
@@ -355,7 +389,7 @@ export function Council() {
       setPendingTemplate(null);
       void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, { name: seat.name, role: template.roles[seat.name] })))
         .then(() => refreshSeatsFor(pendingTemplate.roomId))
-        .catch((e) => setError(errorText(e)));
+        .catch(() => setError("Couldn’t update the template seats. Try again."));
     } else {
       setPendingTemplate(null);
     }
@@ -368,7 +402,7 @@ export function Council() {
       void refresh("rooms");
       void refresh("archived");
     },
-    onError: (e) => setError(errorText(e)),
+    onError: () => setError("Couldn’t delete this room. Try again."),
   });
 
   const setArchived = useMutation({
@@ -397,13 +431,13 @@ export function Council() {
     mutationFn: ({ seatId, patch }: { seatId: string; patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: import("../api/council").CouncilSeatRole } }) =>
       councilApi.updateSeat(companyId, roomId!, seatId, patch),
     onSuccess: () => void refresh("seats"),
-    onError: (e) => setError(errorText(e)),
+    onError: () => setError("Couldn’t update this seat. Try again."),
   });
 
   const removeSeat = useMutation({
     mutationFn: (seatId: string) => councilApi.removeSeat(companyId, roomId!, seatId),
     onSuccess: () => void refresh("seats"),
-    onError: (e) => setError(errorText(e)),
+    onError: () => setError("Couldn’t remove this seat. Try again."),
   });
 
   const threadEndRef = useRef<HTMLDivElement | null>(null);
@@ -562,8 +596,8 @@ export function Council() {
                 <section className="space-y-2"><h3 className="font-semibold">Room</h3><div className="flex flex-wrap gap-2"><button type="button" className="rounded-md border px-2 py-1" onClick={() => setBriefOpen((v) => !v)}>Brief</button><button type="button" className="rounded-md border px-2 py-1" onClick={() => setArtifactsOpen((v) => !v)}>Artifacts</button><details className="relative rounded-md border"><summary className="cursor-pointer list-none px-2 py-1">Reliability</summary><div className="absolute right-0 z-10 mt-1 w-80 max-w-full rounded-lg border bg-popover p-3 shadow-lg">{reliabilityQuery.isLoading ? <p className="text-muted-foreground">Loading reply history…</p> : reliabilityQuery.isError ? <p className="text-destructive">Reliability is unavailable.</p> : reliabilityQuery.data ? <p className="text-muted-foreground">Based on {reliabilityQuery.data.totals.replies} replies.</p> : null}</div></details><Toggle label="Ask before downloading exports" on={requireApproval} onClick={() => roomId && saveExportSetting.mutate({ targetRoomId: roomId, value: !requireApproval })} /></div></section>
                 {roomId ? <section className="space-y-2"><LinkedTasksPanel roomId={roomId} /></section> : null}
                 <section className="space-y-2"><h3 className="font-semibold">Usage and cost</h3><p className="text-xs text-muted-foreground">Every vendor call is recorded in Paperclip usage.</p><Link to="/costs" className="inline-flex rounded-md border px-2 py-1 text-xs hover:bg-accent">Open usage and costs</Link></section>
-                <CouncilAgentPanel />
-                <section className="space-y-2"><h3 className="font-semibold">Vendors</h3><div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setAdvancedMode((v) => !v)}>{advancedMode ? "Hide vendor settings" : "Show vendor settings"}</Button><Button type="button" variant="outline" size="sm" onClick={() => setParticipantsOpen((v) => !v)}><Users /> Participants</Button><span className="text-xs text-muted-foreground">{activeSeats.length} active</span></div></section>
+                <CouncilAgentPanel roomId={roomId ?? undefined} seats={allSeats} onSeatAdded={() => void refresh("seats")} />
+                <section className="space-y-2"><h3 className="font-semibold">Vendors</h3><p className="text-xs text-muted-foreground">If the agent orchestrator fails, a model seat takes over.</p><div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" size="sm" onClick={() => setAdvancedMode((v) => !v)}>{advancedMode ? "Hide vendor settings" : "Show vendor settings"}</Button><Button type="button" variant="outline" size="sm" onClick={() => setParticipantsOpen((v) => !v)}><Users /> Participants</Button><span className="text-xs text-muted-foreground">{activeSeats.length} active</span></div>{allSeats.filter((seat) => seat.kind === "agent").map((seat) => <AgentSeatSettings key={seat.id} seat={seat} onUpdate={(patch) => updateSeat.mutate({ seatId: seat.id, patch })} onRemove={() => removeSeat.mutate(seat.id)} />)}</section>
               </div>
             </div> : null}
           </div>
@@ -686,25 +720,27 @@ export function Council() {
           <QueryState label="seats" loading={seats.isLoading} error={seats.isError} onRetry={() => void seats.refetch()} />
           <div className={advancedMode ? "flex items-center justify-between text-xs" : "hidden"}>
             <span className="font-semibold uppercase tracking-wide text-muted-foreground">
-              ● Select participating vendors <span className="council-vendor-helper font-normal normal-case">· click Active / Inactive to include a vendor · selected vendors respond concurrently</span>
+              ● Select participating seats <span className="council-vendor-helper font-normal normal-case">· click Active / Inactive to include a seat · selected seats respond concurrently</span>
             </span>
             <span className="flex items-center gap-2">
               <button type="button" onClick={() => setCardsOpen((v) => !v)} className="rounded-md border px-2 py-0.5 text-(length:--text-micro) hover:bg-accent">
                 {cardsOpen ? "▴ Hide vendor settings" : "▾ Show vendor settings"}
               </button>
               <span className="rounded-full border px-2 py-0.5 text-(length:--text-nano) font-semibold uppercase tracking-wide text-primary">
-                {activeSeats.length} model{activeSeats.length === 1 ? "" : "s"} selected
+                {activeSeats.length} participant{activeSeats.length === 1 ? "" : "s"} selected
               </span>
             </span>
           </div>
           {!cardsOpen ? (
           <div className="flex shrink-0 flex-wrap gap-2 overflow-x-auto md:flex-wrap">
-              {connectionOptions.map((conn) => {
-                const seat = seatOf(conn.id);
-                const color = colorOfConnection(conn.id);
+              {[...connectionOptions.map((conn) => ({ connection: conn, seat: seatOf(conn.id) })), ...allSeats.filter((seat) => seat.kind === "agent").map((seat) => ({ connection: undefined, seat }))].map(({ connection: conn, seat }) => {
+                const isAgent = seat?.kind === "agent";
+                const color = seat ? seatColor(seat.id) : colorOfConnection(conn!.id);
+                const label = isAgent ? agentSeatLabel(seat!) : undefined;
+                if (!conn && !seat) return null;
                 return (
                   <button
-                    key={`${conn.id}:${conn.grantId}`}
+                    key={seat?.id ?? `${conn!.id}:${conn!.grantId}`}
                     type="button"
                     disabled={!seat}
                     onClick={() => seat && updateSeat.mutate({ seatId: seat.id, patch: { active: !seat.active } })}
@@ -712,7 +748,8 @@ export function Council() {
                     style={{ borderColor: seat?.active ? color : undefined }}
                     title="Click to switch this vendor on or off"
                   >
-                    <b>{seat?.name ?? conn.name}</b>
+                    <b>{seat?.name ?? conn!.name}</b>
+                    {label ? <span className="rounded-full bg-accent px-1.5 py-0.5 text-(length:--text-nano) text-muted-foreground">{label}</span> : null}
                     {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-(length:--text-nano) text-primary">Orchestrator</span> : null}
                     {advancedMode ? <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} /> : null}
                   </button>
@@ -737,7 +774,7 @@ export function Council() {
                 return (
                   <div key={seat.id} className="flex min-w-0 items-center gap-2 rounded-md border bg-background/60 px-2 py-1">
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-(length:--text-nano)" style={{ borderColor: seatColor(seat.id), color: seatColor(seat.id) }}>
-                      {vendorIcon(vendorOf(seat))}
+                      {seat.kind === "agent" ? agentSeatLabel(seat) : vendorIcon(vendorOf(seat))}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-1.5 text-xs">

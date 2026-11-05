@@ -9,9 +9,11 @@ import { CouncilAgentPanel } from "./CouncilAgentPanel";
 import { queryKeys } from "../lib/queryKeys";
 
 const agentsApi = vi.hoisted(() => ({ list: vi.fn() }));
+const councilApi = vi.hoisted(() => ({ addSeat: vi.fn() }));
 const dialogActions = vi.hoisted(() => ({ openNewAgent: vi.fn() }));
 
 vi.mock("../api/agents", () => ({ agentsApi }));
+vi.mock("../api/council", () => ({ councilApi }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }) }));
 vi.mock("../context/DialogContext", () => ({ useDialogActions: () => dialogActions }));
 vi.mock("../lib/router", () => ({ Link: ({ to, children, ...props }: { to: string; children: React.ReactNode }) => <a href={to} {...props}>{children}</a> }));
@@ -48,9 +50,9 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
   };
 }
 
-async function render() {
+async function render(props: Partial<React.ComponentProps<typeof CouncilAgentPanel>> = {}) {
   await act(async () => {
-    root.render(<QueryClientProvider client={queryClient}><CouncilAgentPanel /></QueryClientProvider>);
+    root.render(<QueryClientProvider client={queryClient}><CouncilAgentPanel {...props} /></QueryClientProvider>);
   });
 }
 
@@ -69,6 +71,7 @@ async function waitFor(expectation: () => void) {
 beforeEach(() => {
   vi.clearAllMocks();
   agentsApi.list.mockResolvedValue([]);
+  councilApi.addSeat.mockResolvedValue({ id: "seat-1" });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -116,8 +119,7 @@ describe("CouncilAgentPanel", () => {
     await render();
     await waitFor(() => expect(container.textContent).toContain("No agents yet"));
 
-    expect(container.textContent).toContain("Agents are teammates that can later join war rooms.");
-    expect(container.textContent).toContain("Coming soon: joining rooms.");
+    expect(container.textContent).toContain("Agents answer like vendors in the room, without tools.");
     await act(async () => (Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Create agent") as HTMLButtonElement).click());
     expect(dialogActions.openNewAgent).toHaveBeenCalledTimes(1);
   });
@@ -140,5 +142,46 @@ describe("CouncilAgentPanel", () => {
 
     await act(async () => { await queryClient.invalidateQueries({ queryKey: queryKeys.agents.list("company-1") }); });
     await waitFor(() => expect(container.textContent).toContain("Grace"));
+  });
+
+  it("adds an agent to the room and refreshes its seats", async () => {
+    agentsApi.list.mockResolvedValue([makeAgent({ adapterType: "hermes_gateway" })]);
+    const onSeatAdded = vi.fn();
+    await render({ roomId: "room-1", seats: [], onSeatAdded });
+    await waitFor(() => expect(container.textContent).toContain("Add to room"));
+
+    await act(async () => (Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Add to room") as HTMLButtonElement).click());
+
+    await waitFor(() => expect(councilApi.addSeat).toHaveBeenCalledWith("company-1", "room-1", { kind: "agent", agentId: "agent-1" }));
+    await waitFor(() => expect(onSeatAdded).toHaveBeenCalledTimes(1));
+  });
+
+  it("only lets Hermes gateway agents be added to a room", async () => {
+    agentsApi.list.mockResolvedValue([makeAgent()]);
+    await render({ roomId: "room-1", seats: [] });
+    await waitFor(() => expect(container.textContent).toContain("Add to room"));
+    const button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === "Add to room") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe("Only Hermes gateway agents can join war rooms.");
+  });
+
+  it("disables adding agents already seated or when three agent seats are present", async () => {
+    agentsApi.list.mockResolvedValue([makeAgent({ adapterType: "hermes_gateway" }), makeAgent({ id: "agent-2", name: "Grace", urlKey: "grace", adapterType: "hermes_gateway" })]);
+    await render({
+      roomId: "room-1",
+      seats: [
+        { id: "seat-1", issueId: "room-1", name: "Ada", persona: "", kind: "agent", agentId: "agent-1", adapterTypeLabel: "Codex", connectionId: null, grantId: null, model: null, reasoningEffort: null, acceptsImages: false, fallbacks: [], active: true, position: 0, role: "none" },
+        { id: "seat-2", issueId: "room-1", name: "One", persona: "", kind: "agent", agentId: "other-1", adapterTypeLabel: "Codex", connectionId: null, grantId: null, model: null, reasoningEffort: null, acceptsImages: false, fallbacks: [], active: true, position: 1, role: "none" },
+        { id: "seat-3", issueId: "room-1", name: "Two", persona: "", kind: "agent", agentId: "other-2", adapterTypeLabel: "Codex", connectionId: null, grantId: null, model: null, reasoningEffort: null, acceptsImages: false, fallbacks: [], active: true, position: 2, role: "none" },
+      ],
+    });
+    await waitFor(() => expect(container.textContent).toContain("Grace"));
+
+    const buttons = Array.from(container.querySelectorAll("button")).filter((button) => button.textContent === "Add to room") as HTMLButtonElement[];
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0].disabled).toBe(true);
+    expect(buttons[0].title).toBe("This agent is already in the room.");
+    expect(buttons[1].disabled).toBe(true);
+    expect(buttons[1].title).toBe("This room already has three agents.");
   });
 });
