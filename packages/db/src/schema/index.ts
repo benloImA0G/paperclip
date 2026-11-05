@@ -278,3 +278,4 @@ export { issueThreadInteractionIdempotencyKeys } from "./issue_thread_interactio
 
 export { projectTaskExecutionPolicies, executionAdmissions, executionAdmissionProjectCharges } from "./execution_admissions.js";
 export * from "./council_seats.js";
+export * from "./council_round_claims.js";

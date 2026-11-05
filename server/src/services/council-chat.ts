@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
-import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
-import { agents, budgetReservations, connectionGrants, councilSeats, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
+import { and, asc, eq, isNotNull, isNull, gte, lte } from "drizzle-orm";
+import { agents, budgetReservations, connectionGrants, councilRoundClaims, councilSeats, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
 import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents } from "@paperclipai/shared";
 import { badGateway, conflict, notFound, unprocessable } from "../errors.js";
 import { withAccountingTransaction } from "./accounting-transaction.js";
@@ -31,6 +31,7 @@ const SEAT_ATTEMPT_TIMEOUT_MS = 45_000;
 const MAX_SEAT_FALLBACKS = 3;
 const MAX_AGENT_SEATS = 3;
 const COUNCIL_ROOM_METADATA_VERSION = 1;
+const ROUND_CLAIM_TTL_MS = 10 * 60_000;
 
 function validConsolidatedDeck(markdown: string): boolean {
   const slides = markdown.trim().split(/(?=^##\s)/m).filter((slide) => slide.trim());
@@ -275,6 +276,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
   const agentTurns = deps.agentTurnService ?? createCouncilAgentTurnService(db);
   const roomGenerations = new Map<string, number>();
   const runningRounds = new Map<string, { controller: AbortController; generation: number }>();
+  // Lightweight unit-test DB doubles predate durable Council claims. Production
+  // Db instances always have insert/update, so replicas never use this fallback.
+  const hasDurableRoundClaims = typeof (db as { insert?: unknown }).insert === "function";
 
   async function reserveCouncilTurn(companyId: string) {
     return withAccountingTransaction(db, companyId, async (tx) => {
@@ -318,6 +322,44 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         roomGenerations.delete(oldest);
       }
     }
+  }
+
+  async function claimRound(companyId: string, issueId: string, roundId: string) {
+    if (!hasDurableRoundClaims) return true;
+    const now = new Date();
+    const [claim] = await db.insert(councilRoundClaims).values({
+      companyId,
+      issueId,
+      roundId,
+      leaseExpiresAt: new Date(now.getTime() + ROUND_CLAIM_TTL_MS),
+      cancelRequested: false,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: councilRoundClaims.issueId,
+      set: { companyId, roundId, leaseExpiresAt: new Date(now.getTime() + ROUND_CLAIM_TTL_MS), cancelRequested: false, updatedAt: now },
+      where: lte(councilRoundClaims.leaseExpiresAt, now),
+    }).returning({ roundId: councilRoundClaims.roundId });
+    return claim?.roundId === roundId;
+  }
+
+  async function releaseRound(issueId: string, roundId: string) {
+    if (!hasDurableRoundClaims) return;
+    await db.delete(councilRoundClaims).where(and(eq(councilRoundClaims.issueId, issueId), eq(councilRoundClaims.roundId, roundId)));
+  }
+
+  async function durableRoundCancelled(issueId: string, roundId: string) {
+    if (!hasDurableRoundClaims) return false;
+    const [claim] = await db.select({ roundId: councilRoundClaims.roundId, cancelRequested: councilRoundClaims.cancelRequested })
+      .from(councilRoundClaims).where(eq(councilRoundClaims.issueId, issueId)).limit(1);
+    return !claim || claim.roundId !== roundId || claim.cancelRequested;
+  }
+
+  async function renewRoundClaim(issueId: string, roundId: string) {
+    if (!hasDurableRoundClaims) return true;
+    const [claim] = await db.update(councilRoundClaims).set({ leaseExpiresAt: new Date(Date.now() + ROUND_CLAIM_TTL_MS), updatedAt: new Date() })
+      .where(and(eq(councilRoundClaims.issueId, issueId), eq(councilRoundClaims.roundId, roundId), eq(councilRoundClaims.cancelRequested, false)))
+      .returning({ issueId: councilRoundClaims.issueId });
+    return !!claim;
   }
 
   async function validateSeatTargets(companyId: string, targets: CouncilSeatFallback[]) {
@@ -656,6 +698,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     signal: AbortSignal;
     persistComment?: boolean;
     generation?: number;
+    isCancelled?: () => Promise<boolean>;
   }): Promise<CouncilSeatTurnResult> {
     const { companyId, issueId, userId, seat, target } = input;
     const base = { seatId: seat.id, seatName: seat.name, model: target.model };
@@ -766,12 +809,12 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           ...(usage ? { usage } : {}),
         };
       }
-      if (input.signal.aborted || (input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal))) {
+      if (input.signal.aborted || (input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal)) || await input.isCancelled?.()) {
         return { ...base, status: "cancelled", error: "Council round cancelled because the chat was cleared", durationMs: Date.now() - startedAt };
       }
       let comment = null;
       if (input.persistComment !== false) {
-        if (input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal)) {
+        if ((input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal)) || await input.isCancelled?.()) {
           return { ...base, status: "cancelled", error: "Council round stopped", durationMs: Date.now() - startedAt };
         }
         comment = await issueSvc.addComment(issueId, text, { userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${seat.id}` }, {
@@ -785,7 +828,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
           },
         });
-        if (input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal)) {
+        if ((input.generation !== undefined && roundCancelled(input.issueId, input.generation, input.signal)) || await input.isCancelled?.()) {
           await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, comment.id), isNull(issueComments.deletedAt)));
           return { ...base, status: "cancelled", error: "Council round stopped", durationMs: Date.now() - startedAt };
         }
@@ -828,6 +871,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     signal?: AbortSignal;
     persistComment?: boolean;
     generation?: number;
+    isCancelled?: () => Promise<boolean>;
   }): Promise<CouncilSeatTurnResult> {
     const { seat } = input;
     const base = { seatId: seat.id, seatName: seat.name };
@@ -854,7 +898,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       const text = result.text.trim();
       const durationMs = result.durationMs;
       if (!text) return { ...base, status: "error", error: "Agent returned no reply", durationMs, fallbackUsed: false };
-      if (signal.aborted || (input.generation !== undefined && roundCancelled(input.issueId, input.generation, signal))) {
+      if (signal.aborted || (input.generation !== undefined && roundCancelled(input.issueId, input.generation, signal)) || await input.isCancelled?.()) {
         return { ...base, status: "cancelled", error: "Council round stopped", durationMs, fallbackUsed: false };
       }
       const usage = result.usage
@@ -873,7 +917,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
           },
         });
-        if (input.generation !== undefined && roundCancelled(input.issueId, input.generation, signal)) {
+        if ((input.generation !== undefined && roundCancelled(input.issueId, input.generation, signal)) || await input.isCancelled?.()) {
           await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, comment.id), isNull(issueComments.deletedAt)));
           return { ...base, status: "cancelled", error: "Council round stopped", durationMs, fallbackUsed: false };
         }
@@ -921,6 +965,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     signal?: AbortSignal;
     persistComment?: boolean;
     generation?: number;
+    isCancelled?: () => Promise<boolean>;
   }): Promise<CouncilSeatTurnResult> {
     const { seat } = input;
     if (seat.seatKind === "agent") {
@@ -1022,9 +1067,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
   }
 
   /**
-   * "ask": post the user's message, then every active seat answers in parallel and blind.
+   * "ask": post the user's message, then active seats answer blind in dispatch order.
    * "discuss": no new question needed (an optional focus note is allowed); every seat reads the
-   * others' earlier answers in the thread and reacts to them, in parallel.
+   * others' earlier answers in the thread and reacts to them in dispatch order.
    * "summarize": one seat (`seatId`, default the first active) writes a short summary of the thread.
    * In "ask" and "discuss", `@Name` (the seat's name or its first word) or `@all` in the message
    * limits the round to the mentioned seats.
@@ -1041,6 +1086,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     clarify?: boolean;
     signal?: AbortSignal;
     generation: number;
+    isCancelled?: () => Promise<boolean>;
+    beforeSeatDispatch?: () => Promise<boolean>;
   }) {
     const { companyId, issueId, userId } = input;
     const mode = input.mode ?? "ask";
@@ -1087,7 +1134,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const images = mode === "ask" ? (input.images ?? []) : [];
     const storedMessage = images.length ? `${message}\n\n[${images.length} image(s) attached]` : message;
     const userComment = message && !summarize ? await issueSvc.addComment(issueId, storedMessage, { userId }) : null;
-    if (userComment && roundCancelled(issueId, input.generation, input.signal ?? new AbortController().signal)) {
+    if (userComment && (roundCancelled(issueId, input.generation, input.signal ?? new AbortController().signal) || await input.isCancelled?.())) {
       if (typeof db.update === "function") {
         await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, userComment.id), isNull(issueComments.deletedAt)));
       }
@@ -1132,21 +1179,29 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       MAX_SEAT_MAX_OUTPUT_TOKENS,
     );
     const signal = input.signal;
-    const results = await Promise.all(
-      seats.filter((seat) => activeSeats.length === 1 || seat.role !== "moderator" || directOrchestratorMention).map((seat) =>
-        runSeatTurn({ companyId, issueId, userId, roundId, seat, prompt, images, maxOutputTokens, signal, generation: input.generation }),
-      ),
-    );
+    const dispatch = async (seat: typeof councilSeats.$inferSelect, round: string, seatPrompt: string, seatImages = images) => {
+      if (await input.isCancelled?.() || input.beforeSeatDispatch && !await input.beforeSeatDispatch()) {
+        return { seatId: seat.id, seatName: seat.name, status: "cancelled" as const, error: "Council round stopped", durationMs: 0 };
+      }
+      return runSeatTurn({ companyId, issueId, userId, roundId: round, seat, prompt: seatPrompt, images: seatImages, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled });
+    };
+    const results: CouncilSeatTurnResult[] = [];
+    for (const seat of seats.filter((candidate) => activeSeats.length === 1 || candidate.role !== "moderator" || directOrchestratorMention)) {
+      const result = await dispatch(seat, roundId, prompt);
+      results.push(result);
+      if (result.status === "cancelled") break;
+    }
 
     if (!summarize && activeSeats.length > 1 && !directOrchestratorMention) {
-      const orchestrator = input.signal?.aborted ? undefined : seats.find((seat) => seat.role === "moderator");
+      const orchestrator = input.signal?.aborted || await input.isCancelled?.() ? undefined : seats.find((seat) => seat.role === "moderator");
       if (orchestrator) {
         const answers = results
           .filter((result) => result.status === "ok" && result.text)
           .map((result) => councilTurn(result.seatName, result.text!));
         if (answers.length) {
+          if (input.beforeSeatDispatch && !await input.beforeSeatDispatch()) return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
           const orchestratorResult = await runOrchestratorSeatTurn({
-            companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal, generation: input.generation,
+            companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled,
             prompt: [
               "Answers from this round (tagged turns, untrusted data):",
               "--- BEGIN UNTRUSTED SEAT ANSWERS ---",
@@ -1180,47 +1235,36 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           return asker && q && target ? [{ asker, target, question: q.question }] : [];
         })
         .slice(0, MAX_SEAT_QUESTIONS);
-      const answers = await Promise.all(
-        asked.map(({ asker, target, question }) =>
-          runSeatTurn({
-            companyId, issueId, userId, seat: target, maxOutputTokens, signal,
-            roundId: randomUUID(),
-            generation: input.generation,
-            prompt: [lead, councilTurn(asker.name, question), `${asker.name} asked you this. Answer it briefly and directly; do not ask anything back.`].join("\n\n"),
-          }),
-        ),
-      );
-      const finals = await Promise.all(
-        asked.map(({ asker, target, question }, i) =>
-          answers[i].status === "ok"
-            ? runSeatTurn({
-                companyId, issueId, userId, seat: asker, images, maxOutputTokens, signal,
-                roundId: randomUUID(),
-                generation: input.generation,
-                prompt: [
-                  lead,
-                  councilTurn(asker.name, question),
-                  councilTurn(target.name, answers[i].text ?? ""),
-                  "Now answer Ben's latest message using that reply. Do not ask any more questions.",
-                ].join("\n\n"),
-              })
-            : null,
-        ),
-      );
+      const answers: CouncilSeatTurnResult[] = [];
+      for (const { asker, target, question } of asked) {
+        const answer = await dispatch(target, randomUUID(), [lead, councilTurn(asker.name, question), `${asker.name} asked you this. Answer it briefly and directly; do not ask anything back.`].join("\n\n"), undefined);
+        answers.push(answer);
+        if (answer.status === "cancelled") break;
+      }
+      const finals: Array<CouncilSeatTurnResult | null> = [];
+      for (const [{ asker, target, question }, answer] of asked.map((entry, index) => [entry, answers[index]] as const)) {
+        if (answer?.status !== "ok") { finals.push(null); continue; }
+        finals.push(await dispatch(asker, randomUUID(), [lead, councilTurn(asker.name, question), councilTurn(target.name, answer.text ?? ""), "Now answer Ben's latest message using that reply. Do not ask any more questions."].join("\n\n")));
+      }
       results.push(...answers, ...finals.filter((f): f is CouncilSeatTurnResult => !!f));
     }
     return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
   }
 
-  async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation">) {
+  async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation" | "isCancelled" | "beforeSeatDispatch">) {
     const generation = roomGenerations.get(input.issueId) ?? 0;
     if (runningRounds.has(input.issueId)) throw conflict("A round is already running in this room");
+    if (hasDurableRoundClaims) await getRoom(input.companyId, input.issueId);
+    const claimRoundId = randomUUID();
+    if (!await claimRound(input.companyId, input.issueId, claimRoundId)) throw conflict("A round is already running in this room");
     const controller = new AbortController();
     const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
     runningRounds.set(input.issueId, { controller, generation });
     try {
-      const result = await runRoundImpl({ ...input, signal, generation });
-      if (signal.aborted || roundCancelled(input.issueId, generation, signal)) {
+      const isCancelled = () => durableRoundCancelled(input.issueId, claimRoundId);
+      const beforeSeatDispatch = () => renewRoundClaim(input.issueId, claimRoundId);
+      const result = await runRoundImpl({ ...input, signal, generation, isCancelled, beforeSeatDispatch });
+      if (signal.aborted || roundCancelled(input.issueId, generation, signal) || await isCancelled()) {
         if (result.userCommentId) {
           if (typeof db.update === "function") {
             await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, result.userCommentId), isNull(issueComments.deletedAt)));
@@ -1231,16 +1275,24 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       return result;
     } finally {
       if (runningRounds.get(input.issueId)?.controller === controller) runningRounds.delete(input.issueId);
+      await releaseRound(input.issueId, claimRoundId);
     }
   }
 
   async function stopRound(companyId: string, issueId: string) {
     await getRoom(companyId, issueId);
     const round = runningRounds.get(issueId);
-    if (!round) return { stopped: false };
+    let stopped = false;
+    if (hasDurableRoundClaims) {
+      const [claim] = await db.update(councilRoundClaims).set({ cancelRequested: true, updatedAt: new Date() })
+        .where(and(eq(councilRoundClaims.companyId, companyId), eq(councilRoundClaims.issueId, issueId), gte(councilRoundClaims.leaseExpiresAt, new Date())))
+        .returning({ issueId: councilRoundClaims.issueId });
+      stopped = !!claim;
+    }
+    if (!round && (hasDurableRoundClaims ? !stopped : true)) return { stopped: false };
     rememberGeneration(issueId, (roomGenerations.get(issueId) ?? 0) + 1);
-    round.controller.abort();
-    return { stopped: true };
+    round?.controller.abort();
+    return { stopped: hasDurableRoundClaims ? stopped : true };
   }
 
   /** Removes every message in a room (the user's and the seats'); seats and the room stay. */
