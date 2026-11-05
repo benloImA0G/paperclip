@@ -27,6 +27,5 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 - Pandoc must be installed on VPS2 / any deployment host (`PANDOC_PATH`).
 - Dashboard onboarding is disabled on this fork (earlier commit), shared issue comment metadata/validators gained optional Council fields, and migration 0434 plus a deleted old 0429 snapshot touch shared DB files: all likely upstream merge conflicts.
 - Mobile thread is still fairly short on small phones because of the composer.
-- 4 `council-stop.test.ts` tests fail at HEAD from stale mocks.
 - Not built (see `COUNCIL-PROPOSALS.md`): document upload and review, durable replayable runs, cheap-first spend estimates, guarded self-improvement proposals.
 - Open decisions: cloud-doc toggle, default writer seat, template/logo needs, reviewer file visibility, local-first vs cloud.
