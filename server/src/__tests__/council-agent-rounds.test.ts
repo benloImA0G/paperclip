@@ -17,8 +17,8 @@ vi.mock("../services/ai-connections.js", () => ({ aiConnectionService: () => ({
 vi.mock("../services/fast-response-provider.js", () => ({ fastResponseModel: vi.fn(() => ({})) }));
 vi.mock("../services/issues.js", () => ({ issueService: () => ({ addComment: mocks.addComment, listComments: mocks.listComments }) }));
 vi.mock("../services/documents.js", () => ({ documentService: () => ({}) }));
-vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, publications: unknown[]) => unknown) => fn({}, []) }));
-vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null }) }) }));
+vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, publications: unknown[]) => unknown) => fn({ insert: () => ({ values: () => ({ returning: async () => [{ id: "reservation" }] }) }), update: () => ({ set: () => ({ where: async () => undefined }) }) }, []) }));
+vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null, policies: [], observations: [] }) }) }));
 vi.mock("../services/costs.js", () => ({ createCostEventInTransaction: mocks.createCostEvent }));
 vi.mock("../services/provider-usage.js", () => ({ providerUsageReceipt: () => ({ costStatus: "accepted", inputTokens: 1, outputTokens: 1, costCents: "0" }) }));
 vi.mock("../services/council-export.js", () => ({ sanitizeMarkdownForPandoc: (value: string) => value }));

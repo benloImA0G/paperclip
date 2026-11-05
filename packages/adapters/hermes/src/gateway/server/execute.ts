@@ -403,11 +403,20 @@ function buildRunBody(ctx: AdapterExecutionContext, sessionKey: string | null): 
     nonEmpty(ctx.config.instructions) ??
     nonEmpty(payloadTemplate.instructions) ??
     "Follow the Paperclip wake instructions exactly. Do not expose secrets in logs, comments, or final output.";
+  const council = ctx.context.council;
+  const councilRequest = council && typeof council === "object" && (council as { toolsAllowed?: unknown }).toolsAllowed === false;
+  const councilMaxOutputTokens = councilRequest && Number.isInteger((council as { maxOutputTokens?: unknown }).maxOutputTokens)
+    ? Math.max(1, (council as { maxOutputTokens: number }).maxOutputTokens)
+    : null;
+  const councilSafeTemplate = councilRequest
+    ? Object.fromEntries(Object.entries(payloadTemplate).filter(([key]) => !/tool|workspace|cwd|working_directory|mcp/i.test(key)))
+    : payloadTemplate;
   return {
-    ...payloadTemplate,
+    ...councilSafeTemplate,
     input,
     instructions,
     ...(sessionKey ? { session_id: sessionKey } : {}),
+    ...(councilMaxOutputTokens ? { max_tokens: councilMaxOutputTokens } : {}),
   };
 }
 

@@ -143,7 +143,9 @@ export function councilChatRoutes(db: Db) {
     boardUserId(req);
     const mode = req.query.mode ?? "ask";
     if (mode !== "ask" && mode !== "discuss" && mode !== "summarize") throw badRequest("Invalid estimate mode");
-    res.json(await getCouncilEstimate(db, companyId, req.params.roomId as string, mode));
+    const clarify = req.query.clarify === "true";
+    if (req.query.clarify !== undefined && req.query.clarify !== "true" && req.query.clarify !== "false") throw badRequest("Invalid clarify value");
+    res.json(await getCouncilEstimate(db, companyId, req.params.roomId as string, mode, clarify));
   });
 
   router.put("/companies/:companyId/council/rooms/:issueId/brief", validate(briefSchema), async (req, res) => {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { agents, issues, type Db } from "@paperclipai/db";
+import { agents, budgetReservations, issues, type Db } from "@paperclipai/db";
+import { centsToUnits, unitsToCents } from "@paperclipai/shared";
 import type { AdapterExecutionResult, ServerAdapterModule } from "../adapters/index.js";
 import { requireServerAdapter } from "../adapters/registry.js";
 import { withAccountingTransaction } from "./accounting-transaction.js";
@@ -71,6 +72,7 @@ export interface CouncilAgentTurnInput {
   signal: AbortSignal;
   deadlineMs?: number;
   maxOutputChars?: number;
+  maxOutputTokens?: number;
 }
 
 export interface CouncilAgentTurnResult {
@@ -122,6 +124,30 @@ function safeAdapterMessage(error: unknown, secrets: readonly string[]) {
   return message.slice(0, 500) || "Adapter execution failed";
 }
 
+async function reserveCouncilTurn(db: Db, companyId: string, agentId: string) {
+  return withAccountingTransaction(db, companyId, async (tx) => {
+    const { block, policies, observations } = await budgetServiceInTransaction(tx, []).evaluateAdmission(companyId, agentId, {});
+    if (block) return null;
+    const amount = policies.reduce((maximum, policy) => {
+      const cents = centsToUnits(policy.reservationCents);
+      return cents > maximum ? cents : maximum;
+    }, 0n);
+    for (const [index, policy] of policies.entries()) {
+      const committed = centsToUnits(observations[index].ledgerCents) + centsToUnits(observations[index].effectiveHeldCents);
+      if (committed + amount > centsToUnits(policy.amount)) return null;
+    }
+    const [reservation] = await tx.insert(budgetReservations).values({
+      companyId, agentId, fastResponseRequestId: randomUUID(), amountCents: unitsToCents(amount), providerStartedAt: new Date(),
+    }).returning({ id: budgetReservations.id });
+    return reservation.id;
+  });
+}
+
+async function settleCouncilReservation(db: Db, companyId: string, reservationId: string, state: "settled" | "released") {
+  await withAccountingTransaction(db, companyId, (tx) => tx.update(budgetReservations).set({ state, settledAt: new Date() })
+    .where(and(eq(budgetReservations.companyId, companyId), eq(budgetReservations.id, reservationId), eq(budgetReservations.state, "held"))));
+}
+
 export function createCouncilAgentTurnService(db: Db, deps: CouncilAgentTurnDependencies = {}) {
   const adapterFor = deps.adapter ?? requireServerAdapter;
   const secrets = deps.secrets ?? secretService(db);
@@ -169,9 +195,8 @@ export function createCouncilAgentTurnService(db: Db, deps: CouncilAgentTurnDepe
     const resolvedSecrets = resolvedStringValues(resolved.resolvedConfig);
     const redact = (value: string) => redactResolvedText(value, resolvedSecrets);
 
-    const { block } = await withAccountingTransaction(db, input.companyId, (tx) =>
-      budgetServiceInTransaction(tx, []).evaluateAdmission(input.companyId, agent.id, {}));
-    if (block) throw new CouncilAgentTurnError("adapter_error", "Budget limit reached");
+    const reservationId = await reserveCouncilTurn(db, input.companyId, agent.id);
+    if (!reservationId) throw new CouncilAgentTurnError("adapter_error", "Budget limit reached");
 
     let timedOut = false;
     const controller = new AbortController();
@@ -193,11 +218,21 @@ export function createCouncilAgentTurnService(db: Db, deps: CouncilAgentTurnDepe
         agent,
         runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
         config: { ...resolved.resolvedConfig, sessionKeyStrategy: "none" },
-        context: { task: input.prompt, issueId: input.issueId, council: { oneShot: true, toolsAllowed: false, workspaceAllowed: false } },
+        context: {
+          task: input.prompt,
+          issueId: input.issueId,
+          council: {
+            oneShot: true,
+            toolsAllowed: false,
+            workspaceAllowed: false,
+            ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
+          },
+        },
         onLog: async (stream, chunk) => { if (stream === "stdout" && logs.join("").length < maxOutputChars) logs.push(redact(chunk)); },
         signal: controller.signal,
       });
     } catch (error) {
+      await settleCouncilReservation(db, input.companyId, reservationId, "released");
       if (timedOut) throw new CouncilAgentTurnError("timeout", "Council agent turn timed out");
       if (input.signal.aborted) throw new CouncilAgentTurnError("aborted", "Council agent turn was cancelled");
       throw new CouncilAgentTurnError("adapter_error", safeAdapterMessage(error, resolvedSecrets));
@@ -205,14 +240,24 @@ export function createCouncilAgentTurnService(db: Db, deps: CouncilAgentTurnDepe
       clearTimeout(timeout);
       input.signal.removeEventListener("abort", abort);
     }
-    if (timedOut || result.timedOut) throw new CouncilAgentTurnError("timeout", "Council agent turn timed out");
-    if (input.signal.aborted) throw new CouncilAgentTurnError("aborted", "Council agent turn was cancelled");
+    if (timedOut || result.timedOut) {
+      await settleCouncilReservation(db, input.companyId, reservationId, "released");
+      throw new CouncilAgentTurnError("timeout", "Council agent turn timed out");
+    }
+    if (input.signal.aborted) {
+      await settleCouncilReservation(db, input.companyId, reservationId, "released");
+      throw new CouncilAgentTurnError("aborted", "Council agent turn was cancelled");
+    }
     if ((result.exitCode ?? 0) !== 0 || result.errorMessage) {
+      await settleCouncilReservation(db, input.companyId, reservationId, "released");
       throw new CouncilAgentTurnError("adapter_error", safeAdapterMessage(result.errorMessage ?? "Adapter execution failed", resolvedSecrets));
     }
 
     const text = outputFrom(result, logs, redact).slice(0, maxOutputChars);
-    if (!text) throw new CouncilAgentTurnError("empty_reply", "Council agent returned an empty reply");
+    if (!text) {
+      await settleCouncilReservation(db, input.companyId, reservationId, "released");
+      throw new CouncilAgentTurnError("empty_reply", "Council agent returned an empty reply");
+    }
     const receipt = providerUsageReceipt({
       usage: result.usage,
       response: { id: result.providerRequestId },
@@ -230,6 +275,8 @@ export function createCouncilAgentTurnService(db: Db, deps: CouncilAgentTurnDepe
         providerRequestId: receipt.providerRequestId, pricingProvenance: receipt.pricingProvenance,
         occurredAt,
       }, publications, { actorType: "agent", actorId: agent.id, agentId: agent.id });
+      await tx.update(budgetReservations).set({ state: "settled", settledAt: new Date() })
+        .where(and(eq(budgetReservations.companyId, input.companyId), eq(budgetReservations.id, reservationId), eq(budgetReservations.state, "held")));
     });
     const response = {
       text, model: result.model ?? undefined, provider: result.provider ?? undefined,

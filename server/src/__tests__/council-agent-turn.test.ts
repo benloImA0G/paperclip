@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { agents, companies, costEvents, createDb, issues } from "@paperclipai/db";
+import { agents, budgetPolicies, companies, costEvents, createDb, issues } from "@paperclipai/db";
 import type { ServerAdapterModule } from "../adapters/index.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService } from "../services/council-agent-turn.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { execute as executeHermesGateway } from "@paperclipai/hermes-paperclip-adapter/gateway/server";
 
 const support = await getEmbeddedPostgresTestSupport();
 const describeEmbedded = support.supported ? describe : describe.skip;
@@ -31,12 +32,12 @@ describeEmbedded("Council agent turn service", () => {
     return { companyId, otherCompanyId, agentId, issueId };
   }
 
-  function service(execute: ServerAdapterModule["execute"], secret = "council-secret") {
+  function service(execute: ServerAdapterModule["execute"], secret = "council-secret", config: Record<string, unknown> = { env: { TOKEN: secret }, nested: { credential: secret } }) {
     return createCouncilAgentTurnService(db, {
       adapter: () => ({ type: "hermes_gateway", execute } as ServerAdapterModule),
       secrets: {
         resolveAdapterConfigForRuntime: vi.fn().mockResolvedValue({
-          config: { env: { TOKEN: secret }, nested: { credential: secret } }, secretKeys: new Set(["TOKEN"]), manifest: [],
+          config, secretKeys: new Set(["TOKEN"]), manifest: [],
         }),
       } as never,
     });
@@ -65,6 +66,44 @@ describeEmbedded("Council agent turn service", () => {
     const rows = await db.select().from(costEvents).where(and(eq(costEvents.companyId, f.companyId), eq(costEvents.idempotencyKey, `council:${request.attemptKey}`)));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ usageKind: "fast_response", agentId: f.agentId, issueId: f.issueId, billingCode: `council:${f.issueId}`, inputTokens: 11, outputTokens: 7 });
+  });
+
+  it("strips tool payload fields and forwards a 64-token cap to the Hermes gateway", async () => {
+    const f = await fixture();
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) => new Response(JSON.stringify(
+      String(url).endsWith("/v1/runs")
+        ? { run_id: "run-hermes-1", status: "completed", output: "Capped reply" }
+        : { status: "completed", output: "Capped reply" },
+    ), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(service(executeHermesGateway as ServerAdapterModule["execute"], "council-secret", {
+      apiBaseUrl: "http://127.0.0.1:8642", apiKey: "council-secret",
+      payloadTemplate: { tools: ["deploy"], toolsets: ["terminal"], workspace: "/tmp/council", cwd: "/tmp/council", mcp: { enabled: true }, keep: "value" },
+    }).runAgentTurn({ ...input(f), maxOutputTokens: 64 })).resolves.toMatchObject({ text: "Capped reply" });
+    const call = (fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit?]>).find(([url]) => String(url).endsWith("/v1/runs"));
+    const body = JSON.parse(String(call?.[1]?.body));
+    expect(body).toMatchObject({ keep: "value", max_tokens: 64 });
+    for (const key of ["tools", "toolsets", "workspace", "cwd", "mcp"]) expect(body).not.toHaveProperty(key);
+  });
+
+  it("admits only the agent turns that fit the held Council budget estimate", async () => {
+    const f = await fixture();
+    await db.insert(budgetPolicies).values({
+      companyId: f.companyId, scopeType: "company", scopeId: f.companyId,
+      windowKind: "calendar_month_utc", amount: 30, reservationCents: "20",
+    });
+    let release: (() => void) | undefined;
+    const execute = vi.fn(() => new Promise<Awaited<ReturnType<ServerAdapterModule["execute"]>>>((resolve) => {
+      release = () => resolve({ exitCode: 0, signal: null, timedOut: false, resultJson: { text: "first" } });
+    }));
+    const turn = service(execute);
+    const first = turn.runAgentTurn(input(f));
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    await expect(turn.runAgentTurn({ ...input(f), attemptKey: randomUUID() })).rejects.toMatchObject({
+      code: "adapter_error", message: "Budget limit reached",
+    });
+    release?.();
+    await expect(first).resolves.toMatchObject({ text: "first" });
   });
 
   it("rejects a caller abort and deadline as typed cancellation errors", async () => {

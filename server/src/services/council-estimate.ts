@@ -80,7 +80,7 @@ function multiply(bounds: { low: number; high: number }, calls: number) {
 /**
  * A read-only planning aid. It deliberately never calls budget admission or writes usage.
  */
-export async function getCouncilEstimate(db: Db, companyId: string, roomId: string, mode: CouncilEstimateMode) {
+export async function getCouncilEstimate(db: Db, companyId: string, roomId: string, mode: CouncilEstimateMode, clarify = false) {
   const [room] = await db.select({ id: issues.id, originKind: issues.originKind })
     .from(issues)
     .where(and(eq(issues.companyId, companyId), eq(issues.id, roomId)))
@@ -107,6 +107,12 @@ export async function getCouncilEstimate(db: Db, companyId: string, roomId: stri
     for (const seat of activeSeats) callsBySeat.set(seat.id, 1);
     // A discussion estimate includes the worst permitted one-hop question/answer exchanges.
     if (mode === "discuss" && activeSeats.length > 1) {
+      for (let index = 0; index < MAX_ESTIMATED_SEAT_QUESTIONS * 2; index++) {
+        const seat = activeSeats[index % activeSeats.length];
+        callsBySeat.set(seat.id, (callsBySeat.get(seat.id) ?? 0) + 1);
+      }
+    }
+    if (mode === "ask" && clarify && activeSeats.length > 1) {
       for (let index = 0; index < MAX_ESTIMATED_SEAT_QUESTIONS * 2; index++) {
         const seat = activeSeats[index % activeSeats.length];
         callsBySeat.set(seat.id, (callsBySeat.get(seat.id) ?? 0) + 1);
@@ -152,7 +158,7 @@ export async function getCouncilEstimate(db: Db, companyId: string, roomId: stri
   const moderatorBounds = mode !== "summarize" && moderator && activeSeats.length > 1
     ? seatEstimates.find((seat) => seat.seatId === moderator.id)!.latency
     : { low: 0, high: 0 };
-  const followup = mode === "discuss" && activeSeats.length > 1 ? multiply(phaseBounds(activeSeats.map((seat) => seat.id)), 2) : { low: 0, high: 0 };
+  const followup = (mode === "discuss" || (mode === "ask" && clarify)) && activeSeats.length > 1 ? multiply(phaseBounds(activeSeats.map((seat) => seat.id)), 2) : { low: 0, high: 0 };
 
   return {
     mode,

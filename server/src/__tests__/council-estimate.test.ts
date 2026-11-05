@@ -84,6 +84,10 @@ describe("Council estimates", { timeout: 60_000 }, () => {
       { seatId: agentSeatId, label: "Unpriced agent", kind: "agent", calls: 1, estimatedCostCents: null, basis: "none" },
     ]));
 
+    const clarify = await request(server).get(`/api/companies/${companyId}/council/rooms/${roomId}/estimate?clarify=true`);
+    expect(clarify.status).toBe(200);
+    expect(clarify.body.calls).toBeGreaterThan(ask.body.calls);
+
     const discuss = await request(server).get(`/api/companies/${companyId}/council/rooms/${roomId}/estimate?mode=discuss`);
     expect(discuss.status).toBe(200);
     expect(discuss.body.calls).toBe(9);
