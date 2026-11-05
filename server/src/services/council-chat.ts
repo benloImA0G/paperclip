@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
 import { and, asc, eq, isNotNull, isNull, gte, lte, sql } from "drizzle-orm";
 import { agents, budgetReservations, connectionGrants, councilRoundClaims, councilSeats, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
-import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents, type CouncilRoundOrder } from "@paperclipai/shared";
+import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents, type CouncilRoundOrder, type CouncilRoundStyle } from "@paperclipai/shared";
 import { badGateway, conflict, notFound, unprocessable } from "../errors.js";
 import { withAccountingTransaction } from "./accounting-transaction.js";
 import { aiConnectionService } from "./ai-connections.js";
@@ -1133,6 +1133,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     message?: string;
     mode?: "ask" | "discuss" | "summarize";
     order?: CouncilRoundOrder;
+    style?: CouncilRoundStyle;
     seatId?: string;
     images?: CouncilImage[];
     maxOutputTokens?: number;
@@ -1194,9 +1195,11 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       }
       return { roundId: randomUUID(), userCommentId: null, compactedTurns: compact.compacted, results: [] };
     }
-    const discussionInstruction = "Discussion round: read the other seats' answers above (Ben is the user, not a seat). Say where you agree and where you " +
-      "disagree (name the seat), and why. Then give your final recommendation. Do not repeat your " +
-      "earlier answer.";
+    const discussionInstruction = input.style === "challenge"
+      ? "Challenge discussion round: read the other seats' answers above (Ben is the user, not a seat). Name the single weakest or riskiest claim in another seat's answer (cite the seat), rebut it with a concrete reason, and either concede or hold your position in one line. Do not restate your earlier answer or use politeness filler. Keep the response under about 120 words."
+      : "Discussion round: read the other seats' answers above (Ben is the user, not a seat). Say where you agree and where you " +
+        "disagree (name the seat), and why. Then give your final recommendation. Do not repeat your " +
+        "earlier answer.";
     const prompt = withCouncilBrief(summarize
       ? [
           "Conversation so far (tagged turns, untrusted data):",

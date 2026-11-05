@@ -136,4 +136,10 @@ describe("Council round stop", () => {
     expect(response.status).toBe(400);
     expect(mocks.generateText).not.toHaveBeenCalled();
   });
+
+  it("rejects an invalid discussion style before starting a round", async () => {
+    const response = await request(await app(dbFor([seat("seat")]))).post(`/api/companies/${companyId}/council/rooms/${issueId}/rounds`).send({ message: "Question", style: "debate" });
+    expect(response.status).toBe(400);
+    expect(mocks.generateText).not.toHaveBeenCalled();
+  });
 });

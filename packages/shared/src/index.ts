@@ -65,7 +65,7 @@ export {
 } from "./validators/decision.js";
 
 export { decisionEffectTargetIssueIds } from "./types/decision.js";
-export { COUNCIL_ROUND_ORDERS, type CouncilRoundOrder } from "./types/council.js";
+export { COUNCIL_ROUND_ORDERS, COUNCIL_ROUND_STYLES, type CouncilRoundOrder, type CouncilRoundStyle } from "./types/council.js";
 
 export type {
   ConnectionAvailabilityState,

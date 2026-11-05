@@ -1,4 +1,4 @@
-import type { CouncilRoundOrder, Issue } from "@paperclipai/shared";
+import type { CouncilRoundOrder, CouncilRoundStyle, Issue } from "@paperclipai/shared";
 import { api, requestResponse } from "./client";
 
 export interface CouncilSeatFallback {
@@ -131,6 +131,7 @@ export const councilApi = {
       message?: string;
       mode?: "ask" | "discuss" | "summarize";
       order?: CouncilRoundOrder;
+      style?: CouncilRoundStyle;
       seatId?: string;
       images?: Array<{ mediaType: string; data: string }>;
       maxOutputTokens?: number;
@@ -144,6 +145,7 @@ export const councilApi = {
         ...(input.message ? { message: input.message } : {}),
         mode: input.mode ?? "ask",
         ...(input.order ? { order: input.order } : {}),
+        ...(input.style ? { style: input.style } : {}),
         ...(input.seatId ? { seatId: input.seatId } : {}),
         ...(input.images?.length ? { images: input.images } : {}),
         ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
