@@ -2,7 +2,7 @@ import { FastResponseHistory } from "../components/fast-responses/FastResponseHi
 import { DecisionHistory } from "../components/decision-models/DecisionHistory";
 import { SubscriptionCostCard, SubscriptionTokenUsage } from "../components/SubscriptionCostCard";
 import { subscriptionsApi } from "../api/subscriptions";
-import { useSearchParams } from "@/lib/router";
+import { Link, useSearchParams } from "@/lib/router";
 import { CostEstimateLabel } from "../components/CostEstimateLabel";
 import { CostAmount } from "../components/CostAmount";
 import { CostByUserTable } from "../components/CostByUserTable";
@@ -15,6 +15,7 @@ import type {
   CostByAgentModel,
   CostByBiller,
   CostByProviderModel,
+  CouncilCostSummary,
   CostWindowSpendRow,
   FinanceEvent,
   QuotaWindow,
@@ -115,6 +116,60 @@ function MetricTile({
           <Icon className="h-4 w-4 text-muted-foreground" />
         </div>
       </div>
+    </Card>
+  );
+}
+
+function CouncilCostCard({
+  summary,
+  loading,
+  error,
+}: {
+  summary?: CouncilCostSummary;
+  loading: boolean;
+  error: boolean;
+}) {
+  const callCount = summary?.callCount ?? 0;
+  const unpricedEventCount = summary?.unpricedEventCount ?? 0;
+  const costCents = summary?.costCents ?? 0;
+  const topRooms = summary?.topRooms ?? [];
+  const spend = summary
+    ? unpricedEventCount > 0
+      ? "Not priced"
+      : costCents === 0
+        ? "Free"
+        : formatCents(costCents)
+    : "—";
+  const tokenCount = (summary?.inputTokens ?? 0) + (summary?.outputTokens ?? 0);
+
+  return (
+    <Card aria-label="Council costs">
+      <CardHeader className="flex-row items-start justify-between gap-3 px-5 pt-5 pb-2">
+        <div>
+          <CardTitle className="text-base">Council</CardTitle>
+          <CardDescription>Vendor calls for Council rooms.</CardDescription>
+        </div>
+        <Button variant="outline" size="sm" asChild><Link to="/council">Open Council</Link></Button>
+      </CardHeader>
+      <CardContent className="space-y-3 px-5 pb-5 pt-2">
+        {loading ? <p className="text-sm text-muted-foreground">Loading Council costs…</p> : error && !summary ? <p role="status" className="text-sm text-muted-foreground">Council costs are unavailable. Try again shortly.</p> : summary ? <>
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            <div><div className="text-muted-foreground">Calls</div><div className="font-mono font-medium tabular-nums">{callCount}</div></div>
+            <div><div className="text-muted-foreground">Tokens</div><div className="font-mono font-medium tabular-nums">{formatTokens(tokenCount)}</div></div>
+            <div><div className="text-muted-foreground">Spend</div><div className="font-mono font-medium tabular-nums">{spend}</div></div>
+          </div>
+          {unpricedEventCount > 0 ? <p className="text-sm text-muted-foreground">{unpricedEventCount} call{unpricedEventCount === 1 ? " is" : "s are"} not priced.</p> : null}
+          {topRooms.length > 0 ? <div className="space-y-2 border-t pt-3">
+            <div className="text-sm font-medium">Top rooms</div>
+            <ul className="space-y-1.5">
+              {topRooms.map((room) => <li key={room.issueId} className="flex min-w-0 items-center justify-between gap-3 text-sm">
+                <Link to="/council" className="min-w-0 truncate text-primary hover:underline" aria-label={`Open Council room: ${room.issueTitle}`}>{room.issueTitle}</Link>
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">{room.callCount} calls · {room.costCents === 0 ? "Free" : formatCents(room.costCents)}</span>
+              </li>)}
+            </ul>
+          </div> : <p className="text-sm text-muted-foreground">No Council calls in this period.</p>}
+        </> : null}
+      </CardContent>
     </Card>
   );
 }
@@ -312,6 +367,13 @@ export function Costs({
   const { data: userSpendData, error: userSpendError } = useQuery({
     queryKey: [...queryKeys.costs(companyId, reportQueryFrom, reportQueryTo), "by-user"],
     queryFn: () => costsApi.byUser(companyId, from || undefined, to || undefined),
+    enabled: !!selectedCompanyId && customReady && showSummaryChrome && mainTab === "overview",
+    refetchInterval: 30_000,
+  });
+
+  const councilSummaryQuery = useQuery({
+    queryKey: [...queryKeys.costs(companyId, reportQueryFrom, reportQueryTo), "council"],
+    queryFn: () => costsApi.councilSummary(companyId, from || undefined, to || undefined),
     enabled: !!selectedCompanyId && customReady && showSummaryChrome && mainTab === "overview",
     refetchInterval: 30_000,
   });
@@ -722,6 +784,7 @@ export function Costs({
               unpricedCount={spendData.summary.unpricedEventCount} pendingCount={spendData.summary.pendingRunCount}
               unknownBillingCount={spendData.summary.unknownBillingEventCount ?? 0} />
           )}
+          {mainTab === "overview" ? <CouncilCostCard summary={councilSummaryQuery.data} loading={councilSummaryQuery.isLoading} error={councilSummaryQuery.isError} /> : null}
         </div>
       ) : null}
 

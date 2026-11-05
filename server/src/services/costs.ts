@@ -226,6 +226,59 @@ export function costService(db: Db, _budgetHooks: BudgetServiceHooks = {}) {
       };
     }),
 
+    councilSummary: async (companyId: string, range?: CostDateRange) => withAccountingReadSnapshot(db, companyId, async (db) => {
+      const bounds = resolveCostDateRange(range);
+      const conditions = [
+        eq(costEvents.companyId, companyId),
+        sql`${costEvents.billingCode} like 'council:%'`,
+      ];
+      if (bounds.from) conditions.push(gte(costEvents.occurredAt, bounds.from));
+      if (bounds.to) conditions.push(lte(costEvents.occurredAt, bounds.to));
+
+      const [summary] = await db
+        .select({
+          callCount: sql<number>`count(*)::int`,
+          inputTokens: sumAsNumber(ordinaryInputTokens),
+          outputTokens: sumAsNumber(costEvents.outputTokens),
+          unpricedEventCount: sql<number>`count(*) filter (where ${costEvents.costStatus} = 'unpriced' and ${costEvents.billingType} <> 'subscription_included')::int`,
+          costCents: sumAsNumber(costEvents.costCents),
+          costCentsExact: sql<string>`coalesce(sum(${costEvents.costCents}), 0)::text`,
+        })
+        .from(costEvents)
+        .where(and(...conditions));
+
+      const topRooms = await db
+        .select({
+          issueId: costEvents.issueId,
+          issueTitle: issues.title,
+          callCount: sql<number>`count(*)::int`,
+          costCents: sumAsNumber(costEvents.costCents),
+          costCentsExact: sql<string>`coalesce(sum(${costEvents.costCents}), 0)::text`,
+        })
+        .from(costEvents)
+        .innerJoin(issues, and(eq(issues.id, costEvents.issueId), eq(issues.companyId, companyId)))
+        .where(and(...conditions))
+        .groupBy(costEvents.issueId, issues.title)
+        .orderBy(desc(sumAsNumber(costEvents.costCents)), desc(sql`count(*)`), issues.title)
+        .limit(5);
+
+      return {
+        callCount: Number(summary?.callCount ?? 0),
+        inputTokens: Number(summary?.inputTokens ?? 0),
+        outputTokens: Number(summary?.outputTokens ?? 0),
+        unpricedEventCount: Number(summary?.unpricedEventCount ?? 0),
+        costCents: Number(summary?.costCents ?? 0),
+        costCentsExact: normalizeCents(summary?.costCentsExact ?? 0),
+        topRooms: topRooms.map((room) => ({
+          issueId: room.issueId!,
+          issueTitle: room.issueTitle,
+          callCount: Number(room.callCount),
+          costCents: Number(room.costCents),
+          costCentsExact: normalizeCents(room.costCentsExact),
+        })),
+      };
+    }),
+
     issueTreeSummary: async (
       companyId: string,
       issueId: string,

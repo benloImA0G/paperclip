@@ -1,5 +1,7 @@
 import { isAgentCreatedIssue, type ExternalObjectSummary, type Issue } from "@paperclipai/shared";
 
+const COUNCIL_ORIGIN_KIND: string = "council";
+
 export type IssueFilterWorkspaceLookup = {
   mode?: string | null;
   projectWorkspaceId?: string | null;
@@ -240,6 +242,9 @@ export function applyIssueFilters(
   }
   if (state.routineTasksOnly) {
     result = result.filter((issue) => issue.originKind === "routine_execution");
+  }
+  if (enableAgentCreatedVisibilityFilter && !state.routineTasksOnly) {
+    result = result.filter((issue) => issue.originKind !== COUNCIL_ORIGIN_KIND);
   }
   if (enableAgentCreatedVisibilityFilter && !state.showAgentCreatedTasks && !state.routineTasksOnly) {
     result = result.filter((issue) => !isAgentCreatedIssue(issue));

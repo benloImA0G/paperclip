@@ -43,6 +43,24 @@ export interface CostSummary {
   utilizationPercent: number;
 }
 
+export interface CouncilCostRoom {
+  issueId: string;
+  issueTitle: string;
+  costCents: number;
+  costCentsExact?: string;
+  callCount: number;
+}
+
+export interface CouncilCostSummary {
+  callCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  unpricedEventCount: number;
+  costCents: number;
+  costCentsExact?: string;
+  topRooms: CouncilCostRoom[];
+}
+
 export type CostDataQualityReason = "unknown_billing" | "missing_model" | "missing_price"
   | "waiting_for_receipt" | "receipt_unavailable" | "retryable";
 

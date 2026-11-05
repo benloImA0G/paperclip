@@ -15,6 +15,8 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 - Security: board-only routes, 8-seat cap, export SSRF/size guards, untrusted-data delimiters, forged-delimiter escaping.
 - UI/UX: chat-first layout, sticky composer, Room tools row, collapsed vendor settings, mobile layout, design tokens, accessibility fixes, stale-room race fixes.
 
+- Paperclip bridge (2026-11-05): Council spend card on the Costs page (GET /costs/council, no migration; calls already land in the cost ledger as fast_response with billingCode council:<room>); Create task button on decision cards and a Linked tasks panel in Room settings (normal manual tasks, linked through room references; rooms stay out of /tasks); Agents panel with Create agent. Staged plan for real agent seats and a Hermes orchestrator option: doc/COUNCIL-AGENTS-PLAN.md.
+
 ## Known gaps / decisions for Ben
 
 - Pandoc must be installed on VPS2 / any deployment host (`PANDOC_PATH`).

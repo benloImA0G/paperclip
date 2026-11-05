@@ -79,9 +79,9 @@ it("separates monitored waits from In Progress in task filters", () => {
 
 describe("issue filters", () => {
   it("hides automation by default while an opt-in includes every creation source", () => {
-    const issues = [makeIssue({ id: "human", createdByUserId: "person" }), makeIssue({ id: "agent", createdByAgentId: "agent" }), makeIssue({ id: "routine", originKind: "routine_execution", createdByUserId: "person" }), makeIssue({ id: "system" })];
+    const issues = [makeIssue({ id: "human", createdByUserId: "person" }), makeIssue({ id: "agent", createdByAgentId: "agent" }), makeIssue({ id: "routine", originKind: "routine_execution", createdByUserId: "person" }), makeIssue({ id: "council", originKind: "council" as unknown as Issue["originKind"], createdByUserId: "person" }), makeIssue({ id: "system" })];
     expect(applyIssueFilters(issues, defaultIssueFilterState, null, true).map((issue) => issue.id)).toEqual(["human"]);
-    expect(applyIssueFilters(issues, { ...defaultIssueFilterState, showAgentCreatedTasks: true }, null, true)).toEqual(issues);
+    expect(applyIssueFilters(issues, { ...defaultIssueFilterState, showAgentCreatedTasks: true }, null, true).map((issue) => issue.id)).toEqual(["human", "agent", "routine", "system"]);
     // Membership and task-detail collections can explicitly bypass creation visibility.
     expect(applyIssueFilters(issues, defaultIssueFilterState, null, false)).toEqual(issues);
     expect(countActiveIssueFilters(defaultIssueFilterState, true)).toBe(0);

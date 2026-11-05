@@ -1,5 +1,6 @@
 import type {
   CostSummary,
+  CouncilCostSummary,
   CostDataQualityReport,
   CostByAgent,
   CostByUserReport,
@@ -32,6 +33,8 @@ export const costsApi = {
     api.post<{ accounted: boolean }>(`/companies/${companyId}/costs/retry-accounting`, { runId }),
   summary: (companyId: string, from?: string, to?: string) =>
     api.get<CostSummary>(`/companies/${companyId}/costs/summary${dateParams(from, to)}`),
+  councilSummary: (companyId: string, from?: string, to?: string) =>
+    api.get<CouncilCostSummary>(`/companies/${companyId}/costs/council${dateParams(from, to)}`),
   byUser: (companyId: string, from?: string, to?: string) =>
     api.get<CostByUserReport>(`/companies/${companyId}/costs/by-user${dateParams(from, to)}`),
   byAgent: (companyId: string, from?: string, to?: string) =>

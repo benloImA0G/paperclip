@@ -1244,6 +1244,8 @@ export type {
   BudgetIncidentResolutionInput,
   CostEvent,
   CostSummary,
+  CouncilCostRoom,
+  CouncilCostSummary,
   CostDataQualityItem,
   CostDataQualityReport,
   CostDataQualityReason,

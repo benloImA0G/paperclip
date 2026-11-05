@@ -18,6 +18,7 @@ const setBreadcrumbsMock = vi.hoisted(() => vi.fn());
 const decisionHistoryMock = vi.hoisted(() => vi.fn());
 const costsApiMocks = vi.hoisted(() => ({
   summary: vi.fn(),
+  councilSummary: vi.fn(),
   byAgent: vi.fn(),
   byUser: vi.fn(),
   byProject: vi.fn(),
@@ -146,6 +147,34 @@ describe("Shared Costs surfaces", () => {
       "Other billing usage: 150 tokens · $6.00 in recorded charges, included in the inference ledger.",
     )));
     expect(container.textContent).not.toContain("tokens have an unknown billing type");
+  });
+
+  it("shows Council calls, pricing, and room links in Overview", async () => {
+    for (const mock of Object.values(costsApiMocks)) mock.mockResolvedValue([]);
+    costsApiMocks.summary.mockResolvedValue({ spendCents: 195, budgetCents: 0, pricingComplete: false, unpricedEventCount: 1, pendingRunCount: 0 });
+    costsApiMocks.byUser.mockResolvedValue({ activeUserCount: 1, rows: [] });
+    costsApiMocks.financeSummary.mockResolvedValue({ netCents: 0, debitCents: 0, creditCents: 0, estimatedDebitCents: 0, eventCount: 0 });
+    costsApiMocks.councilSummary.mockResolvedValue({
+      callCount: 3,
+      inputTokens: 24,
+      outputTokens: 9,
+      unpricedEventCount: 1,
+      costCents: 195,
+      topRooms: [{ issueId: "room-1", issueTitle: "Planning room", callCount: 2, costCents: 120 }],
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    root = createRoot(container);
+    await act(async () => root.render(<MemoryRouter><QueryClientProvider client={queryClient}><Costs /></QueryClientProvider></MemoryRouter>));
+    await act(async () => { await vi.waitFor(() => expect(container.querySelector('[aria-label="Council costs"]')).not.toBeNull()); });
+    const councilCard = container.querySelector<HTMLElement>('[aria-label="Council costs"]')!;
+    expect(councilCard.textContent).toContain("Council");
+    expect(councilCard.textContent).toContain("3");
+    expect(councilCard.textContent).toContain("33");
+    expect(councilCard.textContent).toContain("Not priced");
+    expect(councilCard.textContent).toContain("1 call is not priced.");
+    expect(councilCard.querySelector('a[aria-label="Open Council room: Planning room"]')?.getAttribute("href")).toBe("/council");
+    expect(councilCard.querySelector('a')?.textContent).toBe("Open Council");
+    queryClient.clear();
   });
 
   it("renders a focused Budgets section without duplicate Costs chrome or spend queries", async () => {
