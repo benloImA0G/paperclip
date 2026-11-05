@@ -49,9 +49,11 @@ function AgentRow({ agent, roomId, seats, addingAgentId, addError, onAdd }: {
   onAdd: () => void;
 }) {
   const isHermes = agent.adapterType === "hermes_gateway" || agent.adapterType === "hermes_local";
+  // Mirrors the server gate (isAgentInvokableForCouncil); a missing lifecycleState counts as ready.
+  const agentReady = (agent.lifecycleState ?? "ready") === "ready" && !["paused", "terminated", "pending_approval", "error", "deleted"].includes(agent.status);
   const alreadyAdded = seats.some((seat) => seat.kind === "agent" && seat.agentId === agent.id);
   const agentSeatLimitReached = seats.filter((seat) => seat.kind === "agent").length >= 3;
-  const addUnavailableReason = agent.adapterType !== "hermes_gateway" ? "Only Hermes gateway agents can join war rooms." : alreadyAdded ? "This agent is already in the room." : agentSeatLimitReached ? "This room already has three agents." : undefined;
+  const addUnavailableReason = agent.adapterType !== "hermes_gateway" ? "Only Hermes gateway agents can join war rooms." : !agentReady ? "This agent is not ready (paused, errored or still being set up)." : alreadyAdded ? "This agent is already in the room." : agentSeatLimitReached ? "This room already has three agents." : undefined;
 
   return (
     <li className="flex flex-col gap-3 border-t py-3 first:border-t-0 first:pt-0 sm:flex-row sm:items-center sm:justify-between">

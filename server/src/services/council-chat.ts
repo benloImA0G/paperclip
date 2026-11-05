@@ -937,7 +937,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const fallbackSeat = activeSeats.find((seat) => seat.seatKind === "model");
     if (!fallbackSeat) return result;
     logger.warn({ companyId: input.companyId, issueId: input.issueId, seatId: input.seat.id, fallbackSeatId: fallbackSeat.id, reason: result.error ?? result.status }, "Council agent orchestrator fell back to a model seat");
-    const fallback = await runSeatTurn({ ...input, seat: fallbackSeat });
+    const fallback = await runSeatTurn({ ...input, roundId: `${input.roundId}-fallback`, seat: fallbackSeat });
     return fallback.status === "ok"
       ? { ...fallback, fallbackUsed: true, failedAttempts: [{ model: "agent", error: result.error ?? result.status }] }
       : fallback;

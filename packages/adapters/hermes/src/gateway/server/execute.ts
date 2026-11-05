@@ -154,6 +154,8 @@ const TERMINAL_STATUSES = new Set([
 ]);
 
 const FAILURE_STATUSES = new Set(["failed", "error"]);
+/** Bounds stop and final-status calls so a hung gateway cannot hold a cancelled turn open. */
+const CLEANUP_REQUEST_TIMEOUT_MS = 5_000;
 const CANCELLED_STATUSES = new Set(["cancelled", "canceled", "stopped", "interrupted"]);
 const DEFAULT_HERMES_DASHBOARD_PORT = "9119";
 const HERMES_DASHBOARD_API_PATHS = new Set(["", "/", "/chat"]);
@@ -595,15 +597,15 @@ async function handleEvent(
 async function delay(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -804,6 +806,7 @@ async function stopRun(input: {
     const stopped = await fetchJson(apiUrl(input.baseUrl, `/v1/runs/${encodeURIComponent(input.runId)}/stop`), {
       method: "POST",
       headers: input.headers,
+      signal: AbortSignal.timeout(CLEANUP_REQUEST_TIMEOUT_MS),
     });
     await input.ctx.onLog("stdout", `[hermes-gateway] stop requested for run ${input.runId}\n`);
     return asRecord(stopped);
@@ -825,6 +828,7 @@ async function fetchFinalStatus(input: {
       const status = await fetchJson(apiUrl(input.baseUrl, `/v1/runs/${encodeURIComponent(input.runId)}`), {
         method: "GET",
         headers: input.headers,
+        signal: AbortSignal.timeout(CLEANUP_REQUEST_TIMEOUT_MS),
       });
       const record = asRecord(status);
       const normalized = extractStatus(status);
@@ -998,6 +1002,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       method: "POST",
       headers: runHeaders,
       body: JSON.stringify(body),
+      signal: ctx.signal,
     });
     runId = extractRunId(created);
     if (!runId) {
@@ -1011,6 +1016,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       };
     }
   } catch (err) {
+    if (ctx.signal?.aborted) {
+      return {
+        exitCode: 1,
+        signal: "SIGTERM",
+        timedOut: false,
+        errorCode: "hermes_gateway_cancelled",
+        errorMessage: "Hermes gateway run was cancelled.",
+      };
+    }
     return errorResult(err, baseUrl, redactText);
   }
 
