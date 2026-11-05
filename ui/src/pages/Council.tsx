@@ -538,11 +538,12 @@ export function Council() {
   return (
     <div data-task-chat-shell className="council-shell flex h-(--sz-100dvh) min-h-0 flex-col gap-3 overflow-hidden pb-(--tc-composer-visible-nav-offset) md:pb-0">
       <div className="council-header flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div className="w-60 shrink-0">
-          <h1 className="flex items-center gap-2 text-xl font-semibold leading-tight">
-            <MessagesSquare className="h-5 w-5" /> Multi-Vendor Council Chat
-          </h1>
-          <p className="text-xs text-muted-foreground">Post an engineering challenge; vendors debate and reconcile into a unified vision.</p>
+        <div className="flex min-w-0 basis-full items-center gap-3 sm:flex-1 sm:basis-0">
+          <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40"><MessagesSquare className="h-5 w-5" /></span>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold leading-tight">Multi-Vendor Council Chat</h1>
+            <p className="truncate text-xs text-muted-foreground" title="Post a challenge; vendors debate and reconcile into one vision.">Post a challenge; vendors debate and reconcile into one vision.</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
           <div className="relative">
