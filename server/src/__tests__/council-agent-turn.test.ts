@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { agents, budgetPolicies, companies, costEvents, createDb, issues } from "@paperclipai/db";
+import { agents, budgetPolicies, budgetReservations, companies, costEvents, createDb, issues } from "@paperclipai/db";
 import type { ServerAdapterModule } from "../adapters/index.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService } from "../services/council-agent-turn.js";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
@@ -68,6 +68,25 @@ describeEmbedded("Council agent turn service", () => {
     expect(rows[0]).toMatchObject({ usageKind: "fast_response", agentId: f.agentId, issueId: f.issueId, billingCode: `council:${f.issueId}`, inputTokens: 11, outputTokens: 7 });
   });
 
+  it("releases the held reservation when provider-success accounting fails", async () => {
+    const f = await fixture();
+    const execute = vi.fn(async () => ({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      resultJson: { text: "Provider succeeded" },
+      billingType: "invalid_billing_type",
+    }) as unknown as Awaited<ReturnType<ServerAdapterModule["execute"]>>);
+
+    await expect(service(execute).runAgentTurn(input(f))).rejects.toMatchObject({ message: "Invalid cost receipt" });
+
+    const reservations = await db.select().from(budgetReservations)
+      .where(and(eq(budgetReservations.companyId, f.companyId), eq(budgetReservations.agentId, f.agentId)));
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]).toMatchObject({ state: "released" });
+    expect(reservations[0]?.settledAt).toBeInstanceOf(Date);
+  });
+
   it("strips tool payload fields and forwards a 64-token cap to the Hermes gateway", async () => {
     const f = await fixture();
     const fetchMock = vi.fn(async (url: RequestInfo | URL) => new Response(JSON.stringify(
@@ -78,12 +97,22 @@ describeEmbedded("Council agent turn service", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(service(executeHermesGateway as ServerAdapterModule["execute"], "council-secret", {
       apiBaseUrl: "http://127.0.0.1:8642", apiKey: "council-secret",
-      payloadTemplate: { tools: ["deploy"], toolsets: ["terminal"], workspace: "/tmp/council", cwd: "/tmp/council", mcp: { enabled: true }, keep: "value" },
+      payloadTemplate: {
+        tools: ["deploy"],
+        keep: {
+          value: "safe",
+          nested: { workspace: "/tmp/council", label: "preserved" },
+          array: [{ cwd: "/tmp/council", allowed: true }, { mcpServers: ["unsafe"], retained: 2 }],
+        },
+      },
     }).runAgentTurn({ ...input(f), maxOutputTokens: 64 })).resolves.toMatchObject({ text: "Capped reply" });
     const call = (fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit?]>).find(([url]) => String(url).endsWith("/v1/runs"));
     const body = JSON.parse(String(call?.[1]?.body));
-    expect(body).toMatchObject({ keep: "value", max_tokens: 64 });
-    for (const key of ["tools", "toolsets", "workspace", "cwd", "mcp"]) expect(body).not.toHaveProperty(key);
+    expect(body).toMatchObject({
+      keep: { value: "safe", nested: { label: "preserved" }, array: [{ allowed: true }, { retained: 2 }] },
+      max_tokens: 64,
+    });
+    expect(JSON.stringify(body)).not.toMatch(/tools|workspace|cwd|working_directory|mcp/i);
   });
 
   it("admits only the agent turns that fit the held Council budget estimate", async () => {

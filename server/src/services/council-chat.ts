@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
-import { and, asc, eq, isNotNull, isNull, gte, lte } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, gte, lte, sql } from "drizzle-orm";
 import { agents, budgetReservations, connectionGrants, councilRoundClaims, councilSeats, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
 import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents } from "@paperclipai/shared";
 import { badGateway, conflict, notFound, unprocessable } from "../errors.js";
@@ -326,18 +326,18 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
 
   async function claimRound(companyId: string, issueId: string, roundId: string) {
     if (!hasDurableRoundClaims) return true;
-    const now = new Date();
+    const leaseExpiresAt = sql<Date>`now() + ${ROUND_CLAIM_TTL_MS} * interval '1 millisecond'`;
     const [claim] = await db.insert(councilRoundClaims).values({
       companyId,
       issueId,
       roundId,
-      leaseExpiresAt: new Date(now.getTime() + ROUND_CLAIM_TTL_MS),
+      leaseExpiresAt,
       cancelRequested: false,
-      updatedAt: now,
+      updatedAt: sql`now()`,
     }).onConflictDoUpdate({
       target: councilRoundClaims.issueId,
-      set: { companyId, roundId, leaseExpiresAt: new Date(now.getTime() + ROUND_CLAIM_TTL_MS), cancelRequested: false, updatedAt: now },
-      where: lte(councilRoundClaims.leaseExpiresAt, now),
+      set: { companyId, roundId, leaseExpiresAt, cancelRequested: false, updatedAt: sql`now()` },
+      where: lte(councilRoundClaims.leaseExpiresAt, sql`now()`),
     }).returning({ roundId: councilRoundClaims.roundId });
     return claim?.roundId === roundId;
   }
@@ -356,7 +356,10 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
 
   async function renewRoundClaim(issueId: string, roundId: string) {
     if (!hasDurableRoundClaims) return true;
-    const [claim] = await db.update(councilRoundClaims).set({ leaseExpiresAt: new Date(Date.now() + ROUND_CLAIM_TTL_MS), updatedAt: new Date() })
+    const [claim] = await db.update(councilRoundClaims).set({
+      leaseExpiresAt: sql<Date>`now() + ${ROUND_CLAIM_TTL_MS} * interval '1 millisecond'`,
+      updatedAt: sql`now()`,
+    })
       .where(and(eq(councilRoundClaims.issueId, issueId), eq(councilRoundClaims.roundId, roundId), eq(councilRoundClaims.cancelRequested, false)))
       .returning({ issueId: councilRoundClaims.issueId });
     return !!claim;
@@ -1284,8 +1287,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const round = runningRounds.get(issueId);
     let stopped = false;
     if (hasDurableRoundClaims) {
-      const [claim] = await db.update(councilRoundClaims).set({ cancelRequested: true, updatedAt: new Date() })
-        .where(and(eq(councilRoundClaims.companyId, companyId), eq(councilRoundClaims.issueId, issueId), gte(councilRoundClaims.leaseExpiresAt, new Date())))
+      const [claim] = await db.update(councilRoundClaims).set({ cancelRequested: true, updatedAt: sql`now()` })
+        .where(and(eq(councilRoundClaims.companyId, companyId), eq(councilRoundClaims.issueId, issueId), gte(councilRoundClaims.leaseExpiresAt, sql`now()`)))
         .returning({ issueId: councilRoundClaims.issueId });
       stopped = !!claim;
     }

@@ -209,6 +209,36 @@ describe("execute", () => {
     expect(body.session_id).toBe("paperclip:company:company-1:agent:agent-1:issue:issue-1");
   });
 
+  it("recursively strips Council capability keys while retaining safe fields and max_tokens", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify(
+      String(input).endsWith("/v1/runs")
+        ? { run_id: "run-hermes-1", status: "completed", output: "done" }
+        : { status: "completed", output: "done" },
+    ), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const ctx = makeCtx({
+      apiBaseUrl: "http://127.0.0.1:8642",
+      apiKey: "secret-key",
+      payloadTemplate: {
+        safe: {
+          label: "keep",
+          toolConfig: { enabled: true },
+          items: [{ cwd: "/tmp/unsafe", value: 1 }, { nested: { mcp_servers: ["unsafe"], value: 2 } }],
+        },
+        workspace: "/tmp/unsafe",
+      },
+    });
+    ctx.context.council = { toolsAllowed: false, maxOutputTokens: 77 };
+
+    await execute(ctx);
+
+    const call = (fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit?]>).find(([input]) => String(input).endsWith("/v1/runs"));
+    const body = JSON.parse(String(call?.[1]?.body));
+    expect(body.safe).toEqual({ label: "keep", items: [{ value: 1 }, { nested: { value: 2 } }] });
+    expect(body.max_tokens).toBe(77);
+    expect(body).not.toHaveProperty("workspace");
+  });
+
   it.each([false, true])("preserves chat handoff policy on gateway turns (resumed=%s)", async (resumed) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => new Response(JSON.stringify(
       String(input).endsWith("/v1/runs")

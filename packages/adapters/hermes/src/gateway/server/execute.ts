@@ -409,7 +409,7 @@ function buildRunBody(ctx: AdapterExecutionContext, sessionKey: string | null): 
     ? Math.max(1, (council as { maxOutputTokens: number }).maxOutputTokens)
     : null;
   const councilSafeTemplate = councilRequest
-    ? Object.fromEntries(Object.entries(payloadTemplate).filter(([key]) => !/tool|workspace|cwd|working_directory|mcp/i.test(key)))
+    ? stripCouncilCapabilities(payloadTemplate) as Record<string, unknown>
     : payloadTemplate;
   return {
     ...councilSafeTemplate,
@@ -418,6 +418,16 @@ function buildRunBody(ctx: AdapterExecutionContext, sessionKey: string | null): 
     ...(sessionKey ? { session_id: sessionKey } : {}),
     ...(councilMaxOutputTokens ? { max_tokens: councilMaxOutputTokens } : {}),
   };
+}
+
+const COUNCIL_CAPABILITY_KEY = /tool|workspace|cwd|working_directory|mcp/i;
+
+function stripCouncilCapabilities(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripCouncilCapabilities);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).flatMap(([key, nested]) =>
+    COUNCIL_CAPABILITY_KEY.test(key) ? [] : [[key, stripCouncilCapabilities(nested)]],
+  ));
 }
 
 async function readResponseJson(response: Response): Promise<unknown> {

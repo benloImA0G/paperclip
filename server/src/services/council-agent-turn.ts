@@ -263,21 +263,26 @@ export function createCouncilAgentTurnService(db: Db, deps: CouncilAgentTurnDepe
       response: { id: result.providerRequestId },
       providerMetadata: { openrouter: { usage: { cost: result.cacheAdjustedCostUsd ?? result.costUsd } } },
     });
-    await withAccountingTransaction(db, input.companyId, async (tx, publications) => {
-      await createCostEventInTransaction(tx, input.companyId, {
-        usageKind: "fast_response", agentId: agent.id, responsibleUserId: null,
-        issueId: input.issueId, projectId: null, heartbeatRunId: null,
-        idempotencyKey: `council:${input.attemptKey}`, billingCode: `council:${input.issueId}`,
-        provider: result.provider ?? agent.adapterType, biller: result.biller ?? result.provider ?? agent.adapterType,
-        model: result.model ?? agent.adapterType, billingType: result.billingType ?? "metered_api",
-        costStatus: receipt.costStatus, inputTokens: receipt.inputTokens ?? 0,
-        outputTokens: receipt.outputTokens ?? 0, costCents: receipt.costCents ?? "0",
-        providerRequestId: receipt.providerRequestId, pricingProvenance: receipt.pricingProvenance,
-        occurredAt,
-      }, publications, { actorType: "agent", actorId: agent.id, agentId: agent.id });
-      await tx.update(budgetReservations).set({ state: "settled", settledAt: new Date() })
-        .where(and(eq(budgetReservations.companyId, input.companyId), eq(budgetReservations.id, reservationId), eq(budgetReservations.state, "held")));
-    });
+    try {
+      await withAccountingTransaction(db, input.companyId, async (tx, publications) => {
+        await createCostEventInTransaction(tx, input.companyId, {
+          usageKind: "fast_response", agentId: agent.id, responsibleUserId: null,
+          issueId: input.issueId, projectId: null, heartbeatRunId: null,
+          idempotencyKey: `council:${input.attemptKey}`, billingCode: `council:${input.issueId}`,
+          provider: result.provider ?? agent.adapterType, biller: result.biller ?? result.provider ?? agent.adapterType,
+          model: result.model ?? agent.adapterType, billingType: result.billingType ?? "metered_api",
+          costStatus: receipt.costStatus, inputTokens: receipt.inputTokens ?? 0,
+          outputTokens: receipt.outputTokens ?? 0, costCents: receipt.costCents ?? "0",
+          providerRequestId: receipt.providerRequestId, pricingProvenance: receipt.pricingProvenance,
+          occurredAt,
+        }, publications, { actorType: "agent", actorId: agent.id, agentId: agent.id });
+        await tx.update(budgetReservations).set({ state: "settled", settledAt: new Date() })
+          .where(and(eq(budgetReservations.companyId, input.companyId), eq(budgetReservations.id, reservationId), eq(budgetReservations.state, "held")));
+      });
+    } catch (error) {
+      await settleCouncilReservation(db, input.companyId, reservationId, "released").catch(() => undefined);
+      throw error;
+    }
     const response = {
       text, model: result.model ?? undefined, provider: result.provider ?? undefined,
       ...(result.usage ? { usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, ...(receipt.costCents ? { costCents: receipt.costCents } : {}) } } : {}),
