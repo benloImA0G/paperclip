@@ -102,6 +102,8 @@ export interface CouncilEstimate {
 export const councilApi = {
   getBrief: (companyId: string, issueId: string) => api.get<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`),
   getReliability: (companyId: string, issueId: string) => api.get<CouncilReliability>(`/companies/${companyId}/council/rooms/${issueId}/stats`),
+  /** Suggest how to run a question (heuristic, no model call, no cost). */
+  classify: (companyId: string, text: string) => api.post<CouncilModeSuggestion>(`/companies/${companyId}/council/classify`, { text }),
   getEstimate: (companyId: string, roomId: string, mode: CouncilEstimateMode) => api.get<CouncilEstimate>(`/companies/${companyId}/council/rooms/${roomId}/estimate?mode=${mode}`),
   updateBrief: (companyId: string, issueId: string, brief: string) => api.put<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`, { brief }),
   listArtifacts: (companyId: string, issueId: string) => api.get<CouncilArtifactSummary[]>(`/companies/${companyId}/council/rooms/${issueId}/artifacts`),
@@ -181,4 +183,17 @@ export interface CouncilWorkState {
   status: "idle" | "running" | "done" | "partial" | "failed" | "cancelled";
   steps: Array<{ n: number; title: string; expected: string; assignee: string; status: "pending" | "running" | "done" | "failed"; error?: string }>;
   summary?: string | null;
+}
+
+export interface CouncilModeSuggestion {
+  kind: "quick-fact" | "decision" | "brainstorm" | "review" | "plan-and-do";
+  mode: "ask" | "discuss";
+  rounds: number;
+  seats: { min: number; max: number };
+  autoSummary: boolean;
+  dissentCheck: boolean;
+  peerRanking: boolean;
+  workSession: boolean;
+  template: "quick-check" | "balanced-debate" | "decision" | "red-team" | null;
+  reason: string;
 }

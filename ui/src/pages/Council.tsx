@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, RotateCcw, Send, Settings2, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
-import { councilApi, type CouncilSeat, type CouncilSeatResult } from "../api/council";
+import { councilApi, type CouncilModeSuggestion, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -189,6 +189,13 @@ export function Council() {
   const [autoSummary, setAutoSummary] = useState(false);
   const [clarify, setClarify] = useState(false);
   const [planFirst, setPlanFirst] = useState(false);
+  const [suggestion, setSuggestion] = useState<CouncilModeSuggestion | null>(null);
+  useEffect(() => {
+    const text = message.trim();
+    if (text.length < 12 || !selectedCompanyId) { setSuggestion(null); return; }
+    const timer = setTimeout(() => { councilApi.classify(selectedCompanyId, text).then(setSuggestion).catch(() => setSuggestion(null)); }, 600);
+    return () => clearTimeout(timer);
+  }, [message, selectedCompanyId]);
   const [showArchives, setShowArchives] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1110,6 +1117,7 @@ export function Council() {
               ask.mutate("ask");
             }}
           >
+            {suggestion ? <p className="px-1 text-xs text-muted-foreground" data-testid="council-mode-hint">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
             <div className="flex items-end gap-2">
             <Textarea
               value={message}
