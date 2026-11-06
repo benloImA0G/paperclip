@@ -230,3 +230,58 @@ describe("dependency-aware work", () => {
     expect(result.status).toBe("partial");
   });
 });
+
+describe("final deliverable review", () => {
+  const run = async (options: { verdict?: string; failRevision?: boolean; cancelReview?: boolean; enabled?: boolean } = {}) => {
+    let cancelled = false;
+    const events: string[] = [];
+    const calls: Array<[string, string]> = [];
+    const result = await runWork({
+      goal: "Original goal", seatNames: ["Chair", "Writer", "Judge"], chairName: "Chair",
+      finalReview: options.enabled ?? true, extraCheckers: ["Writer", "Judge"],
+      isCancelled: () => cancelled, onEvent: (event) => events.push(event.type),
+      callSeat: async (seat, prompt) => {
+        calls.push([seat, prompt]);
+        if (prompt.includes("You are the council chair")) return { ok: true, text: "1. Draft | assignee: Writer | expected: answer" };
+        if (prompt.includes("Review the final deliverable")) {
+          if (options.cancelReview) cancelled = true;
+          return { ok: true, text: `VERDICT: ${options.verdict ?? "PASS"}\nNOTE: useful note` };
+        }
+        if (prompt.includes("Revise the deliverable")) return options.failRevision ? { ok: false } : { ok: true, text: "improved" };
+        if (prompt.includes("one-page summary")) return { ok: true, text: "summary" };
+        return { ok: true, text: "original" };
+      },
+    });
+    return { result, calls, events };
+  };
+  it("passes without revising and excludes the author from voting", async () => {
+    const { result, calls } = await run();
+    expect(result.finalReview).toEqual({ verdict: "pass", note: "useful note; useful note", revised: false });
+    expect(calls.filter(([, prompt]) => prompt.includes("Review the final deliverable")).map(([seat]) => seat)).toEqual(["Chair", "Judge"]);
+    expect(result.steps[0].output).toBe("original");
+  });
+  it("revises once and includes the review in the summary", async () => {
+    const { result, calls, events } = await run({ verdict: "REVISE" });
+    expect(result.finalReview).toMatchObject({ verdict: "revise", revised: true });
+    expect(result.steps[0]).toMatchObject({ output: "improved", attempts: 2 });
+    expect(result.summary).toContain("deliverable revised");
+    expect(calls.filter(([, prompt]) => prompt.includes("Revise the deliverable"))).toHaveLength(1);
+    expect(events.filter((event) => event === "step")).toHaveLength(3);
+  });
+  it("keeps the original when revision fails", async () => {
+    const { result } = await run({ verdict: "REVISE", failRevision: true });
+    expect(result.finalReview).toMatchObject({ verdict: "revise", revised: false });
+    expect(result.steps[0]).toMatchObject({ output: "original", attempts: 2 });
+  });
+  it("stops after cancellation during review", async () => {
+    const { result, calls } = await run({ cancelReview: true });
+    expect(result.status).toBe("cancelled");
+    expect(calls.some(([, prompt]) => prompt.includes("one-page summary"))).toBe(false);
+  });
+  it("leaves behavior unchanged when disabled", async () => {
+    const { result, calls } = await run({ enabled: false });
+    expect(result.finalReview).toBeUndefined();
+    expect(result.summary).toBe("summary");
+    expect(calls.some(([, prompt]) => prompt.includes("Review the final deliverable"))).toBe(false);
+  });
+});

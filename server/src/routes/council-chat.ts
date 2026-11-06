@@ -91,6 +91,7 @@ const workSchema = z.object({
   postGoal: z.boolean().optional(),
   createTasks: z.boolean().optional(),
   juryChecks: z.boolean().optional(),
+  finalReview: z.boolean().optional(),
   clarifyFirst: z.boolean().optional(),
   answers: z.array(z.object({ question: z.string().max(400), answer: z.string().max(1000) }).strict()).max(3).optional(),
 }).strict();

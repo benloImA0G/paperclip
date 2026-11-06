@@ -73,6 +73,14 @@ describe("council work routes", () => {
     await vi.waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(1));
   });
 
+  it("accepts and runs final review", async () => {
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Draft | assignee: worker | expected: answer" }).mockResolvedValueOnce({ text: "draft" }).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "VERDICT: PASS\nNOTE: complete" }).mockResolvedValueOnce({ text: "# Summary" });
+    const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
+    expect((await request(server).post(workPath).send({ goal: "Write", finalReview: true })).status).toBe(202);
+    await vi.waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(1));
+    expect(mocks.addComment.mock.calls[0]?.[1]).toContain("Final review: pass");
+  });
+
   it("posts the goal as the user comment before starting work when requested", async () => {
     const pending = Promise.withResolvers<{ text: string }>();
     mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
