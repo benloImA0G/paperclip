@@ -20,6 +20,7 @@ import { buildDissentPrompt, parseDissent, shouldRunDissent, type DissentResult 
 import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, type ParsedStance } from "./council-consensus.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService, isAgentInvokableForCouncil, isCouncilAgentAdapterType } from "./council-agent-turn.js";
 import { runWork, type WorkStep } from "./council-work.js";
+import { councilRateLimitDelayMs, isCouncilRateLimit } from "./council-rate-limit.js";
 import { logger } from "../middleware/logger.js";
 import type { CouncilKind } from "./council-modes.js";
 
@@ -1129,19 +1130,40 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     let last: CouncilSeatTurnResult | null = null;
     const turnStartedAt = Date.now();
     for (const [attempt, target] of targets.entries()) {
-      const timeout = AbortSignal.timeout(
-        attempt === targets.length - 1 ? SEAT_TIMEOUT_MS : SEAT_ATTEMPT_TIMEOUT_MS,
-      );
-      last = await runSeatAttempt({
-        ...input,
-        target,
-        attempt,
-        signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout,
-        persistComment: input.persistComment,
-        generation: input.generation,
-      });
-      if (last.status === "ok") break;
-      if (last.status === "cancelled") break;
+      for (let retry = 0; retry < 2; retry++) {
+        const remaining = SEAT_TIMEOUT_MS - (Date.now() - turnStartedAt);
+        if (remaining <= 0) break;
+        const timeout = AbortSignal.timeout(Math.min(
+          remaining, attempt === targets.length - 1 ? SEAT_TIMEOUT_MS : SEAT_ATTEMPT_TIMEOUT_MS,
+        ));
+        last = await runSeatAttempt({
+          ...input,
+          target,
+          attempt,
+          signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout,
+          persistComment: input.persistComment,
+          generation: input.generation,
+        });
+        if (retry || last.status !== "error" || !last.error || !isCouncilRateLimit(last.error)) break;
+        const delay = councilRateLimitDelayMs(last.error);
+        if (Date.now() - turnStartedAt + delay >= SEAT_TIMEOUT_MS || input.signal?.aborted) break;
+        const aborted = await new Promise<boolean>((resolve) => {
+          const finish = (cancelled: boolean) => {
+            clearTimeout(timer);
+            input.signal?.removeEventListener("abort", onAbort);
+            resolve(cancelled);
+          };
+          const onAbort = () => finish(true);
+          const timer = setTimeout(() => finish(false), delay);
+          input.signal?.addEventListener("abort", onAbort, { once: true });
+          if (input.signal?.aborted) finish(true);
+        });
+        if (aborted) {
+          last = { ...last, status: "cancelled", error: "Council round stopped" };
+          break;
+        }
+      }
+      if (!last || last.status === "ok" || last.status === "cancelled") break;
       failed.push({ model: target.model, error: last.error ?? last.status });
       if (last.status === "blocked" || input.signal?.aborted) break;
     }
