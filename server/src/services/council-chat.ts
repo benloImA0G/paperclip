@@ -1646,7 +1646,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           callSeat: async (seatName, prompt) => {
             const seat = seats.find((candidate) => candidate.name === seatName);
             if (!seat) return { ok: false, error: `No active seat named ${seatName}` };
-            const result = await runOrchestratorSeatTurn({
+            const attempt = () => runOrchestratorSeatTurn({
               companyId: input.companyId,
               issueId: input.issueId,
               userId: input.userId,
@@ -1658,6 +1658,12 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
               persistComment: false,
               isCancelled: async () => session.cancelled,
             }, seats);
+            let result = await attempt();
+            // Free vendors rate-limit on tokens per minute: wait a little and try once more.
+            if (result.status !== "ok" && /rate.?limit|429|too many requests/i.test(result.error ?? "") && !session.cancelled) {
+              await new Promise((resolve) => setTimeout(resolve, 20_000));
+              if (!session.cancelled) result = await attempt();
+            }
             return result.status === "ok"
               ? { ok: true, text: result.text ?? "" }
               : { ok: false, error: result.error ?? result.status };
@@ -1672,6 +1678,19 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             .join("\n\n");
           const body = ["## Work summary", result.summary, outputs ? `<details>\n<summary>Step outputs</summary>\n\n${outputs}\n\n</details>` : ""].filter(Boolean).join("\n\n");
           await issueSvc.addComment(input.issueId, body, { userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${chair.id}` });
+        }
+        // The deliverable (last finished step) plus the summary, saved as an artifact so it can be reviewed and exported.
+        if (!cancelled && result.summary) {
+          try {
+            const last = [...result.steps].reverse().find((step) => step.status === "done" && step.output);
+            await saveArtifact(input.companyId, input.issueId, input.userId, {
+              key: "council-output-work-deliverable",
+              title: "Work deliverable",
+              markdown: [`# ${workGoal.split("\n")[0]!.slice(0, 120)}`, last ? last.output!.slice(0, 60_000) : "", "---", result.summary].filter(Boolean).join("\n\n"),
+            });
+          } catch (error) {
+            logger.warn({ companyId: input.companyId, issueId: input.issueId, err: error }, "Council work deliverable could not be saved");
+          }
         }
         // Optional: one draft task (backlog, never started) per step, linked under the room, for Ben to approve.
         if (input.createTasks && !cancelled) {
