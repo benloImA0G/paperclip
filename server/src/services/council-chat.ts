@@ -352,8 +352,18 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
   }
 
   /** Best-effort: keep the latest work session in the database so it survives a restart. Never throws. */
-  async function persistWork(companyId: string, issueId: string, goal: string, state: CouncilWorkState) {
-    if (!hasDurableRoundClaims) return;
+  const persistChains = new Map<string, Promise<void>>();
+  function persistWork(companyId: string, issueId: string, goal: string, state: CouncilWorkState): Promise<void> {
+    if (!hasDurableRoundClaims) return Promise.resolve();
+    // Saves for one room run in order, so an older state can never overwrite a newer one.
+    const snapshot = copyWorkState(state);
+    const next = (persistChains.get(issueId) ?? Promise.resolve()).then(() => persistWorkNow(companyId, issueId, goal, snapshot));
+    persistChains.set(issueId, next);
+    void next.then(() => { if (persistChains.get(issueId) === next) persistChains.delete(issueId); });
+    return next;
+  }
+
+  async function persistWorkNow(companyId: string, issueId: string, goal: string, state: CouncilWorkState) {
     try {
       const values = {
         issueId, companyId, goal: goal.slice(0, 20_000), status: state.status,
