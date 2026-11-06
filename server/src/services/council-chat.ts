@@ -1480,7 +1480,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     }
   }
 
-  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean }) {
+  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean }) {
     await getRoom(input.companyId, input.issueId);
     if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
       throw conflict("A round or work session is already running in this room");
@@ -1565,6 +1565,25 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             .join("\n\n");
           const body = ["## Work summary", result.summary, outputs ? `<details>\n<summary>Step outputs</summary>\n\n${outputs}\n\n</details>` : ""].filter(Boolean).join("\n\n");
           await issueSvc.addComment(input.issueId, body, { userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${chair.id}` });
+        }
+        // Optional: one draft task (backlog, never started) per step, linked under the room, for Ben to approve.
+        if (input.createTasks && !cancelled) {
+          for (const step of result.steps) {
+            try {
+              await issueSvc.create(input.companyId, {
+                title: `Council step ${step.n}: ${step.title}`.slice(0, 200),
+                description: [`Expected: ${step.expected || "n/a"}`, step.grade ? `Checker: ${step.grade}${step.gradeNote ? ` (${step.gradeNote})` : ""}` : "", step.output ? `\n${step.output.slice(0, 4000)}` : ""].filter(Boolean).join("\n"),
+                status: "backlog",
+                priority: "medium",
+                parentId: input.issueId,
+                createdByUserId: input.userId,
+                responsibleUserId: input.userId,
+                trustExplicitResponsibleUserId: true,
+              });
+            } catch (error) {
+              logger.warn({ companyId: input.companyId, issueId: input.issueId, err: error }, "Council draft task could not be created");
+            }
+          }
         }
       } catch (error) {
         if (session.cancelled || controller.signal.aborted) {

@@ -8,12 +8,13 @@ const mocks = vi.hoisted(() => ({
   selectFastResponse: vi.fn(),
   credential: vi.fn(),
   addComment: vi.fn(),
+  create: vi.fn(),
 }));
 
 vi.mock("ai", () => ({ generateText: mocks.generateText }));
 vi.mock("../services/fast-response-provider.js", () => ({ fastResponseModel: vi.fn(() => ({})) }));
 vi.mock("../services/ai-connections.js", () => ({ aiConnectionService: () => ({ selectFastResponse: mocks.selectFastResponse, credential: mocks.credential }) }));
-vi.mock("../services/issues.js", () => ({ issueService: () => ({ listComments: async () => [], addComment: mocks.addComment }) }));
+vi.mock("../services/issues.js", () => ({ issueService: () => ({ listComments: async () => [], addComment: mocks.addComment, create: mocks.create }) }));
 vi.mock("../services/index.js", () => ({ issueService: () => ({}) }));
 vi.mock("../services/accounting-transaction.js", () => ({
   withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({
@@ -95,6 +96,16 @@ describe("council work routes", () => {
     await vi.waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(1));
     expect(mocks.addComment).toHaveBeenCalledWith(issueId, expect.stringContaining("## Work summary"), { userId: "council-seat:chair" });
     expect(mocks.addComment.mock.calls[0]?.[1]).not.toBe("Research this");
+  });
+
+  it("creates one backlog draft task per step when createTasks is set", async () => {
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
+    mocks.create.mockResolvedValue({ id: "task" });
+    const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
+
+    await request(server).post(workPath).send({ goal: "Research this", createTasks: true });
+    await vi.waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.create.mock.calls[0]?.[1]).toMatchObject({ status: "backlog", parentId: issueId });
   });
 
   it("rejects a second session while work is running", async () => {
