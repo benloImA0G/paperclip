@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { councilSeats, issues } from "@paperclipai/db";
 
 const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
@@ -22,8 +23,8 @@ vi.mock("../services/documents.js", () => ({ documentService: () => ({
   getIssueDocumentRevision: mocks.getIssueDocumentRevision,
   upsertIssueDocument: mocks.upsertIssueDocument,
 }) }));
-vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({}, []) }));
-vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null }) }) }));
+vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({ insert: () => ({ values: () => ({ returning: async () => [{ id: "reservation" }] }) }), update: () => ({ set: () => ({ where: async () => undefined }) }) }, []) }));
+vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null, policies: [], observations: [] }) }) }));
 vi.mock("../services/costs.js", () => ({ createCostEventInTransaction: vi.fn() }));
 vi.mock("../services/provider-usage.js", () => ({ providerUsageReceipt: () => ({ costStatus: "accepted", inputTokens: 1, outputTokens: 1, costCents: "0" }) }));
 vi.mock("../services/council-export.js", () => ({ sanitizeMarkdownForPandoc: (value: string) => value, markdownToPptx: vi.fn(), markdownToDocx: vi.fn(), PandocUnavailableError: class extends Error {} }));
@@ -40,8 +41,10 @@ function seat(id: string, name: string, role: string) {
 
 function dbFor(seats: unknown[], roomCompanyId = companyId) {
   const room = { id: issueId, companyId: roomCompanyId, originKind: "council", description: "Council room" };
-  const select = () => ({ from: () => ({ where: () => {
-    return Object.assign(Promise.resolve([room]), { orderBy: async () => seats });
+  const rowsFor = (table: unknown) => table === issues ? [room] : table === councilSeats ? seats : [];
+  const select = () => ({ from: (table: unknown) => ({ where: () => {
+    const rows = rowsFor(table);
+    return Object.assign(Promise.resolve(rows), { orderBy: async () => rows, limit: async () => rows, for: async () => rows });
   }, innerJoin: () => ({ where: () => ({ limit: async () => [] }) }) }) });
   return { select, transaction: async (fn: (tx: unknown) => unknown) => fn({}) } as never;
 }

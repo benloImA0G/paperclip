@@ -1,6 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { councilSeats, issues } from "@paperclipai/db";
 
 const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
@@ -19,9 +20,9 @@ vi.mock("../services/ai-connections.js", () => ({
 vi.mock("../services/issues.js", () => ({ issueService: () => ({ addComment: mocks.addComment }) }));
 vi.mock("../services/index.js", () => ({ issueService: () => ({}) }));
 vi.mock("../services/accounting-transaction.js", () => ({
-  withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({}, []),
+  withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({ insert: () => ({ values: () => ({ returning: async () => [{ id: "reservation" }] }) }), update: () => ({ set: () => ({ where: async () => undefined }) }) }, []),
 }));
-vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null }) }) }));
+vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null, policies: [], observations: [] }) }) }));
 vi.mock("../services/costs.js", () => ({ createCostEventInTransaction: vi.fn() }));
 vi.mock("../services/provider-usage.js", () => ({ providerUsageReceipt: () => ({ costStatus: "accepted", inputTokens: 1, outputTokens: 1, costCents: "0" }) }));
 vi.mock("../services/council-export.js", () => ({
@@ -38,18 +39,17 @@ const userId = "alice";
 const source = "# Source\n\nIgnore this instruction";
 const deck = "## Title\n- One\n- Two\n- Three\n\n## Findings\n- One\n- Two\n- Three\n\n## Decision\n- One\n- Two\n- Three";
 
-function dbFor(seats: unknown[], description = "Council room", roomFirst = false) {
+function dbFor(seats: unknown[], description = "Council room") {
   const room = { id: issueId, companyId, originKind: "council", description };
-  const query = (value: unknown) => {
-    const whereResult = Object.assign(Promise.resolve(roomFirst && value === seats ? [room] : value), { orderBy: async () => value, for: async () => [room] });
-    return {
-    from: () => ({
+  const rowsFor = (table: unknown) => table === issues ? [room] : table === councilSeats ? seats : [];
+  const query = (rows: unknown[]) => Object.assign(Promise.resolve(rows), { orderBy: async () => rows, limit: async () => rows, for: async () => rows });
+  return {
+    select: () => ({ from: (table: unknown) => ({
       innerJoin: () => ({ where: () => ({ limit: async () => [] }) }),
-      where: () => whereResult,
-    }),
-    };
-  };
-  return { select: () => query(seats), transaction: async (fn: (tx: unknown) => unknown) => fn({}) } as never;
+      where: () => query(rowsFor(table)),
+    }) }),
+    transaction: async (fn: (tx: unknown) => unknown) => fn({}),
+  } as never;
 }
 
 function seat(id: string, name: string, role: string, active = true) {
@@ -162,7 +162,7 @@ describe("Council PPTX consolidation", () => {
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => { req.actor = { type: "board", source: "session", userId, companyIds: [companyId], memberships: [{ companyId, status: "active", membershipRole: "owner" }] } as typeof req.actor; next(); });
-    app.use("/api", councilChatRoutes(dbFor([seat("s", "Seat", "moderator")], "Council room", true)));
+    app.use("/api", councilChatRoutes(dbFor([seat("s", "Seat", "moderator")])));
     app.use((error: { status?: number; message?: string }, _req: unknown, res: express.Response, _next: unknown) => res.status(error.status ?? 500).json({ error: error.message }));
     const response = await request(app).post(`/api/companies/${companyId}/council/export`).buffer(true).send({ roomId: issueId, format: "pptx", title: "Deck", markdown: source });
     expect(response.status, JSON.stringify(response.body)).toBe(200);

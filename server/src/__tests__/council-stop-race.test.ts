@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { councilSeats, issues } from "@paperclipai/db";
 
 const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
@@ -13,8 +14,8 @@ vi.mock("../services/fast-response-provider.js", () => ({ fastResponseModel: vi.
 vi.mock("../services/ai-connections.js", () => ({ aiConnectionService: () => ({ selectFastResponse: mocks.selectFastResponse, credential: mocks.credential }) }));
 vi.mock("../services/issues.js", () => ({ issueService: () => ({ listComments: async () => [], addComment: mocks.addComment }) }));
 vi.mock("../services/index.js", () => ({ issueService: () => ({}) }));
-vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _company: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({}, []) }));
-vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null }) }) }));
+vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _company: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({ insert: () => ({ values: () => ({ returning: async () => [{ id: "reservation" }] }) }), update: () => ({ set: () => ({ where: async () => undefined }) }) }, []) }));
+vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null, policies: [], observations: [] }) }) }));
 vi.mock("../services/costs.js", () => ({ createCostEventInTransaction: vi.fn() }));
 vi.mock("../services/provider-usage.js", () => ({ providerUsageReceipt: () => ({ costStatus: "accepted", inputTokens: 1, outputTokens: 1, totalTokens: 2, costCents: "0" }) }));
 vi.mock("../services/activity-log.js", () => ({ logActivity: mocks.logActivity }));
@@ -28,11 +29,11 @@ const seat = (id: string) => ({ id, name: id, persona: "", connectionId: `${id}-
 function dbFor(seats: unknown[]) {
   const room = { id: issueId, companyId, originKind: "council", description: "Council room" };
   const deleted: string[] = [];
-  let selectCount = 0;
-  const query = (rows: unknown[]) => Object.assign(Promise.resolve(rows), { orderBy: async () => rows, for: async () => [room] });
+  const rowsFor = (table: unknown) => table === issues ? [room] : table === councilSeats ? seats : [];
+  const query = (rows: unknown[]) => Object.assign(Promise.resolve(rows), { orderBy: async () => rows, limit: async () => rows, for: async () => rows });
   return {
     deleted,
-    select: () => ({ from: () => ({ where: () => query(++selectCount === 2 || selectCount === 6 ? seats : [room]) }) }),
+    select: () => ({ from: (table: unknown) => ({ where: () => query(rowsFor(table)) }) }),
     update: () => ({ set: (value: { deletedAt: Date }) => ({ where: async () => { if (value.deletedAt) deleted.push("comment"); } }) }),
     transaction: async (fn: (tx: unknown) => unknown) => fn({},),
   } as never;

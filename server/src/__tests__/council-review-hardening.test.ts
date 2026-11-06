@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { councilSeats, issues } from "@paperclipai/db";
 import { issueCommentMetadataSchema } from "@paperclipai/shared";
 
 const mocks = vi.hoisted(() => ({
@@ -23,8 +24,8 @@ vi.mock("../services/documents.js", () => ({ documentService: () => ({
   getIssueDocumentRevision: mocks.getIssueDocumentRevision,
   upsertIssueDocument: mocks.upsertIssueDocument,
 }) }));
-vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({}, []) }));
-vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null }) }) }));
+vi.mock("../services/accounting-transaction.js", () => ({ withAccountingTransaction: async (_db: unknown, _companyId: string, fn: (tx: unknown, pubs: unknown[]) => unknown) => fn({ insert: () => ({ values: () => ({ returning: async () => [{ id: "reservation" }] }) }), update: () => ({ set: () => ({ where: async () => undefined }) }) }, []) }));
+vi.mock("../services/budgets.js", () => ({ budgetServiceInTransaction: () => ({ evaluateAdmission: async () => ({ block: null, policies: [], observations: [] }) }) }));
 vi.mock("../services/costs.js", () => ({ createCostEventInTransaction: vi.fn() }));
 vi.mock("../services/provider-usage.js", () => ({ providerUsageReceipt: () => ({ costStatus: "accepted", inputTokens: 1, outputTokens: 1, costCents: "0" }) }));
 vi.mock("../middleware/logger.js", () => ({ logger: { warn: vi.fn() } }));
@@ -39,7 +40,8 @@ function seat(id: string, name: string, role: string) {
 
 function dbFor(seats: unknown[]) {
   const room = { id: issueId, companyId, originKind: "council", description: "Council room" };
-  const select = () => ({ from: () => ({ where: () => Object.assign(Promise.resolve([room]), { orderBy: async () => seats }) }) });
+  const rowsFor = (table: unknown) => table === issues ? [room] : table === councilSeats ? seats : [];
+  const select = () => ({ from: (table: unknown) => ({ where: () => Object.assign(Promise.resolve(rowsFor(table)), { orderBy: async () => rowsFor(table), limit: async () => rowsFor(table), for: async () => rowsFor(table) }) }) });
   return { select, transaction: async (fn: (tx: unknown) => unknown) => fn({}) } as never;
 }
 
