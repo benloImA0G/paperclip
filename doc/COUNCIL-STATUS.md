@@ -45,3 +45,13 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 - Live-tested on the dev server with free vendors only (Groq, NVIDIA): panel of 3 from 4 seats, ranking with 3 judges, jury 2/2 pass, work session of 4 steps all graded pass, 4 draft tasks created, state reloaded after a restart.
 - Tests: `cd server && PATH=/home/super/.nvm/versions/node/v22.23.1/bin:$PATH npx vitest run src/__tests__/council-` (Node 22 needed).
 - Gaps: clarify-first questions before a work session, persisting the discussion kind on the room (classification is suggested but not stored), Ollama connection base URL (172.25.240.1 from WSL), no drizzle snapshot file for 0436, jury is not used inside work-step checking yet, only the latest work session per room is kept.
+
+### Later the same night (2026-11-07)
+- **Clarify first** for work sessions: with "Ask me first" the chair asks up to 3 short questions in a small form; answers are added to the goal (`clarifyFirst`, `answers`).
+- **Parallel steps**: plan lines may end with `| after: 1,2`; steps whose dependencies are done run together (max 3 at once) and the panel shows "waits for step N".
+- **Jury checks** (extra vendors grade each step, majority decides), **Final review** (the deliverable is checked against the goal and revised once), automatic summary if the chair cannot write one, rate-limit retry (a seat or work step waits briefly and retries once), a failed grade after the retry marks the step failed (session "partial").
+- The deliverable is saved as the room artifact `council-output-work-deliverable` (review, export to Word/PowerPoint work on it).
+- **Discussion kind** is stored on the room (auto-classified on the first round, editable in Room settings) and shown as a chip; **presets** (Blind best-of-N, Debate to agreement, Fresh angles, Get it done); the composer shows "About N model calls".
+- Review fixes from a read-only Codex review: work state saved before and after the run and normalized after a restart, forged-delimiter protection (`council-untrusted.ts`), room-safe clarify form, stale classify guard, abortable backoff.
+- Recipes: `doc/COUNCIL-RECIPES.md`. Live check: `python3 scripts/council-live-smoke.py [--full]` (also checked in the browser: hint, toggles, clarify form, grades, parallel steps).
+- Known gaps: work sessions are not claimed across several server replicas (single dev server is fine); only the latest work session per room is kept; Groq's free tier rate-limits on tokens per minute when several seats share one model (the retry helps, fallbacks help more).
