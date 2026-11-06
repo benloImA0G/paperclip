@@ -89,6 +89,8 @@ const workSchema = z.object({
   /** Post the goal as the user's message in the thread (plan-first asks). */
   postGoal: z.boolean().optional(),
   createTasks: z.boolean().optional(),
+  clarifyFirst: z.boolean().optional(),
+  answers: z.array(z.object({ question: z.string().max(400), answer: z.string().max(1000) }).strict()).max(3).optional(),
 }).strict();
 const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional(), consolidate: z.boolean().optional() }).strict();
 const artifactKeySchema = z.string().regex(/^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid artifact key");

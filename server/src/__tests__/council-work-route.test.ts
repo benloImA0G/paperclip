@@ -108,6 +108,21 @@ describe("council work routes", () => {
     expect(mocks.create.mock.calls[0]?.[1]).toMatchObject({ status: "backlog", parentId: issueId });
   });
 
+  it("asks clarifying questions first and starts once they are answered", async () => {
+    mocks.generateText.mockResolvedValueOnce({ text: "Q1. Who is the audience?\nQ2. What is the budget?" });
+    const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
+
+    const asked = await request(server).post(workPath).send({ goal: "Build a site", clarifyFirst: true });
+    expect(asked.status).toBe(202);
+    expect(asked.body).toEqual({ started: false, questions: ["Who is the audience?", "What is the budget?"] });
+
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Draft | assignee: worker | expected: copy" }).mockResolvedValueOnce({ text: "copy" }).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
+    const started = await request(server).post(workPath).send({ goal: "Build a site", answers: [{ question: "Who is the audience?", answer: "Kids" }] });
+    expect(started.body.started).toBe(true);
+    await vi.waitFor(() => expect(mocks.addComment).toHaveBeenCalled());
+    expect(String(mocks.generateText.mock.calls[1]?.[0]?.prompt ?? mocks.generateText.mock.calls[1]?.[0]?.messages ?? "")).toContain("Kids");
+  });
+
   it("rejects a second session while work is running", async () => {
     const pending = Promise.withResolvers<{ text: string }>();
     mocks.generateText.mockReturnValueOnce(pending.promise);

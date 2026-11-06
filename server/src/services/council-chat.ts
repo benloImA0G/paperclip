@@ -13,6 +13,7 @@ import { issueService } from "./issues.js";
 import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 import { sanitizeMarkdownForPandoc } from "./council-export.js";
+import { buildClarifyPrompt, buildGoalWithAnswers, parseClarifyQuestions } from "./council-clarify.js";
 import { assignPersonas, personaInstruction, pickPanel, type PanelPersona } from "./council-panel.js";
 import { aggregateRankings, blindLabels, buildJuryPrompt, buildRankingPrompt, parseJuryVerdict, parseRanking, tallyJury, type JuryVerdict } from "./council-ranking.js";
 import { buildDissentPrompt, parseDissent, shouldRunDissent, type DissentResult } from "./council-dissent.js";
@@ -1556,7 +1557,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     }
   }
 
-  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean }) {
+  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) {
     await getRoom(input.companyId, input.issueId);
     if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
       throw conflict("A round or work session is already running in this room");
@@ -1569,6 +1570,19 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const chair = seats.find((seat) => seat.role === "moderator")
       ?? seats.find((seat) => seat.role === "synthesizer")
       ?? seats[0]!;
+    // Clarify first: the chair may ask Ben up to 3 questions; the UI resubmits with the answers.
+    let workGoal = input.goal;
+    if (input.answers?.length) {
+      workGoal = buildGoalWithAnswers(input.goal, input.answers);
+    } else if (input.clarifyFirst) {
+      const asked = await runOrchestratorSeatTurn({
+        companyId: input.companyId, issueId: input.issueId, userId: input.userId, roundId: `work-${randomUUID()}`,
+        seat: chair, prompt: buildClarifyPrompt({ goal: input.goal }), maxOutputTokens: 1200,
+        signal: AbortSignal.timeout(60_000), persistComment: false, isCancelled: async () => false,
+      }, seats);
+      const questions = asked.status === "ok" ? parseClarifyQuestions(asked.text ?? "") : [];
+      if (questions.length) return { started: false as const, questions };
+    }
     const controller = new AbortController();
     const session = { controller, cancelled: false };
     const startedAt = new Date().toISOString();
@@ -1597,7 +1611,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       };
       try {
         const result = await runWork({
-          goal: input.goal,
+          goal: workGoal,
           decision: input.decision,
           seatNames: seats.map((seat) => seat.name),
           chairName: chair.name,
@@ -1672,7 +1686,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         if (runningWork.get(input.issueId) === session) runningWork.delete(input.issueId);
       }
     })();
-    return { started: true as const };
+    return { started: true as const, questions: [] as string[] };
   }
 
   async function getWork(companyId: string, issueId: string): Promise<CouncilWorkState> {
