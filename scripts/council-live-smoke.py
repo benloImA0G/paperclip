@@ -72,6 +72,9 @@ r = call("POST", "%s/rooms/%s/rounds" % (base, rid), {
 if "__error" in r:
     check("ask round with panel, ranking and jury", False, r)
 else:
+    for x in r["results"]:
+        if x["status"] != "ok":
+            print("  seat %s: %s - %s" % (x.get("seatName"), x["status"], str(x.get("error"))[:160]))
     answered = [x for x in r["results"] if x["status"] == "ok" and x.get("seatName") != "Chair"]
     check("panel limits the answering seats to 3", len(answered) == 3, len(answered))
     check("peer ranking returns an order", bool(r.get("ranking") and r["ranking"]["order"]), r.get("ranking"))
