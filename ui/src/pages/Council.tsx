@@ -14,7 +14,7 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { parseCouncilDecisionRecord } from "./council-decision-record";
 import { CouncilAgreementMeter } from "../components/CouncilAgreement";
-import { CouncilWorkPanel } from "../components/CouncilWorkPanel";
+import { CouncilWorkPanel } from "./council-work-step";
 import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
@@ -1089,7 +1089,7 @@ export function Council() {
                 </div>
               );
             })}
-            {workQuery.data && workQuery.data.status !== "idle" ? <CouncilWorkPanel steps={workQuery.data.steps} running={workQuery.data.status === "running"} /> : null}
+            {workQuery.data && workQuery.data.status !== "idle" ? <CouncilWorkPanel steps={workQuery.data.steps} running={workQuery.data.status === "running"} summary={workQuery.data.summary} /> : null}
             {roomId && agreements[roomId] ? <CouncilAgreementMeter agreement={agreements[roomId]!.agreement} round={agreements[roomId]!.round} /> : null}
             {(roundDetails[roomId ?? ""] ?? []).map((results, index) => (
               <details key={`round-details-${index}`} className="rounded-md border border-border/60 bg-muted/20 text-xs text-muted-foreground">

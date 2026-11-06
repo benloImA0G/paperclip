@@ -200,9 +200,22 @@ export const councilApi = {
     api.post<{ stopped: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/work/stop`, {}),
 };
 
+export interface WorkStep {
+  n: number;
+  title: string;
+  expected: string;
+  assignee: string;
+  status: "pending" | "running" | "done" | "failed";
+  error?: string;
+  grade?: "pass" | "fail";
+  gradeNote?: string;
+  attempts?: number;
+  after?: number[];
+}
+
 export interface CouncilWorkState {
   status: "idle" | "running" | "done" | "partial" | "failed" | "cancelled";
-  steps: Array<{ n: number; title: string; expected: string; assignee: string; status: "pending" | "running" | "done" | "failed"; error?: string }>;
+  steps: WorkStep[];
   summary?: string | null;
 }
 
