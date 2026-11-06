@@ -1653,7 +1653,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
               roundId: `work-${randomUUID()}`,
               seat,
               prompt,
-              maxOutputTokens: 2000,
+              maxOutputTokens: 4000,
               signal: controller.signal,
               persistComment: false,
               isCancelled: async () => session.cancelled,
