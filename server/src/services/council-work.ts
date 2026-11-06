@@ -24,6 +24,8 @@ export type RunWorkDependencies = {
   isCancelled?: () => boolean;
   /** When true the chair grades each step against its expected output and a failed step is retried once. */
   checkSteps?: boolean;
+  /** Extra seats that also grade each step (never the seat that wrote it); a majority of fails triggers the retry. */
+  extraCheckers?: string[];
 };
 
 const untrusted = (label: string, value: string) => `--- BEGIN UNTRUSTED ${label} ---\n${value}\n--- END UNTRUSTED ${label} ---`;
@@ -116,6 +118,23 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     return { steps, summary: null, status: "cancelled" as const };
   };
 
+  // The chair grades; optional extra checkers vote too. Fail only when most voters fail.
+  const gradeStep = async (step: WorkStep): Promise<{ grade: "pass" | "fail"; note: string } | null> => {
+    const prompt = buildCheckPrompt({ goal: deps.goal, step });
+    const voters = [deps.chairName, ...(deps.extraCheckers ?? []).filter((name) => name !== step.assignee && name !== deps.chairName).slice(0, 2)];
+    const votes: Array<{ grade: "pass" | "fail"; note: string }> = [];
+    for (const voter of voters) {
+      if (cancelled()) break;
+      const parsed = parseGrade((await call(voter, prompt)).text ?? "");
+      if (parsed) votes.push(parsed);
+    }
+    if (!votes.length) return null;
+    const fails = votes.filter((vote) => vote.grade === "fail");
+    const failed = fails.length > votes.length / 2;
+    const note = (failed ? fails[0] : votes.find((vote) => vote.grade === "pass"))?.note ?? "";
+    return { grade: failed ? "fail" : "pass", note };
+  };
+
   if (cancelled()) return finishCancelled([]);
   const plan = await call(deps.chairName, buildPlanPrompt(deps));
   const steps = plan.ok ? parsePlan(plan.text ?? "", deps.seatNames, deps.chairName) : [];
@@ -135,14 +154,14 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     step.attempts = 1;
     if (result.ok && deps.checkSteps) {
       step.output = result.text ?? "";
-      const verdict = parseGrade((await call(deps.chairName, buildCheckPrompt({ goal: deps.goal, step }))).text ?? "");
+      const verdict = await gradeStep(step);
       if (verdict?.grade === "fail" && !cancelled()) {
         const retryPrompt = `${buildStepPrompt({ goal: deps.goal, step, previous: steps.slice(0, index) })}\n\n${untrusted("CHECKER FEEDBACK ON YOUR PREVIOUS ATTEMPT", verdict.note)}\nFix the problems named above.`;
         const retry = await call(step.assignee, retryPrompt);
         step.attempts = 2;
         if (retry.ok) {
           step.output = retry.text ?? step.output;
-          const second = parseGrade((await call(deps.chairName, buildCheckPrompt({ goal: deps.goal, step }))).text ?? "");
+          const second = await gradeStep(step);
           step.grade = second?.grade ?? "fail";
           step.gradeNote = second?.note ?? verdict.note;
         } else {

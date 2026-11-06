@@ -1557,7 +1557,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     }
   }
 
-  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) {
+  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean; juryChecks?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) {
     await getRoom(input.companyId, input.issueId);
     if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
       throw conflict("A round or work session is already running in this room");
@@ -1616,6 +1616,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           seatNames: seats.map((seat) => seat.name),
           chairName: chair.name,
           checkSteps: true,
+          ...(input.juryChecks ? { extraCheckers: seats.filter((seat) => seat.id !== chair.id && seat.role !== "moderator").map((seat) => seat.name) } : {}),
           isCancelled: () => session.cancelled || controller.signal.aborted,
           onEvent: (event) => {
             const current = workStates.get(input.issueId);

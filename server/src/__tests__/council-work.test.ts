@@ -89,3 +89,22 @@ describe("step checking", () => {
     expect(parseGrade("no idea")).toBeNull();
   });
 });
+
+describe("jury step checking", () => {
+  it("passes when most checkers pass and skips the author as a checker", async () => {
+    const { runWork } = await import("../services/council-work.js");
+    const graders: string[] = [];
+    const result = await runWork({
+      goal: "Write", seatNames: ["Chair", "Writer", "Judge"], chairName: "Chair", checkSteps: true, extraCheckers: ["Writer", "Judge"],
+      callSeat: async (seat, prompt) => {
+        if (prompt.includes("You are the council chair")) return { ok: true, text: "1. Draft | assignee: Writer | expected: text" };
+        if (prompt.includes("You are the checker")) { graders.push(seat); return { ok: true, text: seat === "Chair" ? "GRADE: FAIL NOTE: thin" : "GRADE: PASS NOTE: fine" }; }
+        if (prompt.includes("one-page summary")) return { ok: true, text: "# Done" };
+        return { ok: true, text: "text" };
+      },
+    });
+    expect(graders).toEqual(["Chair", "Judge"]);
+    expect(result.steps[0].grade).toBe("pass");
+    expect(result.steps[0].attempts).toBe(1);
+  });
+});
