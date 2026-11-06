@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
 import { and, asc, eq, isNotNull, isNull, gte, lte, sql } from "drizzle-orm";
-import { agents, budgetReservations, connectionGrants, councilRoundClaims, councilSeats, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
+import { agents, budgetReservations, connectionGrants, councilRoundClaims, councilSeats, councilWorkSessions, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
 import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents, type CouncilRoundOrder, type CouncilRoundStyle } from "@paperclipai/shared";
 import { badGateway, conflict, notFound, unprocessable } from "../errors.js";
 import { withAccountingTransaction } from "./accounting-transaction.js";
@@ -347,6 +347,39 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
 
   function copyWorkState(state: CouncilWorkState): CouncilWorkState {
     return { ...state, steps: state.steps.map((step) => ({ ...step })) };
+  }
+
+  /** Best-effort: keep the latest work session in the database so it survives a restart. Never throws. */
+  async function persistWork(companyId: string, issueId: string, goal: string, state: CouncilWorkState) {
+    if (!hasDurableRoundClaims) return;
+    try {
+      const values = {
+        issueId, companyId, goal: goal.slice(0, 20_000), status: state.status,
+        steps: state.steps as unknown[], summary: state.summary ?? null,
+        startedAt: state.startedAt ? new Date(state.startedAt) : new Date(),
+      };
+      await db.insert(councilWorkSessions).values(values).onConflictDoUpdate({
+        target: councilWorkSessions.issueId,
+        set: { goal: values.goal, status: values.status, steps: values.steps, summary: values.summary, startedAt: values.startedAt, updatedAt: sql`now()` },
+      });
+    } catch (error) {
+      logger.warn({ companyId, issueId, err: error }, "Council work session could not be saved");
+    }
+  }
+
+  async function loadPersistedWork(companyId: string, issueId: string): Promise<CouncilWorkState | null> {
+    if (!hasDurableRoundClaims) return null;
+    try {
+      const [row] = await db.select().from(councilWorkSessions)
+        .where(and(eq(councilWorkSessions.companyId, companyId), eq(councilWorkSessions.issueId, issueId))).limit(1);
+      if (!row) return null;
+      // A session still marked running after a restart cannot be running any more.
+      const status = (row.status === "running" ? "failed" : row.status) as CouncilWorkState["status"];
+      return { status, steps: (row.steps ?? []) as CouncilWorkState["steps"], ...(row.summary ? { summary: row.summary } : {}), startedAt: row.startedAt.toISOString() };
+    } catch (error) {
+      logger.warn({ companyId, issueId, err: error }, "Council work session could not be loaded");
+      return null;
+    }
   }
 
   function rememberGeneration(issueId: string, generation: number) {
@@ -1482,13 +1515,17 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     }
 
     void (async () => {
-      const setState = (state: CouncilWorkState) => workStates.set(input.issueId, copyWorkState(state));
+      const setState = (state: CouncilWorkState) => {
+        workStates.set(input.issueId, copyWorkState(state));
+        void persistWork(input.companyId, input.issueId, input.goal, state);
+      };
       try {
         const result = await runWork({
           goal: input.goal,
           decision: input.decision,
           seatNames: seats.map((seat) => seat.name),
           chairName: chair.name,
+          checkSteps: true,
           isCancelled: () => session.cancelled || controller.signal.aborted,
           onEvent: (event) => {
             const current = workStates.get(input.issueId);
@@ -1545,7 +1582,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
 
   async function getWork(companyId: string, issueId: string): Promise<CouncilWorkState> {
     await getRoom(companyId, issueId);
-    return copyWorkState(workStates.get(issueId) ?? { status: "idle", steps: [] });
+    const live = workStates.get(issueId);
+    if (live) return copyWorkState(live);
+    return (await loadPersistedWork(companyId, issueId)) ?? { status: "idle", steps: [] };
   }
 
   async function stopWork(companyId: string, issueId: string) {

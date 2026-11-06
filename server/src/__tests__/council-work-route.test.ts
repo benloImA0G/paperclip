@@ -61,7 +61,7 @@ beforeEach(() => {
 describe("council work routes", () => {
   it("starts work and exposes step progress", async () => {
     const pending = Promise.withResolvers<{ text: string }>();
-    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ text: "# Summary" });
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
     const server = await app(dbFor([seat("chair", "moderator"), seat("worker")])) ;
 
     expect((await request(server).post(workPath).send({ goal: "Research this" })).status).toBe(202);
@@ -74,7 +74,7 @@ describe("council work routes", () => {
 
   it("posts the goal as the user comment before starting work when requested", async () => {
     const pending = Promise.withResolvers<{ text: string }>();
-    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ text: "# Summary" });
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
     const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
 
     expect((await request(server).post(workPath).send({ goal: "Research this", postGoal: true })).status).toBe(202);
@@ -88,7 +88,7 @@ describe("council work routes", () => {
   });
 
   it("does not post the goal when postGoal is omitted", async () => {
-    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "# Summary" });
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
     const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
 
     await request(server).post(workPath).send({ goal: "Research this" });
@@ -111,7 +111,7 @@ describe("council work routes", () => {
   });
 
   it("persists one chair-authored summary comment with collapsed step outputs", async () => {
-    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "# Summary" });
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
     const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
 
     await request(server).post(workPath).send({ goal: "Research this" });

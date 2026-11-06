@@ -3039,6 +3039,13 @@
       "when": 1793860000000,
       "tag": "0435_durable_council_round_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 436,
+      "version": "7",
+      "when": 1793990000000,
+      "tag": "0436_council_work_sessions",
+      "breakpoints": true
     }
   ]
 }
