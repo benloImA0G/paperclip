@@ -32,16 +32,22 @@ UI changes only where a feature needs them (mode picker showing chosen mode and 
 Done / partly done / blocked, commits pushed, tests run and results, decisions waiting for Ben.
 
 ## Running list (updated during the shift)
-Claude weekly resets 01:00 WIB (Sat 2026-11-07); until then Claude does most of the work (Sonnet chair, Haiku checks). Codex jobs were meant to wait for the reset (launcher: ~/council-test/night-launch.sh); none are running yet.
+Claude weekly reset happened 01:00 WIB (Sat 2026-11-07). Before it Claude did the work (Sonnet chair); after it Codex took a share (kind persistence, engine tests, Ollama check, parallel steps) via ~/council-test/night-launch.sh. Share is judged by run rate: Claude ~14%/day, Codex ~18%/day of a weekly.
 
 **Done (pushed to feat/council-chat)**
-- Mode router + /council/classify route + composer hint (suggested mode, reason, Plan first shortcut)
-- Step checker with one retry in work sessions (checkSteps), grade shown per step
-- Dissent check module + round option dissent + until-agreement debates run it and show the result
-- Work session persistence (migration 0436 written, NOT applied to the dev database; no drizzle snapshot file yet)
-- createTasks: one backlog draft task per step
-- Anonymous peer ranking + jury helpers (council-ranking.ts), round option ranking, Peer ranking toggle
+- Mode router + /council/classify + composer hint (suggested mode, reason, Plan first shortcut)
+- Work sessions: checker with one retry (checkSteps), jury checks (extra graders), summary retry + automatic fallback, clarify first (up to 3 questions, answer form), draft tasks per step (createTasks), persistence per room (migration 0436, applied by the dev server on restart)
+- Dissent check (round option, used by Until agreement), random panels (council-panel.ts), blind peer ranking + jury (council-ranking.ts), toggles for each in the composer
+- Engine tests (Codex, reviewed), live smoke script `scripts/council-live-smoke.py` (all checks pass on free vendors), COUNCIL-STATUS.md updated
+- Ollama seat: works through a loopback forwarder (`~/council-test/ollama-forward.py`, started by start-dev.sh); the app only allows no-auth local connections on loopback, so a code change was NOT made
 
-**Next**: random panels (council-panel.ts, Codex), clarify-first for work sessions (council-clarify.ts, Codex) then wire both, engine tests (Codex), Ollama seat investigation (Codex), jury round in engine, UI to start work sessions with createTasks, status doc.
+**In progress (Codex)**: kind persistence on rooms + chip + select (council-chat.ts metadata, routes, Council.tsx); parallel independent steps in work sessions (council-work.ts).
 
-**Blocked / waiting for Ben**: apply migration 0436 to the dev DB (and generate its snapshot); Ollama seat needs a vendor connection pointing at http://172.25.240.1:11434/v1.
+**Next**: review Codex diffs, commit, cxs read-only review of the night diff, full test pass, restart dev server and rerun the smoke script, morning summary.
+
+**Blocked / waiting for Ben**
+- Relaxing the loopback-only rule for no-auth local connections (packages/shared/src/ai-provider-routing.ts:52) would let an Ollama connection use 172.25.240.1 directly; not done because it loosens a security check.
+- No drizzle snapshot file for migration 0436 (needs `drizzle-kit generate` on a clean tree).
+- Test data to delete: rooms "Night smoke test (delete me)" and "Council smoke (auto)" and their draft tasks (about BEN-306 to BEN-313).
+- Several stale `dev-watch` processes from earlier restarts fight over port 13100 (harmless to the app on 3100, noisy in the log).
+- `chore/pin-agent-models` is still unpushed (older item).
