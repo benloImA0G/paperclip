@@ -3,6 +3,7 @@ export type WorkStep = {
   title: string;
   expected: string;
   assignee: string;
+  after?: number[];
   status: "pending" | "running" | "done" | "failed";
   output?: string;
   error?: string;
@@ -30,12 +31,14 @@ export type RunWorkDependencies = {
 
 const untrusted = (label: string, value: string) => `--- BEGIN UNTRUSTED ${label} ---\n${value}\n--- END UNTRUSTED ${label} ---`;
 const clean = (value: string) => value.replace(/\*\*/g, "").replace(/^\s+|\s+$/g, "");
+const MAX_PARALLEL_STEPS = 3;
 
 export function buildPlanPrompt({ goal, seatNames, decision }: Pick<RunWorkDependencies, "goal" | "seatNames" | "decision">): string {
   const decisionBlock = decision === undefined ? "" : `\n${untrusted("AGREED DECISION", decision)}`;
   return [
     "You are the council chair. Reply ONLY with a numbered list of 2-6 steps.",
-    "Each step must be exactly one line: N. <title> | assignee: <one of seatNames> | expected: <what this step must produce>.",
+    "Each step must be exactly one line: N. <title> | assignee: <one of seatNames> | expected: <what this step must produce> | after: <step numbers> (optional).",
+    "after: lists the earlier steps whose output this step needs; leave it out when the step is independent; the final step should depend on all it needs.",
     "The final step must produce the deliverable.",
     `Available seat names: ${seatNames.join(", ")}`,
     untrusted("GOAL", goal),
@@ -56,15 +59,18 @@ export function parsePlan(text: string, seatNames: string[], chairName: string):
     if (!title) continue;
     const assigneeText = parts.find((part) => /^assignee\s*:/i.test(part))?.replace(/^assignee\s*:/i, "").trim() ?? "";
     const expected = parts.find((part) => /^expected\s*:/i.test(part))?.replace(/^expected\s*:/i, "").trim() ?? "";
+    const afterPart = parts.find((part) => /^after\s*:/i.test(part));
+    const after = afterPart === undefined ? undefined : [...new Set((afterPart.replace(/^after\s*:/i, "").match(/\d+/g) ?? [])
+      .map(Number).map((n) => steps.findIndex((step) => step.n === n) + 1).filter((n) => n > 0))];
     const candidate = clean(assigneeText).toLocaleLowerCase();
     const assignee = seats.find((seat) => seat.normalized === candidate || seat.first === candidate)?.name ?? chairName;
-    steps.push({ n: Number(match[1]), title, expected, assignee, status: "pending" });
+    steps.push({ n: Number(match[1]), title, expected, assignee, status: "pending", ...(after === undefined ? {} : { after }) });
   }
   return steps.map((step, index) => ({ ...step, n: index + 1 }));
 }
 
 export function buildStepPrompt({ goal, step, previous }: { goal: string; step: WorkStep; previous: WorkStep[] }): string {
-  const previousOutput = previous.map((item) => `Step ${item.n}: ${item.title}\n${(item.output ?? "").slice(0, 1500)}`).join("\n\n");
+  const previousOutput = previous.filter((item) => step.after === undefined || step.after.includes(item.n)).map((item) => `Step ${item.n}: ${item.title}\n${step.after !== undefined && item.status === "failed" ? `Dependency failed: ${item.error ?? "Seat call failed"}` : (item.output ?? "").slice(0, 1500)}`).join("\n\n");
   return [
     "Produce the step output only, with no preamble.",
     untrusted("GOAL", goal),
@@ -154,22 +160,24 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
   if (steps.length === 0) steps.push({ n: 1, title: deps.goal, expected: "A complete answer", assignee: deps.chairName, status: "pending" });
   emit("plan", steps);
 
-  for (let index = 0; index < steps.length; index += 1) {
-    if (cancelled()) return finishCancelled(steps);
+  const parallel = steps.some((step) => step.after !== undefined);
+  const runStep = async (index: number) => {
+    if (cancelled()) return;
     const step = steps[index];
+    const previous = parallel && step.after === undefined ? [] : steps.slice(0, index);
     step.status = "running";
     emit("step", steps);
-    let result = await call(step.assignee, buildStepPrompt({ goal: deps.goal, step, previous: steps.slice(0, index) }));
+    let result = await call(step.assignee, buildStepPrompt({ goal: deps.goal, step, previous }));
     if (!result.ok && step.assignee !== deps.chairName) {
-      if (cancelled()) return finishCancelled(steps);
-      result = await call(deps.chairName, buildStepPrompt({ goal: deps.goal, step, previous: steps.slice(0, index) }));
+      if (cancelled()) return;
+      result = await call(deps.chairName, buildStepPrompt({ goal: deps.goal, step, previous }));
     }
     step.attempts = 1;
     if (result.ok && deps.checkSteps) {
       step.output = result.text ?? "";
       const verdict = await gradeStep(step);
       if (verdict?.grade === "fail" && !cancelled()) {
-        const retryPrompt = `${buildStepPrompt({ goal: deps.goal, step, previous: steps.slice(0, index) })}\n\n${untrusted("CHECKER FEEDBACK ON YOUR PREVIOUS ATTEMPT", verdict.note)}\nFix the problems named above.`;
+        const retryPrompt = `${buildStepPrompt({ goal: deps.goal, step, previous })}\n\n${untrusted("CHECKER FEEDBACK ON YOUR PREVIOUS ATTEMPT", verdict.note)}\nFix the problems named above.`;
         const retry = await call(step.assignee, retryPrompt);
         step.attempts = 2;
         if (retry.ok) {
@@ -194,7 +202,17 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
       step.error = result.error ?? "Seat call failed";
     }
     emit("step", steps);
+  };
+
+  while (steps.some((step) => step.status === "pending")) {
+    if (cancelled()) return finishCancelled(steps);
+    const ready = steps.map((step, index) => ({ step, index })).filter(({ step }) =>
+      step.status === "pending" && (!parallel || (step.after ?? []).every((n) => ["done", "failed"].includes(steps[n - 1].status))),
+    ).slice(0, parallel ? MAX_PARALLEL_STEPS : 1);
+    await Promise.all(ready.map(({ index }) => runStep(index)));
   }
+
+  if (cancelled()) return finishCancelled(steps);
 
   if (steps.every((step) => step.status === "failed")) {
     emit("done", steps);

@@ -127,3 +127,75 @@ describe("summary fallback", () => {
     expect(result.summary).toContain("the deliverable");
   });
 });
+
+describe("dependency-aware work", () => {
+  const plan = "1. Research | assignee: Researcher | expected: facts\n2. Draft | assignee: Writer | expected: draft\n3. Combine | assignee: Chair | expected: answer | after: 1,2";
+  const deferred = () => {
+    let resolve!: (value: { ok: boolean; text: string }) => void;
+    const promise = new Promise<{ ok: boolean; text: string }>((done) => { resolve = done; });
+    return { promise, resolve };
+  };
+
+  it("parses optional dependencies and ignores non-earlier step numbers", () => {
+    expect(buildPlanPrompt({ goal: "Goal", seatNames: seats })).toContain("leave it out when the step is independent");
+    expect(parsePlan(planned, seats, "Chair").every((step) => step.after === undefined)).toBe(true);
+    expect(parsePlan(`${plan}\n4. Finish | after: 1, 3, 4, 9`, seats, "Chair").map((step) => step.after)).toEqual([undefined, undefined, [1, 2], [1, 3]]);
+  });
+
+  it("starts independent steps together and waits for both dependencies", async () => {
+    const first = deferred();
+    const second = deferred();
+    const prompts: string[] = [];
+    const callSeat = vi.fn(async (_seat: string, prompt: string) => {
+      prompts.push(prompt);
+      if (prompt.includes("council chair")) return { ok: true, text: plan };
+      if (prompt.includes("This step: Research")) return first.promise;
+      if (prompt.includes("This step: Draft")) return second.promise;
+      return { ok: true, text: "combined" };
+    });
+    const work = runWork({ goal: "Goal", seatNames: seats, chairName: "Chair", callSeat });
+    await vi.waitFor(() => expect(callSeat).toHaveBeenCalledTimes(3));
+    first.resolve({ ok: true, text: "research output" });
+    await vi.waitFor(() => expect(prompts.some((prompt) => prompt.includes("This step: Combine"))).toBe(false));
+    second.resolve({ ok: true, text: "draft output" });
+    const result = await work;
+    const combine = prompts.find((prompt) => prompt.includes("This step: Combine"));
+    expect(combine).toContain("research output");
+    expect(combine).toContain("draft output");
+    expect(result.status).toBe("done");
+  });
+
+  it("does not start another wave after cancellation", async () => {
+    const first = deferred();
+    const second = deferred();
+    let cancelled = false;
+    const callSeat = vi.fn(async (_seat: string, prompt: string) => {
+      if (prompt.includes("council chair")) return { ok: true, text: plan };
+      if (prompt.includes("This step: Research")) return first.promise;
+      if (prompt.includes("This step: Draft")) return second.promise;
+      return { ok: true, text: "unexpected" };
+    });
+    const work = runWork({ goal: "Goal", seatNames: seats, chairName: "Chair", callSeat, isCancelled: () => cancelled });
+    await vi.waitFor(() => expect(callSeat).toHaveBeenCalledTimes(3));
+    cancelled = true;
+    first.resolve({ ok: true, text: "one" });
+    second.resolve({ ok: true, text: "two" });
+    expect((await work).status).toBe("cancelled");
+    expect(callSeat).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports failed dependencies to dependent steps", async () => {
+    let dependentPrompt = "";
+    const result = await runWork({
+      goal: "Goal", seatNames: seats, chairName: "Chair",
+      callSeat: async (_seat, prompt) => {
+        if (prompt.includes("council chair")) return { ok: true, text: "1. Fail | assignee: Chair | expected: x\n2. Continue | assignee: Chair | expected: x | after: 1" };
+        if (prompt.includes("This step: Fail")) return { ok: false, error: "unavailable" };
+        if (prompt.includes("This step: Continue")) dependentPrompt = prompt;
+        return { ok: true, text: "done" };
+      },
+    });
+    expect(dependentPrompt).toContain("Dependency failed: unavailable");
+    expect(result.status).toBe("partial");
+  });
+});
