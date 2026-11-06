@@ -11,6 +11,7 @@ import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../servi
 import { getCouncilReliability } from "../services/council-reliability.js";
 import { logActivity } from "../services/activity-log.js";
 import { getCouncilEstimate } from "../services/council-estimate.js";
+import { classifyCouncilQuestion } from "../services/council-modes.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
 const briefSchema = z.object({ brief: z.string().max(4000) }).strict();
@@ -156,6 +157,14 @@ export function councilChatRoutes(db: Db) {
     const clarify = req.query.clarify === "true";
     if (req.query.clarify !== undefined && req.query.clarify !== "true" && req.query.clarify !== "false") throw badRequest("Invalid clarify value");
     res.json(await getCouncilEstimate(db, companyId, req.params.roomId as string, mode, clarify));
+  });
+
+  // Suggest how to run a question (kind, mode, rounds, seats). Heuristic only: no model call, no cost.
+  router.post("/companies/:companyId/council/classify", validate(z.object({ text: z.string().max(4000) }).strict()), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(classifyCouncilQuestion(req.body.text));
   });
 
   router.put("/companies/:companyId/council/rooms/:issueId/brief", validate(briefSchema), async (req, res) => {
