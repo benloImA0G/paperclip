@@ -188,6 +188,7 @@ export function Council() {
   const [depth, setDepth] = useState<Depth>("medium");
   const [autoSummary, setAutoSummary] = useState(false);
   const [clarify, setClarify] = useState(false);
+  const [planFirst, setPlanFirst] = useState(false);
   const [showArchives, setShowArchives] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -263,8 +264,8 @@ export function Council() {
     previousWorkStatus.current = workStatus;
   }, [workStatus]); // eslint-disable-line react-hooks/exhaustive-deps
   const startWork = useMutation({
-    mutationFn: (input: { goal: string; decision?: string }) => councilApi.startWork(companyId, roomId!, input),
-    onSuccess: () => void workQuery.refetch(),
+    mutationFn: (input: { goal: string; decision?: string; postGoal?: boolean }) => councilApi.startWork(companyId, roomId!, input),
+    onSuccess: () => { void workQuery.refetch(); void comments.refetch(); },
     onError: (e) => setError(errorText(e)),
   });
   const reliabilityQuery = useQuery({ queryKey: ["council", companyId, roomId, "reliability"], queryFn: () => councilApi.getReliability(companyId, roomId!), enabled: !!companyId && !!roomId });
@@ -629,7 +630,7 @@ export function Council() {
             {settingsOpen ? <div id="council-room-settings" role="dialog" aria-label="Room settings" className="council-settings-panel fixed inset-x-2 bottom-2 z-40 max-h-screen overflow-y-auto rounded-xl border bg-popover p-4 shadow-2xl md:absolute md:inset-x-auto md:right-0 md:top-full md:bottom-auto md:mt-2 md:w-96">
               <div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">Room settings</h2><p className="text-xs text-muted-foreground">Optional controls for this war room.</p></div><Button type="button" variant="ghost" size="sm" aria-label="Close room settings" onClick={() => { setSettingsOpen(false); settingsTriggerRef.current?.focus(); }}><X /></Button></div>
               <div className="space-y-4 text-sm">
-                <section className="space-y-2"><h3 className="font-semibold">How the council answers</h3><div className="flex flex-wrap gap-2"><Toggle label="Clarify" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" /><Toggle label="Summary" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" /><label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground">Rounds<select aria-label="Rounds" className="h-7 rounded-md border bg-background px-1 text-xs text-foreground" value={discussion ? depth : "off"} onChange={(e) => e.target.value === "off" ? setDiscussion(false) : (setDiscussion(true), setDepth(e.target.value as Depth))}><option value="off">No debate</option>{(Object.keys(DEPTHS) as Depth[]).map((d) => <option key={d} value={d}>{DEPTHS[d].label}</option>)}</select></label><label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground">Speaking order<select aria-label="Speaking order" className="h-7 rounded-md border bg-background px-1 text-xs text-foreground" value={speakingOrder} onChange={(e) => setSpeakingOrder(e.target.value as CouncilRoundOrder)}><option value="seat">Seat order</option><option value="random">Random each round</option><option value="reverse">Reverse</option></select></label><label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground">Discussion style<select aria-label="Discussion style" className="h-7 rounded-md border bg-background px-1 text-xs text-foreground" value={discussionStyle} onChange={(e) => setDiscussionStyle(e.target.value as CouncilRoundStyle)}><option value="collaborate">Collaborate</option><option value="challenge">Challenge each other</option></select></label></div></section>
+                <section className="space-y-2"><h3 className="font-semibold">How the council answers</h3><div className="flex flex-wrap gap-2"><Toggle label="Plan first" on={planFirst} onClick={() => setPlanFirst((v) => !v)} title="Instead of everyone answering, the chair plans the steps right away and the seats carry them out; a one-page summary lands in the chat" /><Toggle label="Clarify" on={clarify} onClick={() => setClarify((v) => !v)} title="Lets a vendor ask another vendor one question before answering" /><Toggle label="Summary" on={autoSummary} onClick={() => setAutoSummary((v) => !v)} title="Adds a concise one-page summary after the vendors answer" /><label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground">Rounds<select aria-label="Rounds" className="h-7 rounded-md border bg-background px-1 text-xs text-foreground" value={discussion ? depth : "off"} onChange={(e) => e.target.value === "off" ? setDiscussion(false) : (setDiscussion(true), setDepth(e.target.value as Depth))}><option value="off">No debate</option>{(Object.keys(DEPTHS) as Depth[]).map((d) => <option key={d} value={d}>{DEPTHS[d].label}</option>)}</select></label><label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground">Speaking order<select aria-label="Speaking order" className="h-7 rounded-md border bg-background px-1 text-xs text-foreground" value={speakingOrder} onChange={(e) => setSpeakingOrder(e.target.value as CouncilRoundOrder)}><option value="seat">Seat order</option><option value="random">Random each round</option><option value="reverse">Reverse</option></select></label><label className="flex items-center gap-2 rounded-lg border px-2 py-1 text-xs font-medium text-muted-foreground">Discussion style<select aria-label="Discussion style" className="h-7 rounded-md border bg-background px-1 text-xs text-foreground" value={discussionStyle} onChange={(e) => setDiscussionStyle(e.target.value as CouncilRoundStyle)}><option value="collaborate">Collaborate</option><option value="challenge">Challenge each other</option></select></label></div></section>
                 <section className="space-y-2"><h3 className="font-semibold">Room</h3><div className="flex flex-wrap gap-2"><button type="button" className="rounded-md border px-2 py-1" onClick={() => setBriefOpen((v) => !v)}>Brief</button><button type="button" className="rounded-md border px-2 py-1" onClick={() => setArtifactsOpen((v) => !v)}>Artifacts</button><details className="relative rounded-md border"><summary className="cursor-pointer list-none px-2 py-1">Reliability</summary><div className="absolute right-0 z-10 mt-1 w-80 max-w-full rounded-lg border bg-popover p-3 shadow-lg">{reliabilityQuery.isLoading ? <p className="text-muted-foreground">Loading reply history…</p> : reliabilityQuery.isError ? <p className="text-destructive">Reliability is unavailable.</p> : reliabilityQuery.data ? <p className="text-muted-foreground">Based on {reliabilityQuery.data.totals.replies} replies.</p> : null}</div></details><Toggle label="Ask before downloading exports" on={requireApproval} onClick={() => roomId && saveExportSetting.mutate({ targetRoomId: roomId, value: !requireApproval })} /></div></section>
                 {roomId ? <section className="space-y-2"><LinkedTasksPanel roomId={roomId} companyId={companyId} onAskInRoom={(text) => setMessage(text)} /></section> : null}
                 <section className="space-y-2"><h3 className="font-semibold">Usage and cost</h3><p className="text-xs text-muted-foreground">Every vendor call is recorded in Paperclip usage.</p><Link to="/costs" className="inline-flex rounded-md border px-2 py-1 text-xs hover:bg-accent">Open usage and costs</Link></section>
@@ -1100,7 +1101,13 @@ export function Council() {
             className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
             onSubmit={(e) => {
               e.preventDefault();
-              if (canSend) ask.mutate("ask");
+              if (!canSend) return;
+              if (planFirst && workStatus !== "running") {
+                startWork.mutate({ goal: message.trim(), postGoal: true });
+                setMessage("");
+                return;
+              }
+              ask.mutate("ask");
             }}
           >
             <div className="flex items-end gap-2">

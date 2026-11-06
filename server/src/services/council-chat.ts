@@ -1430,7 +1430,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     }
   }
 
-  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string }) {
+  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean }) {
     await getRoom(input.companyId, input.issueId);
     if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
       throw conflict("A round or work session is already running in this room");
@@ -1454,6 +1454,15 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (!runningWork.has(key)) workStates.delete(key);
     }
     workStates.set(input.issueId, { status: "running", steps: [], startedAt });
+    if (input.postGoal) {
+      try {
+        await issueSvc.addComment(input.issueId, input.goal, { userId: input.userId });
+      } catch (error) {
+        runningWork.delete(input.issueId);
+        workStates.delete(input.issueId);
+        throw error;
+      }
+    }
 
     void (async () => {
       const setState = (state: CouncilWorkState) => workStates.set(input.issueId, copyWorkState(state));

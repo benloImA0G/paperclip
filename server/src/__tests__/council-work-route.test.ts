@@ -72,6 +72,31 @@ describe("council work routes", () => {
     await vi.waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(1));
   });
 
+  it("posts the goal as the user comment before starting work when requested", async () => {
+    const pending = Promise.withResolvers<{ text: string }>();
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ text: "# Summary" });
+    const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
+
+    expect((await request(server).post(workPath).send({ goal: "Research this", postGoal: true })).status).toBe(202);
+    await vi.waitFor(() => expect(mocks.generateText).toHaveBeenCalledTimes(2));
+    expect(mocks.addComment).toHaveBeenCalledTimes(1);
+    expect(mocks.addComment).toHaveBeenCalledWith(issueId, "Research this", { userId: "alice" });
+
+    pending.resolve({ text: "facts" });
+    await vi.waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(2));
+    expect(mocks.addComment.mock.calls[1]?.[1]).toContain("## Work summary");
+  });
+
+  it("does not post the goal when postGoal is omitted", async () => {
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "# Summary" });
+    const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
+
+    await request(server).post(workPath).send({ goal: "Research this" });
+    await vi.waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(1));
+    expect(mocks.addComment).toHaveBeenCalledWith(issueId, expect.stringContaining("## Work summary"), { userId: "council-seat:chair" });
+    expect(mocks.addComment.mock.calls[0]?.[1]).not.toBe("Research this");
+  });
+
   it("rejects a second session while work is running", async () => {
     const pending = Promise.withResolvers<{ text: string }>();
     mocks.generateText.mockReturnValueOnce(pending.promise);
