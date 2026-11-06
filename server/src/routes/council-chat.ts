@@ -78,6 +78,7 @@ const roundSchema = z
     dissent: z.boolean().optional(),
     ranking: z.boolean().optional(),
     jury: z.boolean().optional(),
+    panel: z.object({ size: z.number().int().min(2).max(8), seed: z.number().int().min(0).max(2147483647) }).strict().optional(),
     roundNumber: z.number().int().min(1).max(20).optional(),
     maxRounds: z.number().int().min(1).max(20).optional(),
   })
@@ -309,6 +310,7 @@ export function councilChatRoutes(db: Db) {
         dissent: req.body.dissent,
         ranking: req.body.ranking,
         jury: req.body.jury,
+        panel: req.body.panel,
         roundNumber: req.body.roundNumber,
         maxRounds: req.body.maxRounds,
         signal: abort.signal,

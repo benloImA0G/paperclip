@@ -13,6 +13,7 @@ import { issueService } from "./issues.js";
 import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 import { sanitizeMarkdownForPandoc } from "./council-export.js";
+import { assignPersonas, personaInstruction, pickPanel, type PanelPersona } from "./council-panel.js";
 import { aggregateRankings, blindLabels, buildJuryPrompt, buildRankingPrompt, parseJuryVerdict, parseRanking, tallyJury, type JuryVerdict } from "./council-ranking.js";
 import { buildDissentPrompt, parseDissent, shouldRunDissent, type DissentResult } from "./council-dissent.js";
 import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, type ParsedStance } from "./council-consensus.js";
@@ -1210,6 +1211,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     dissent?: boolean;
     /** After the answers, seats rank each other's answers blind (Seat A/B/C) and the order is returned. */
     ranking?: boolean;
+    /** Random panel: answer with only `size` seats picked at random (one per connection first), each with a persona. Same seed = same panel across rounds. */
+    panel?: { size: number; seed: number };
     /** Seats vote pass / revise / fail on the best answer (the top-ranked one when ranking is on). */
     jury?: boolean;
     roundNumber?: number;
@@ -1248,6 +1251,21 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           );
       if (mentioned.length) seats = mentioned;
       directOrchestratorMention = mentioned.length === 1 && mentioned[0]?.role === "moderator";
+    }
+
+    // Random panel (not when specific seats were mentioned): a diverse random subset, each with a persona.
+    let panelPersonas: Map<string, PanelPersona> | undefined;
+    if (input.panel && !summarize && !directOrchestratorMention && seats === activeSeats) {
+      const pool = activeSeats.filter((seat) => seat.role !== "moderator");
+      if (pool.length > input.panel.size) {
+        const picked = pickPanel(
+          pool.map((seat) => ({ id: seat.id, name: seat.name, vendor: seat.connectionId ?? seat.agentId ?? seat.name, model: seat.model ?? "" })),
+          { size: input.panel.size, seed: input.panel.seed },
+        );
+        const ids = new Set(picked.map((candidate) => candidate.id));
+        seats = activeSeats.filter((seat) => seat.role === "moderator" || ids.has(seat.id));
+        panelPersonas = assignPersonas(picked, input.panel.seed);
+      }
     }
 
     // History is loaded before this round's replies exist, which keeps round 1 blind.
@@ -1351,7 +1369,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             discussionInstruction,
           ].join("\n\n"), roomMetadata(room.description).brief)
         : prompt;
-      const result = await dispatch(seat, roundId, seatPrompt);
+      const persona = panelPersonas?.get(seat.id);
+      const result = await dispatch(seat, roundId, persona ? `${seatPrompt}\n\n${personaInstruction(persona)}` : seatPrompt);
       results.push(result);
       if (result.status === "cancelled") break;
     }
