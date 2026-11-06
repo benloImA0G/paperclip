@@ -161,6 +161,8 @@ export const councilApi = {
       ranking?: boolean;
       /** Seats vote pass / revise / fail on the best answer. */
       jury?: boolean;
+      /** Random panel: only `size` seats answer, picked at random with one per connection first and a persona each. */
+      panel?: { size: number; seed: number };
       roundNumber?: number;
       maxRounds?: number;
     },
@@ -180,6 +182,7 @@ export const councilApi = {
         ...(input.stance ? { stance: true } : {}),
         ...(input.ranking ? { ranking: true } : {}),
         ...(input.jury ? { jury: true } : {}),
+        ...(input.panel ? { panel: input.panel } : {}),
         ...(input.dissent ? { dissent: true, roundNumber: input.roundNumber, maxRounds: input.maxRounds } : {}),
       },
       { signal },
