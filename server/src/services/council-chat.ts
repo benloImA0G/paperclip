@@ -13,6 +13,7 @@ import { issueService } from "./issues.js";
 import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 import { sanitizeMarkdownForPandoc } from "./council-export.js";
+import { aggregateRankings, blindLabels, buildRankingPrompt, parseRanking } from "./council-ranking.js";
 import { buildDissentPrompt, parseDissent, shouldRunDissent, type DissentResult } from "./council-dissent.js";
 import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, type ParsedStance } from "./council-consensus.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService, isAgentInvokableForCouncil, isCouncilAgentAdapterType } from "./council-agent-turn.js";
@@ -1207,6 +1208,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     stance?: boolean;
     /** After a fast, confident agreement, one seat argues against it (devil's advocate). */
     dissent?: boolean;
+    /** After the answers, seats rank each other's answers blind (Seat A/B/C) and the order is returned. */
+    ranking?: boolean;
     roundNumber?: number;
     maxRounds?: number;
     signal?: AbortSignal;
@@ -1449,7 +1452,32 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         if (advocateResult.status === "ok" && advocateResult.text) dissent = parseDissent(advocateResult.text) ?? undefined;
       }
     }
-    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}), ...(dissent ? { dissent } : {}) };
+
+    // Anonymous peer ranking: seats judge each other's answers by label only (no vendor or seat names).
+    let ranking: { order: Array<{ seatName: string; points: number; firstPlace: number }>; judges: number } | undefined;
+    if (input.ranking && mode === "ask" && !(input.signal?.aborted || await input.isCancelled?.())) {
+      const answered = results.filter((result) => result.status === "ok" && result.text && !result.orchestrator).slice(0, 8);
+      if (answered.length >= 3) {
+        const shuffled = [...answered].sort(() => Math.random() - 0.5);
+        const labels = blindLabels(shuffled.length);
+        const bySeat = new Map(labels.map((label, index) => [label, shuffled[index]!.seatName]));
+        const blind = shuffled.map((result, index) => ({ label: labels[index]!, text: result.text! }));
+        const rankings: string[][] = [];
+        for (const judge of dispatchedSeats.filter((seat) => seat.role !== "moderator").slice(0, 6)) {
+          const judged = await dispatch(judge, randomUUID(), buildRankingPrompt({ question: message, answers: blind }), undefined, { maxOutputTokens: 300, persistComment: false });
+          if (judged.status === "cancelled") break;
+          const parsed = judged.status === "ok" ? parseRanking(judged.text ?? "", labels) : null;
+          if (parsed) rankings.push(parsed);
+        }
+        if (rankings.length) {
+          ranking = {
+            judges: rankings.length,
+            order: aggregateRankings(rankings, labels).map((row) => ({ seatName: bySeat.get(row.label)!, points: row.points, firstPlace: row.firstPlace })),
+          };
+        }
+      }
+    }
+    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}), ...(dissent ? { dissent } : {}), ...(ranking ? { ranking } : {}) };
   }
 
   async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation" | "isCancelled" | "beforeSeatDispatch">) {

@@ -76,6 +76,7 @@ const roundSchema = z
     clarify: z.boolean().optional(),
     stance: z.boolean().optional(),
     dissent: z.boolean().optional(),
+    ranking: z.boolean().optional(),
     roundNumber: z.number().int().min(1).max(20).optional(),
     maxRounds: z.number().int().min(1).max(20).optional(),
   })
@@ -305,6 +306,7 @@ export function councilChatRoutes(db: Db) {
         clarify: req.body.clarify,
         stance: req.body.stance,
         dissent: req.body.dissent,
+        ranking: req.body.ranking,
         roundNumber: req.body.roundNumber,
         maxRounds: req.body.maxRounds,
         signal: abort.signal,
