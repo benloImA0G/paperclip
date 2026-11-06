@@ -140,20 +140,49 @@ describe("council discussion style", () => {
     expect(result).not.toHaveProperty("agreement");
   });
 
-  it("tolerates a seat without a stance block", async () => {
+  it("follows up on a seat without a stance block and includes its recovered stance", async () => {
     const seats = [
       { id: "one", name: "One", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
       { id: "two", name: "Two", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
     ];
     mocks.generateText
       .mockResolvedValueOnce({ text: "I need more evidence." })
-      .mockResolvedValueOnce({ text: "Proceed.\nSTANCE: agree\nCONFIDENCE: 5" });
+      .mockResolvedValueOnce({ text: "Proceed.\nSTANCE: agree\nCONFIDENCE: 5" })
+      .mockResolvedValueOnce({ text: "STANCE: agree with conditions\nCONFIDENCE: 4\nCONCESSION: Need more evidence" });
+    const { councilChatService } = await import("../services/council-chat.js");
+
+    const result = await councilChatService(discussionDb(seats)).runRound({ companyId, issueId, userId, mode: "discuss", stance: true });
+
+    expect(result.results[0]).toMatchObject({ stance: { stance: "agree_with_conditions", confidence: 4, concession: "Need more evidence" } });
+    expect(result.agreement).toMatchObject({ percent: 83, label: "Agreement with concessions", counts: { agree: 1, conditions: 1, disagree: 0, abstain: 0 } });
+    expect(mocks.generateText).toHaveBeenCalledTimes(3);
+    expect(mocks.generateText.mock.calls[2]?.[0].prompt).toContain("Classify your own position on the question");
+  });
+
+  it("leaves a seat out when its stance follow-up fails", async () => {
+    const seats = [
+      { id: "one", name: "One", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
+      { id: "two", name: "Two", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
+    ];
+    mocks.generateText
+      .mockResolvedValueOnce({ text: "I need more evidence." })
+      .mockResolvedValueOnce({ text: "Proceed.\nSTANCE: agree\nCONFIDENCE: 5" })
+      .mockRejectedValueOnce(new Error("follow-up failed"));
     const { councilChatService } = await import("../services/council-chat.js");
 
     const result = await councilChatService(discussionDb(seats)).runRound({ companyId, issueId, userId, mode: "discuss", stance: true });
 
     expect(result.results[0]).not.toHaveProperty("stance");
     expect(result.agreement).toMatchObject({ percent: 0, label: "Not enough input", counts: { agree: 1, conditions: 0, disagree: 0, abstain: 0 } });
+  });
+
+  it("does not request a stance follow-up when stance is off", async () => {
+    mocks.generateText.mockResolvedValueOnce({ text: "I need more evidence." });
+    const { councilChatService } = await import("../services/council-chat.js");
+
+    await councilChatService(discussionDb()).runRound({ companyId, issueId, userId, mode: "discuss" });
+
+    expect(mocks.generateText).toHaveBeenCalledTimes(1);
   });
 });
 

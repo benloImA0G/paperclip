@@ -13,6 +13,9 @@ import { EmptyState } from "../components/EmptyState";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { parseCouncilDecisionRecord } from "./council-decision-record";
+import { CouncilAgreementMeter } from "../components/CouncilAgreement";
+import { CouncilWorkPanel } from "../components/CouncilWorkPanel";
+import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilEstimate } from "../components/CouncilEstimate";
@@ -85,6 +88,7 @@ const DEPTHS = {
   low: { label: "1 Round (Fast)", rounds: 1, focus: "Keep it brief: name one point you agree with and one you disagree with." },
   medium: { label: "2 Rounds (Trade-offs)", rounds: 2, focus: "Weigh the trade-offs between the proposals. Concede points you got wrong and say what you would now change." },
   high: { label: "3 Rounds (Deep debate)", rounds: 3, focus: "Challenge assumptions, rebut specific claims by name, and in the final turn converge on one recommendation with remaining risks." },
+  agree: { label: "Until agreement (up to 3)", rounds: 3, focus: "Weigh the proposals above. Concede what you got wrong, say what you would now change, and move toward one recommendation you can support." },
 } as const;
 type Depth = keyof typeof DEPTHS;
 
@@ -178,6 +182,7 @@ export function Council() {
   const [requireApproval, setRequireApproval] = useState(false);
   const [lastResults, setLastResults] = useState<Record<string, Record<string, CouncilSeatResult>>>({});
   const [roundDetails, setRoundDetails] = useState<Record<string, CouncilSeatResult[][]>>({});
+  const [agreements, setAgreements] = useState<Record<string, { agreement: CouncilAgreement; round: number }>>({});
   const [error, setError] = useState<string | null>(null);
   const [discussion, setDiscussion] = useState(false);
   const [depth, setDepth] = useState<Depth>("medium");
@@ -245,6 +250,23 @@ export function Council() {
   const seats = useQuery({ queryKey: ["council", companyId, roomId, "seats"], queryFn: () => councilApi.listSeats(companyId, roomId!), enabled: !!companyId && !!roomId });
   const briefQuery = useQuery({ queryKey: ["council", companyId, roomId, "brief"], queryFn: () => councilApi.getBrief(companyId, roomId!), enabled: !!companyId && !!roomId });
   const roomIssueQuery = useQuery({ queryKey: queryKeys.issues.detail(roomId ?? ""), queryFn: () => issuesApi.get(roomId!), enabled: !!roomId });
+  const workQuery = useQuery({
+    queryKey: ["council", companyId, roomId, "work"],
+    queryFn: () => councilApi.getWork(companyId, roomId!),
+    enabled: !!companyId && !!roomId,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? 2000 : false),
+  });
+  const workStatus = workQuery.data?.status;
+  const previousWorkStatus = useRef(workStatus);
+  useEffect(() => {
+    if (previousWorkStatus.current === "running" && workStatus && workStatus !== "running") void comments.refetch();
+    previousWorkStatus.current = workStatus;
+  }, [workStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  const startWork = useMutation({
+    mutationFn: (input: { goal: string; decision?: string }) => councilApi.startWork(companyId, roomId!, input),
+    onSuccess: () => void workQuery.refetch(),
+    onError: (e) => setError(errorText(e)),
+  });
   const reliabilityQuery = useQuery({ queryKey: ["council", companyId, roomId, "reliability"], queryFn: () => councilApi.getReliability(companyId, roomId!), enabled: !!companyId && !!roomId });
   const artifactsQuery = useQuery({ queryKey: ["council", companyId, roomId, "artifacts"], queryFn: () => councilApi.listArtifacts(companyId, roomId!), enabled: !!companyId && !!roomId });
   const artifactQuery = useQuery({ queryKey: ["council", companyId, roomId, "artifact", selectedArtifactKey, selectedRevision], queryFn: () => councilApi.getArtifact(companyId, roomId!, selectedArtifactKey!, selectedRevision), enabled: !!companyId && !!roomId && !!selectedArtifactKey });
@@ -504,10 +526,19 @@ export function Council() {
         begin("Round 1: every vendor answers in parallel…");
         collect(await run("ask", { message: text, images: pics, clarify }));
         if (debate) {
+          const untilAgreement = depth === "agree";
+          const percents: number[] = [];
           for (let i = 1; i <= debate.rounds && !controller.signal.aborted; i++) {
             await refresh("comments");
             begin(`Discussion turn ${i} of ${debate.rounds}: vendors read each other…`);
-            collect(await run("discuss", { message: debate.focus }));
+            const round = await run("discuss", { message: debate.focus, ...(untilAgreement ? { stance: true } : {}) });
+            collect(round);
+            if (!round.agreement) continue;
+            setAgreements((current) => ({ ...current, [runRoomId]: { agreement: round.agreement!, round: i } }));
+            percents.push(round.agreement.percent);
+            const last = percents.at(-1)!;
+            const prev = percents.at(-2);
+            if (untilAgreement && (round.agreement.reached || (prev !== undefined && Math.abs(last - prev) <= 3))) break;
           }
         }
         if (autoSummary && !controller.signal.aborted) {
@@ -1024,6 +1055,8 @@ export function Council() {
                 </div>
               );
             })}
+            {workQuery.data && workQuery.data.status !== "idle" ? <CouncilWorkPanel steps={workQuery.data.steps} running={workQuery.data.status === "running"} /> : null}
+            {roomId && agreements[roomId] ? <CouncilAgreementMeter agreement={agreements[roomId]!.agreement} round={agreements[roomId]!.round} /> : null}
             {(roundDetails[roomId ?? ""] ?? []).map((results, index) => (
               <details key={`round-details-${index}`} className="rounded-md border border-border/60 bg-muted/20 text-xs text-muted-foreground">
                 <summary className="cursor-pointer px-2.5 py-1.5 font-medium hover:text-foreground" aria-label={`Show run details for round ${index + 1}`}>Run details · round {index + 1}</summary>
@@ -1086,7 +1119,7 @@ export function Council() {
                 }
               }}
             />
-            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <Button type="submit" disabled={!canSend}><Send /> Send</Button>}
+            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; startWork.mutate({ goal, ...(decision ? { decision: decision.slice(0, 8000) } : {}) }); }}>Start the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
             {images.length ? (

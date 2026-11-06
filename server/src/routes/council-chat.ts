@@ -76,6 +76,10 @@ const roundSchema = z
     stance: z.boolean().optional(),
   })
   .strict();
+const workSchema = z.object({
+  goal: z.string().trim().min(1).max(4000),
+  decision: z.string().max(8000).optional(),
+}).strict();
 const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional(), consolidate: z.boolean().optional() }).strict();
 const artifactKeySchema = z.string().regex(/^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid artifact key");
 const artifactSchema = z.object({ key: artifactKeySchema, title: z.string().trim().min(1).max(200), markdown: z.string().trim().min(1).max(100_000) }).strict();
@@ -301,6 +305,27 @@ export function councilChatRoutes(db: Db) {
       await logActivity(db, { companyId, ...actor, action: "council.round_stopped", entityType: "issue", entityId: issueId, issueId });
     }
     res.json(result);
+  });
+
+  router.post("/companies/:companyId/council/rooms/:issueId/work", validate(workSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const userId = boardUserId(req);
+    res.status(202).json(await council.startWork({ companyId, issueId: req.params.issueId as string, userId, ...req.body }));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId/work", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(await council.getWork(companyId, req.params.issueId as string));
+  });
+
+  router.post("/companies/:companyId/council/rooms/:issueId/work/stop", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    res.json(await council.stopWork(companyId, req.params.issueId as string));
   });
 
   router.post("/companies/:companyId/council/export", validate(exportSchema), async (req, res) => {
