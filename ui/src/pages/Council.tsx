@@ -13,6 +13,7 @@ import { EmptyState } from "../components/EmptyState";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { parseCouncilDecisionRecord } from "./council-decision-record";
+import { estimateCalls } from "./council-call-estimate";
 import { CouncilAgreementMeter } from "../components/CouncilAgreement";
 import { CouncilWorkPanel } from "./council-work-step";
 import type { CouncilAgreement } from "../api/council";
@@ -644,6 +645,14 @@ export function Council() {
 
   if (!selectedCompanyId) return <EmptyState icon={Users} message="Select an organization to use Council." />;
 
+  const hasModerator = activeSeats.some((seat) => seat.role === "moderator");
+  const callEstimate = estimateCalls({
+    answeringSeats: activeSeats.length - (hasModerator && activeSeats.length > 1 ? 1 : 0),
+    hasModerator, rounds: discussion && activeSeats.length > 1 ? DEPTHS[depth].rounds + 1 : 1,
+    untilAgreement: discussion && activeSeats.length > 1 && depth === "agree",
+    autoSummary, clarify, peerRanking, jury, panelSize,
+    work: { planFirst: planFirst && workStatus !== "running", askFirst, juryChecks, finalReview },
+  });
   const canSend = !ask.isPending && !!message.trim() && activeSeats.length > 0;
   const room = rooms.data?.find((r) => r.id === roomId);
   const seatById = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s]));
@@ -1163,6 +1172,7 @@ export function Council() {
             }}
           >
             {suggestion ? <p className="px-1 text-xs text-muted-foreground" data-testid="council-mode-hint">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
+            {message.trim() ? <p className="px-1 text-xs text-muted-foreground" title={callEstimate.lines.join("; ")}>About {callEstimate.low}{callEstimate.low !== callEstimate.high ? `–${callEstimate.high}` : ""} model calls</p> : null}
             <div className="flex items-end gap-2">
             <Textarea
               value={message}
