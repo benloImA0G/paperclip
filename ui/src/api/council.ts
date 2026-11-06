@@ -72,6 +72,7 @@ export interface CouncilRoundResult {
   results: CouncilSeatResult[];
   /** Present on a discussion round run with `stance`. */
   agreement?: CouncilAgreement;
+  ranking?: { order: Array<{ seatName: string; points: number; firstPlace: number }>; judges: number };
   dissent?: { strength: "strong" | "weak" | "none"; argument: string };
 }
 
@@ -155,6 +156,8 @@ export const councilApi = {
       stance?: boolean;
       /** After a fast confident agreement, one seat argues the other side. */
       dissent?: boolean;
+      /** Seats rank each other's answers blind after an ask round. */
+      ranking?: boolean;
       roundNumber?: number;
       maxRounds?: number;
     },
@@ -172,6 +175,7 @@ export const councilApi = {
         ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
         ...(input.clarify ? { clarify: true } : {}),
         ...(input.stance ? { stance: true } : {}),
+        ...(input.ranking ? { ranking: true } : {}),
         ...(input.dissent ? { dissent: true, roundNumber: input.roundNumber, maxRounds: input.maxRounds } : {}),
       },
       { signal },
