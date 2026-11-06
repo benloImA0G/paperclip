@@ -32,16 +32,16 @@ UI changes only where a feature needs them (mode picker showing chosen mode and 
 Done / partly done / blocked, commits pushed, tests run and results, decisions waiting for Ben.
 
 ## Running list (updated during the shift)
-Claude weekly resets 01:00 WIB (Sat 2026-11-07); until then Claude does the work (Sonnet chair, Haiku checks), Codex jobs launch after the reset via launched panel clarify engine-tests ollama.
+Claude weekly resets 01:00 WIB (Sat 2026-11-07); until then Claude does most of the work (Sonnet chair, Haiku checks). Codex jobs were meant to wait for the reset (launcher: ~/council-test/night-launch.sh); they were started a little early by mistake at 23:58 and are small.
 
 **Done (pushed to feat/council-chat)**
-- Mode router +  route + composer hint (suggested mode, reason, Plan first shortcut)
-- Step checker with one retry in work sessions (), grade shown per step
-- Dissent check module + engine option  + until-agreement debates run it and show the result
+- Mode router + /council/classify route + composer hint (suggested mode, reason, Plan first shortcut)
+- Step checker with one retry in work sessions (checkSteps), grade shown per step
+- Dissent check module + round option dissent + until-agreement debates run it and show the result
 - Work session persistence (migration 0436 written, NOT applied to the dev database; no drizzle snapshot file yet)
-- : one backlog draft task per step
-- Anonymous peer ranking + jury helpers (), engine option , Peer ranking toggle
+- createTasks: one backlog draft task per step
+- Anonymous peer ranking + jury helpers (council-ranking.ts), round option ranking, Peer ranking toggle
 
-**Next**: random panels (, Codex), clarify-first for work sessions (, Codex) then wire both, engine tests (Codex), Ollama seat investigation (Codex), jury round in engine, UI to start work sessions with createTasks, status doc.
+**Next**: random panels (council-panel.ts, Codex), clarify-first for work sessions (council-clarify.ts, Codex) then wire both, engine tests (Codex), Ollama seat investigation (Codex), jury round in engine, UI to start work sessions with createTasks, status doc.
 
 **Blocked / waiting for Ben**: apply migration 0436 to the dev DB (and generate its snapshot); Ollama seat needs a vendor connection pointing at http://172.25.240.1:11434/v1.
