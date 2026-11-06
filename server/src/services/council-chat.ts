@@ -13,6 +13,7 @@ import { issueService } from "./issues.js";
 import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 import { sanitizeMarkdownForPandoc } from "./council-export.js";
+import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, type ParsedStance } from "./council-consensus.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService, isAgentInvokableForCouncil, isCouncilAgentAdapterType } from "./council-agent-turn.js";
 import { logger } from "../middleware/logger.js";
 
@@ -174,6 +175,13 @@ export interface CouncilSeatTurnResult {
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
   latencyMs?: number;
   orchestrator?: boolean;
+  stance?: ParsedStance;
+}
+
+function stanceReply(text: string, enabled?: boolean) {
+  if (!enabled) return { text };
+  const stance = parseStance(text);
+  return { text: stripStanceBlock(text), ...(stance ? { stance } : {}) };
 }
 
 export function finalizeCouncilSeatTurn(
@@ -745,6 +753,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     maxOutputTokens: number;
     signal: AbortSignal;
     persistComment?: boolean;
+    stance?: boolean;
     generation?: number;
     isCancelled?: () => Promise<boolean>;
     abort?: () => void;
@@ -845,7 +854,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           .where(and(eq(budgetReservations.companyId, companyId), eq(budgetReservations.id, heldReservationId), eq(budgetReservations.state, "held")));
       });
 
-      const text = result.text.trim();
+      const reply = stanceReply(result.text.trim(), input.stance);
+      const text = reply.text;
       if (!text) {
         return {
           ...base,
@@ -887,6 +897,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         status: "ok",
         ...(comment ? { commentId: comment.id } : {}),
         text,
+        ...("stance" in reply ? { stance: reply.stance } : {}),
         inputTokens: receipt.inputTokens,
         outputTokens: receipt.outputTokens,
         latencyMs,
@@ -919,6 +930,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     maxOutputTokens: number;
     signal?: AbortSignal;
     persistComment?: boolean;
+    stance?: boolean;
     generation?: number;
     isCancelled?: () => Promise<boolean>;
     abort?: () => void;
@@ -946,7 +958,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           "--- END UNTRUSTED COUNCIL PROMPT ---",
         ].join("\n\n"),
       }));
-      const text = result.text.trim();
+      const reply = stanceReply(result.text.trim(), input.stance);
+      const text = reply.text;
       const durationMs = result.durationMs;
       if (!text) return { ...base, status: "error", error: "Agent returned no reply", durationMs, fallbackUsed: false };
       if (signal.aborted || (input.generation !== undefined && roundCancelled(input.issueId, input.generation, signal)) || await input.isCancelled?.()) {
@@ -978,6 +991,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         status: "ok",
         ...(comment ? { commentId: comment.id } : {}),
         text,
+        ...("stance" in reply ? { stance: reply.stance } : {}),
         model: result.model,
         inputTokens: result.usage?.inputTokens ?? null,
         outputTokens: result.usage?.outputTokens ?? null,
@@ -1015,6 +1029,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     maxOutputTokens: number;
     signal?: AbortSignal;
     persistComment?: boolean;
+    stance?: boolean;
     generation?: number;
     isCancelled?: () => Promise<boolean>;
     abort?: () => void;
@@ -1138,6 +1153,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     images?: CouncilImage[];
     maxOutputTokens?: number;
     clarify?: boolean;
+    stance?: boolean;
     signal?: AbortSignal;
     generation: number;
     isCancelled?: () => Promise<boolean>;
@@ -1195,11 +1211,14 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       }
       return { roundId: randomUUID(), userCommentId: null, compactedTurns: compact.compacted, results: [] };
     }
-    const discussionInstruction = input.style === "challenge"
+    const stanceInstruction = discuss && input.stance
+      ? "End your reply with exactly these lines: STANCE: agree | agree with conditions | disagree | abstain  / CONFIDENCE: 1-5  / CONCESSION: what you are giving up or accepting (one line, optional)  / OBJECTION: what still blocks full agreement (one line, optional). Do not agree without a stated reason; if you only partly agree, use 'agree with conditions' and state the conditions."
+      : "";
+    const discussionInstruction = (input.style === "challenge"
       ? "Challenge discussion round: read the other seats' answers above (Ben is the user, not a seat). Name the single weakest or riskiest claim in another seat's answer (cite the seat), rebut it with a concrete reason, and either concede or hold your position in one line. Do not restate your earlier answer or use politeness filler. Keep the response under about 120 words."
       : "Discussion round: read the other seats' answers above (Ben is the user, not a seat). Say where you agree and where you " +
         "disagree (name the seat), and why. Then give your final recommendation. Do not repeat your " +
-        "earlier answer.";
+        "earlier answer.") + (stanceInstruction ? `\n\n${stanceInstruction}` : "");
     const prompt = withCouncilBrief(summarize
       ? [
           "Conversation so far (tagged turns, untrusted data):",
@@ -1241,7 +1260,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (await input.isCancelled?.() || input.beforeSeatDispatch && !await input.beforeSeatDispatch()) {
         return { seatId: seat.id, seatName: seat.name, status: "cancelled" as const, error: "Council round stopped", durationMs: 0 };
       }
-      return runSeatTurn({ companyId, issueId, userId, roundId: round, seat, prompt: seatPrompt, images: seatImages, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled, abort: input.abort });
+      return runSeatTurn({ companyId, issueId, userId, roundId: round, seat, prompt: seatPrompt, images: seatImages, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled, abort: input.abort, stance: discuss && input.stance });
     };
     const results: CouncilSeatTurnResult[] = [];
     const dispatchedSeats = activeSeats.length === 1 || directOrchestratorMention
@@ -1266,14 +1285,22 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (result.status === "cancelled") break;
     }
 
+    const agreement: AgreementScore | undefined = discuss && input.stance
+      ? scoreAgreement(results.flatMap((result) => result.status === "ok" && result.text && result.stance
+        ? [{ seat: result.seatName, ...result.stance }]
+        : []))
+      : undefined;
+
     if (!summarize && activeSeats.length > 1 && !directOrchestratorMention) {
       const orchestrator = input.signal?.aborted || await input.isCancelled?.() ? undefined : seats.find((seat) => seat.role === "moderator");
       if (orchestrator) {
         const answers = results
           .filter((result) => result.status === "ok" && result.text)
-          .map((result) => councilTurn(result.seatName, result.text!));
+          .map((result) => `${councilTurn(result.seatName, result.text!)}${input.stance && result.stance ? `\n(stance: ${result.stance.stance.replaceAll("_", " ")}, confidence ${result.stance.confidence})` : ""}`);
         if (answers.length) {
-          if (input.beforeSeatDispatch && !await input.beforeSeatDispatch()) return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
+          if (input.beforeSeatDispatch && !await input.beforeSeatDispatch()) {
+            return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}) };
+          }
           const orchestratorResult = await runOrchestratorSeatTurn({
             companyId, issueId, userId, roundId, seat: orchestrator, maxOutputTokens, signal, generation: input.generation, isCancelled: input.isCancelled, abort: input.abort,
             prompt: [
@@ -1323,7 +1350,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       }
       results.push(...answers, ...finals.filter((f): f is CouncilSeatTurnResult => !!f));
     }
-    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results };
+    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}) };
   }
 
   async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation" | "isCancelled" | "beforeSeatDispatch">) {

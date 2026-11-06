@@ -70,6 +70,18 @@ export interface CouncilRoundResult {
   /** Older turns sent to the seats as short digests to save free-tier tokens. */
   compactedTurns: number;
   results: CouncilSeatResult[];
+  /** Present on a discussion round run with `stance`. */
+  agreement?: CouncilAgreement;
+}
+
+export interface CouncilAgreement {
+  percent: number;
+  label: "Strong agreement" | "Agreement with concessions" | "Split" | "No agreement" | "Not enough input";
+  plain: string;
+  reached: boolean;
+  counts: { agree: number; conditions: number; disagree: number; abstain: number };
+  concessions: Array<{ seat: string; text: string }>;
+  objections: Array<{ seat: string; text: string }>;
 }
 export interface CouncilArtifactSummary { key: string; title: string | null; latestRevisionNumber: number; updatedAt: string; }
 export interface CouncilArtifact extends CouncilArtifactSummary { body: string; revisions: Array<{ revisionNumber: number; createdAt: string }>; }
@@ -136,6 +148,8 @@ export const councilApi = {
       images?: Array<{ mediaType: string; data: string }>;
       maxOutputTokens?: number;
       clarify?: boolean;
+      /** Ask seats to end a discussion reply with a stance so the server can score agreement. */
+      stance?: boolean;
     },
     signal?: AbortSignal,
   ) =>
@@ -150,7 +164,21 @@ export const councilApi = {
         ...(input.images?.length ? { images: input.images } : {}),
         ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
         ...(input.clarify ? { clarify: true } : {}),
+        ...(input.stance ? { stance: true } : {}),
       },
       { signal },
     ),
+  /** Work session: the chair plans steps, seats carry them out, the summary lands in the thread. */
+  startWork: (companyId: string, issueId: string, input: { goal: string; decision?: string }) =>
+    api.post<{ started: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/work`, input),
+  getWork: (companyId: string, issueId: string) =>
+    api.get<CouncilWorkState>(`/companies/${companyId}/council/rooms/${issueId}/work`),
+  stopWork: (companyId: string, issueId: string) =>
+    api.post<{ stopped: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/work/stop`, {}),
 };
+
+export interface CouncilWorkState {
+  status: "idle" | "running" | "done" | "partial" | "failed" | "cancelled";
+  steps: Array<{ n: number; title: string; expected: string; assignee: string; status: "pending" | "running" | "done" | "failed"; error?: string }>;
+  summary?: string | null;
+}

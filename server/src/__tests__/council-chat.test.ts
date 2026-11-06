@@ -32,16 +32,15 @@ const companyId = "11111111-1111-4111-8111-111111111111";
 const issueId = "22222222-2222-4222-8222-222222222222";
 const userId = "alice";
 
-function discussionDb() {
+function discussionDb(seatRows = [{ id: "seat", name: "Seat", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null }]) {
   const room = { id: issueId, companyId, originKind: "council", description: "Council room" };
-  const seats = [{ id: "seat", name: "Seat", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null }];
   let selectCount = 0;
   const query = (value: unknown) => {
     const rows = Array.isArray(value) ? value : [value];
     return Object.assign(Promise.resolve(rows), { orderBy: async () => rows, for: async () => [room] });
   };
   return {
-    select: () => ({ from: () => ({ where: () => query(++selectCount === 2 || selectCount === 6 ? seats : room) }) }),
+    select: () => ({ from: () => ({ where: () => query(++selectCount === 2 || selectCount === 6 ? seatRows : room) }) }),
     transaction: async (fn: (tx: unknown) => unknown) => fn({}),
   } as never;
 }
@@ -111,6 +110,50 @@ describe("council discussion style", () => {
     const prompt = mocks.generateText.mock.calls[0]?.[0].prompt as string;
     expect(prompt).toContain("Say where you agree and where you disagree (name the seat), and why.");
     expect(prompt).not.toContain("Name the single weakest or riskiest claim");
+  });
+
+  it("returns scored, structured stances while hiding stance blocks from the thread", async () => {
+    const seats = [
+      { id: "one", name: "One", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
+      { id: "two", name: "Two", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
+    ];
+    mocks.generateText
+      .mockResolvedValueOnce({ text: "Proceed, but stage the rollout.\nSTANCE: agree with conditions\nCONFIDENCE: 4\nCONCESSION: Accept a slower launch\nOBJECTION: Need monitoring" })
+      .mockResolvedValueOnce({ text: "Proceed now.\nSTANCE: agree\nCONFIDENCE: 5" });
+    const { councilChatService } = await import("../services/council-chat.js");
+
+    const result = await councilChatService(discussionDb(seats)).runRound({ companyId, issueId, userId, mode: "discuss", stance: true });
+
+    expect(result.agreement).toMatchObject({ percent: 83, label: "Agreement with concessions", counts: { agree: 1, conditions: 1, disagree: 0, abstain: 0 } });
+    expect(result.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "Proceed, but stage the rollout.", stance: { stance: "agree_with_conditions", confidence: 4, concession: "Accept a slower launch", objection: "Need monitoring" } }),
+      expect.objectContaining({ text: "Proceed now.", stance: { stance: "agree", confidence: 5 } }),
+    ]));
+    expect(mocks.addComment).toHaveBeenCalledWith(issueId, "Proceed, but stage the rollout.", expect.anything(), expect.anything());
+  });
+
+  it("does not add agreement outside stance rounds", async () => {
+    const { councilChatService } = await import("../services/council-chat.js");
+
+    const result = await councilChatService(discussionDb()).runRound({ companyId, issueId, userId, mode: "discuss" });
+
+    expect(result).not.toHaveProperty("agreement");
+  });
+
+  it("tolerates a seat without a stance block", async () => {
+    const seats = [
+      { id: "one", name: "One", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
+      { id: "two", name: "Two", persona: "", connectionId: "connection", grantId: "grant", model: "model", fallbacks: { fallbacks: [], role: "none" }, active: true, acceptsImages: false, reasoningEffort: null },
+    ];
+    mocks.generateText
+      .mockResolvedValueOnce({ text: "I need more evidence." })
+      .mockResolvedValueOnce({ text: "Proceed.\nSTANCE: agree\nCONFIDENCE: 5" });
+    const { councilChatService } = await import("../services/council-chat.js");
+
+    const result = await councilChatService(discussionDb(seats)).runRound({ companyId, issueId, userId, mode: "discuss", stance: true });
+
+    expect(result.results[0]).not.toHaveProperty("stance");
+    expect(result.agreement).toMatchObject({ percent: 0, label: "Not enough input", counts: { agree: 1, conditions: 0, disagree: 0, abstain: 0 } });
   });
 });
 

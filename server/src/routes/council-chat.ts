@@ -73,6 +73,7 @@ const roundSchema = z
       .optional(),
     maxOutputTokens: z.number().int().min(64).max(4096).optional(),
     clarify: z.boolean().optional(),
+    stance: z.boolean().optional(),
   })
   .strict();
 const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional(), consolidate: z.boolean().optional() }).strict();
@@ -283,6 +284,7 @@ export function councilChatRoutes(db: Db) {
         images: req.body.images,
         maxOutputTokens: req.body.maxOutputTokens,
         clarify: req.body.clarify,
+        stance: req.body.stance,
         signal: abort.signal,
       }),
     );
