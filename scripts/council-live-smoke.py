@@ -18,6 +18,7 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument("--base", default="http://127.0.0.1:3100/api")
 parser.add_argument("--no-work", action="store_true")
+parser.add_argument("--full", action="store_true", help="also use jury checks and final review in the work session")
 args = parser.parse_args()
 failures = []
 
@@ -82,7 +83,7 @@ else:
 
 if not args.no_work:
     path = "%s/rooms/%s/work" % (base, rid)
-    started = call("POST", path, {"goal": "Write a 3-bullet launch checklist for a newsletter and a one-line subject for issue one.", "createTasks": False})
+    started = call("POST", path, {"goal": "Write a 3-bullet launch checklist for a newsletter and a one-line subject for issue one.", "createTasks": False, **({"juryChecks": True, "finalReview": True} if args.full else {})})
     check("work session starts", started.get("started") is True, started)
     state = {}
     for _ in range(80):
