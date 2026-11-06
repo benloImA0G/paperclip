@@ -29,3 +29,8 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 - Mobile thread is still fairly short on small phones because of the composer.
 - Not built (see `COUNCIL-PROPOSALS.md`): document upload and review, durable replayable runs, cheap-first spend estimates, guarded self-improvement proposals.
 - Open decisions: cloud-doc toggle, default writer seat, template/logo needs, reviewer file visibility, local-first vs cloud.
+
+## Added 2026-11-06 (daytime default stays one turn)
+- Agreement in plain English: after an Until agreement debate (up to 3 rounds) the room shows a meter (label, percent, who agrees, concessions, open objections). Seats that skip the stance block are asked once for it.
+- Work sessions: Plan first toggle, or Start the work after answers. The chair plans 2-6 steps, seats carry them out with live status, a one-page Work summary lands in the thread (Word/PowerPoint export works on it).
+- Design and sources: doc/COUNCIL-DISCUSSION-DESIGN.md. Gaps: dissent-check round, work state is in memory (lost on server restart), Ollama connection points at 127.0.0.1 so it fails from WSL.
