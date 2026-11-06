@@ -403,6 +403,13 @@ export function Council() {
     setDepth(template.depth);
     setAutoSummary(template.autoSummary);
     setRequireApproval(template.requireApproval);
+    setPeerRanking(template.peerRanking ?? false);
+    setJury(template.jury ?? false);
+    setPanelSize(template.panelSize ?? 0);
+    setPlanFirst(template.workMode === "plan-first");
+    setAskFirst(template.askFirst ?? false);
+    setJuryChecks(template.juryChecks ?? false);
+    setWorkTasks(template.draftTasks ?? false);
   };
 
   const createRoom = useMutation({

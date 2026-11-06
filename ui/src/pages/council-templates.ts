@@ -1,6 +1,6 @@
 import type { CouncilSeatRole } from "../api/council";
 
-export type CouncilTemplateId = "quick-check" | "balanced-debate" | "decision" | "red-team";
+export type CouncilTemplateId = "quick-check" | "balanced-debate" | "decision" | "red-team" | "blind-best-of-n" | "debate-to-agreement" | "fresh-angles" | "get-it-done";
 
 export type CouncilTemplate = {
   id: CouncilTemplateId;
@@ -8,12 +8,19 @@ export type CouncilTemplate = {
   whatHappens: string;
   title: string;
   discussion: boolean;
-  depth: "low" | "medium" | "high";
+  depth: "low" | "medium" | "high" | "agree";
   autoSummary: boolean;
   requireApproval: boolean;
   orchestrator: string | null;
   roles: Record<string, CouncilSeatRole>;
   rounds: number;
+  peerRanking?: boolean;
+  jury?: boolean;
+  panelSize?: number;
+  workMode?: "none" | "plan-first";
+  askFirst?: boolean;
+  juryChecks?: boolean;
+  draftTasks?: boolean;
 };
 
 export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
@@ -21,6 +28,10 @@ export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
   { id: "balanced-debate", name: "Balanced debate", whatHappens: "Everyone answers, then weighs trade-offs together.", title: "Balanced debate", discussion: true, depth: "medium", autoSummary: false, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator" }, rounds: 3 },
   { id: "decision", name: "Decision", whatHappens: "The room debates and publishes a decision record for export.", title: "Decision", discussion: true, depth: "medium", autoSummary: true, requireApproval: true, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "researcher" }, rounds: 3 },
   { id: "red-team", name: "Red-team", whatHappens: "Critics challenge the idea while research fills the gaps.", title: "Red-team", discussion: true, depth: "high", autoSummary: true, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "critic", Friendly: "researcher" }, rounds: 4 },
+  { id: "blind-best-of-n", name: "Blind best-of-N", whatHappens: "Four seats answer, rank each other anonymously, and a jury votes on the winner before a summary.", title: "Blind best-of-N", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 4, peerRanking: true, jury: true },
+  { id: "debate-to-agreement", name: "Debate to agreement", whatHappens: "The seats debate toward agreement, with a dissent check when they agree too quickly.", title: "Debate to agreement", discussion: true, depth: "agree", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 4 },
+  { id: "fresh-angles", name: "Fresh angles", whatHappens: "Three seats with different perspectives answer once and produce a summary.", title: "Fresh angles", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 3 },
+  { id: "get-it-done", name: "Get it done", whatHappens: "The chair can ask questions, plan the work, have a jury check each step, and draft tasks for approval.", title: "Get it done", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, workMode: "plan-first", askFirst: true, juryChecks: true, draftTasks: true },
 ];
 
 export const DEFAULT_COUNCIL_TEMPLATE_ID: CouncilTemplateId = "balanced-debate";
