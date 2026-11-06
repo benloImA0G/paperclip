@@ -488,7 +488,7 @@ export function Council() {
       const runRoomId = roomId!;
       const controller = new AbortController();
       abortRef.current = controller;
-      const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }>; clarify?: boolean } = {}) =>
+      const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }>; clarify?: boolean; stance?: boolean; dissent?: boolean; roundNumber?: number; maxRounds?: number } = {}) =>
         councilApi.runRound(
           companyId,
           runRoomId,
@@ -539,8 +539,9 @@ export function Council() {
           for (let i = 1; i <= debate.rounds && !controller.signal.aborted; i++) {
             await refresh("comments");
             begin(`Discussion turn ${i} of ${debate.rounds}: vendors read each other…`);
-            const round = await run("discuss", { message: debate.focus, ...(untilAgreement ? { stance: true } : {}) });
+            const round = await run("discuss", { message: debate.focus, ...(untilAgreement ? { stance: true, dissent: true, roundNumber: i, maxRounds: debate.rounds } : {}) });
             collect(round);
+            if (round.dissent) setReviewNotice(round.dissent.strength === "none" ? "Dissent check: no real objection to the agreed position." : `Dissent check (${round.dissent.strength}): ${round.dissent.argument}`);
             if (!round.agreement) continue;
             setAgreements((current) => ({ ...current, [runRoomId]: { agreement: round.agreement!, round: i } }));
             percents.push(round.agreement.percent);

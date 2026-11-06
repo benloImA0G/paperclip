@@ -72,6 +72,7 @@ export interface CouncilRoundResult {
   results: CouncilSeatResult[];
   /** Present on a discussion round run with `stance`. */
   agreement?: CouncilAgreement;
+  dissent?: { strength: "strong" | "weak" | "none"; argument: string };
 }
 
 export interface CouncilAgreement {
@@ -152,6 +153,10 @@ export const councilApi = {
       clarify?: boolean;
       /** Ask seats to end a discussion reply with a stance so the server can score agreement. */
       stance?: boolean;
+      /** After a fast confident agreement, one seat argues the other side. */
+      dissent?: boolean;
+      roundNumber?: number;
+      maxRounds?: number;
     },
     signal?: AbortSignal,
   ) =>
@@ -167,6 +172,7 @@ export const councilApi = {
         ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
         ...(input.clarify ? { clarify: true } : {}),
         ...(input.stance ? { stance: true } : {}),
+        ...(input.dissent ? { dissent: true, roundNumber: input.roundNumber, maxRounds: input.maxRounds } : {}),
       },
       { signal },
     ),
