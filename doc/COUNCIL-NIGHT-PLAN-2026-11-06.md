@@ -32,7 +32,7 @@ UI changes only where a feature needs them (mode picker showing chosen mode and 
 Done / partly done / blocked, commits pushed, tests run and results, decisions waiting for Ben.
 
 ## Running list (updated during the shift)
-Claude weekly resets 01:00 WIB (Sat 2026-11-07); until then Claude does most of the work (Sonnet chair, Haiku checks). Codex jobs were meant to wait for the reset (launcher: ~/council-test/night-launch.sh); they were started a little early by mistake at 23:58 and are small.
+Claude weekly resets 01:00 WIB (Sat 2026-11-07); until then Claude does most of the work (Sonnet chair, Haiku checks). Codex jobs were meant to wait for the reset (launcher: ~/council-test/night-launch.sh); none are running yet.
 
 **Done (pushed to feat/council-chat)**
 - Mode router + /council/classify route + composer hint (suggested mode, reason, Plan first shortcut)
