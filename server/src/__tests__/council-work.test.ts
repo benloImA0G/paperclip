@@ -61,3 +61,31 @@ describe("council work", () => {
     expect(callSeat).not.toHaveBeenCalled();
   });
 });
+
+describe("step checking", () => {
+  it("retries a failed step once and records the grade", async () => {
+    const { runWork } = await import("../services/council-work.js");
+    const calls: string[] = [];
+    let produced = 0;
+    const result = await runWork({
+      goal: "Write a poem", seatNames: ["Alpha"], chairName: "Alpha", checkSteps: true,
+      callSeat: async (_seat, prompt) => {
+        calls.push(prompt);
+        if (prompt.includes("You are the council chair")) return { ok: true, text: "1. Draft | assignee: Alpha | expected: a poem" };
+        if (prompt.includes("You are the checker")) return { ok: true, text: produced < 2 ? "GRADE: FAIL\nNOTE: too short" : "GRADE: PASS\nNOTE: good" };
+        if (prompt.includes("one-page summary")) return { ok: true, text: "# Done" };
+        produced += 1;
+        return { ok: true, text: "poem v" + produced };
+      },
+    });
+    expect(result.steps[0].attempts).toBe(2);
+    expect(result.steps[0].grade).toBe("pass");
+    expect(result.steps[0].output).toBe("poem v2");
+    expect(calls.some((c) => c.includes("CHECKER FEEDBACK"))).toBe(true);
+  });
+  it("parseGrade handles bold and rejects garbage", async () => {
+    const { parseGrade } = await import("../services/council-work.js");
+    expect(parseGrade("**GRADE: PASS**\nNOTE: ok")?.grade).toBe("pass");
+    expect(parseGrade("no idea")).toBeNull();
+  });
+});
