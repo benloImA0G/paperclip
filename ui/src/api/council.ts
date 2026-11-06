@@ -188,8 +188,8 @@ export const councilApi = {
       { signal },
     ),
   /** Work session: the chair plans steps, seats carry them out, the summary lands in the thread. */
-  startWork: (companyId: string, issueId: string, input: { goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean }) =>
-    api.post<{ started: boolean }>(`/companies/${companyId}/council/rooms/${issueId}/work`, input),
+  startWork: (companyId: string, issueId: string, input: { goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) =>
+    api.post<{ started: boolean; questions?: string[] }>(`/companies/${companyId}/council/rooms/${issueId}/work`, input),
   getWork: (companyId: string, issueId: string) =>
     api.get<CouncilWorkState>(`/companies/${companyId}/council/rooms/${issueId}/work`),
   stopWork: (companyId: string, issueId: string) =>
