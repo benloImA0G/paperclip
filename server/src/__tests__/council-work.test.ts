@@ -108,3 +108,22 @@ describe("jury step checking", () => {
     expect(result.steps[0].attempts).toBe(1);
   });
 });
+
+describe("summary fallback", () => {
+  it("retries the summary once, then falls back to an automatic summary", async () => {
+    const { runWork } = await import("../services/council-work.js");
+    let summaryCalls = 0;
+    const result = await runWork({
+      goal: "Goal", seatNames: ["Chair"], chairName: "Chair",
+      callSeat: async (_seat, prompt) => {
+        if (prompt.includes("You are the council chair")) return { ok: true, text: "1. Draft | assignee: Chair | expected: text" };
+        if (prompt.includes("one-page summary")) { summaryCalls += 1; return { ok: false, error: "rate limited" }; }
+        return { ok: true, text: "the deliverable" };
+      },
+    });
+    expect(summaryCalls).toBe(2);
+    expect(result.status).toBe("partial");
+    expect(result.summary).toContain("Work summary (automatic)");
+    expect(result.summary).toContain("the deliverable");
+  });
+});

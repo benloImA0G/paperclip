@@ -92,6 +92,19 @@ export function parseGrade(text: string): { grade: "pass" | "fail"; note: string
   return { grade, note };
 }
 
+/** Plain summary built without a model, used only when the chair cannot write one. */
+export function fallbackSummary(goal: string, steps: WorkStep[]): string {
+  const lines = steps.map((step) => `- ${step.n}. ${step.title}: ${step.status === "done" ? "done" : step.status}${step.grade ? ` (checker: ${step.grade})` : ""}`);
+  const last = [...steps].reverse().find((step) => step.status === "done" && step.output);
+  return [
+    "## Work summary (automatic)",
+    "The chair could not write the summary, so this list was generated from the steps.",
+    `Goal: ${goal.slice(0, 300)}`,
+    ...lines,
+    last ? `\nDeliverable (step ${last.n}):\n${last.output!.slice(0, 1500)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
 export function buildSummaryPrompt({ goal, steps }: { goal: string; steps: WorkStep[] }): string {
   const work = steps.map((step) => `- ${step.n}. ${step.title}: ${step.output ?? step.error ?? "No output"}`).join("\n");
   return [
@@ -188,10 +201,16 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     return { steps, summary: null, status: "failed" };
   }
   if (cancelled()) return finishCancelled(steps);
-  const summaryResult = await call(deps.chairName, buildSummaryPrompt({ goal: deps.goal, steps }));
-  if (!summaryResult.ok) {
-    emit("done", steps);
-    return { steps, summary: null, status: "partial" };
+  let summaryResult = await call(deps.chairName, buildSummaryPrompt({ goal: deps.goal, steps }));
+  if ((!summaryResult.ok || !(summaryResult.text ?? "").trim()) && !cancelled()) {
+    // One retry: free vendors sometimes rate-limit or return an empty answer right after a long run.
+    summaryResult = await call(deps.chairName, buildSummaryPrompt({ goal: deps.goal, steps }));
+  }
+  if (!summaryResult.ok || !(summaryResult.text ?? "").trim()) {
+    const fallback = fallbackSummary(deps.goal, steps);
+    emit("summary", steps, fallback);
+    emit("done", steps, fallback);
+    return { steps, summary: fallback, status: "partial" };
   }
   const summary = summaryResult.text ?? "";
   emit("summary", steps, summary);
