@@ -73,6 +73,7 @@ describe("council rate limits", () => {
     controller.abort();
     const result = await round;
     expect(result.results[0]).toMatchObject({ status: "cancelled" });
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(mocks.generateText).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { companies, councilRoundClaims, councilSeats, createDb, issues } from "@paperclipai/db";
+import { companies, councilRoundClaims, councilSeats, councilWorkSessions, createDb, issues } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 
 const mocks = vi.hoisted(() => ({ generateText: vi.fn(), addComment: vi.fn(), selectFastResponse: vi.fn(), credential: vi.fn() }));
@@ -38,6 +38,7 @@ describe("durable Council round claims", { timeout: 60_000 }, () => {
     mocks.credential.mockResolvedValue("credential");
     mocks.addComment.mockResolvedValue({ id: randomUUID() });
     await db.delete(councilRoundClaims);
+    await db.delete(councilWorkSessions);
   });
 
   it("allows only one of two services to hold a room claim", async () => {
@@ -70,5 +71,27 @@ describe("durable Council round claims", { timeout: 60_000 }, () => {
     const { councilChatService } = await import("../services/council-chat.js");
     await expect(councilChatService(db).runRound({ companyId, issueId, userId: "alice", message: "take over" })).resolves.toMatchObject({ results: [expect.objectContaining({ status: "ok" })] });
     expect(await db.select().from(councilRoundClaims).where(and(eq(councilRoundClaims.companyId, companyId), eq(councilRoundClaims.issueId, issueId)))).toEqual([]);
+  });
+
+  it("normalizes an interrupted persisted work session when a new service loads it", async () => {
+    const { councilChatService } = await import("../services/council-chat.js");
+    const startedAt = new Date("2026-11-01T12:00:00.000Z");
+    await db.insert(councilWorkSessions).values({
+      companyId, issueId, goal: "Finish the report", status: "running", startedAt,
+      summary: null,
+      steps: [
+        { n: 1, title: "Completed research", expected: "facts", assignee: "One", status: "done", output: "Research retained" },
+        { n: 2, title: "Interrupted draft", expected: "draft", assignee: "One", status: "running", output: "Partial draft" },
+        { n: 3, title: "Not started", expected: "final", assignee: "One", status: "pending" },
+      ],
+    });
+
+    // A new service instance has no in-memory work state and must recover from the DB row.
+    const recovered = await councilChatService(db).getWork(companyId, issueId);
+    expect(recovered).toMatchObject({ status: "failed", startedAt: startedAt.toISOString(), steps: [
+      { n: 1, status: "done", output: "Research retained" },
+      { n: 2, status: "failed", error: "Interrupted by a server restart", output: "Partial draft" },
+      { n: 3, status: "failed", error: "Interrupted by a server restart" },
+    ] });
   });
 });

@@ -200,14 +200,18 @@ export function Council() {
   const [askFirst, setAskFirst] = useState(false);
   const [juryChecks, setJuryChecks] = useState(false);
   type WorkStartInput = { goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean; juryChecks?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> };
-  const [pendingClarify, setPendingClarify] = useState<{ vars: WorkStartInput; questions: string[]; answers: string[] } | null>(null);
+  const [pendingClarify, setPendingClarify] = useState<{ companyId: string; roomId: string; vars: WorkStartInput; questions: string[]; answers: string[] } | null>(null);
+  const selectedWorkRoom = useRef({ companyId: selectedCompanyId, roomId });
+  selectedWorkRoom.current = { companyId: selectedCompanyId, roomId };
+  useEffect(() => { setPendingClarify(null); }, [selectedCompanyId, roomId]);
   const [planFirst, setPlanFirst] = useState(false);
   const [suggestion, setSuggestion] = useState<CouncilModeSuggestion | null>(null);
   useEffect(() => {
+    let cancelled = false;
     const text = message.trim();
     if (text.length < 12 || !selectedCompanyId) { setSuggestion(null); return; }
-    const timer = setTimeout(() => { councilApi.classify(selectedCompanyId, text).then(setSuggestion).catch(() => setSuggestion(null)); }, 600);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => { councilApi.classify(selectedCompanyId, text).then((result) => { if (!cancelled) setSuggestion(result); }).catch(() => { if (!cancelled) setSuggestion(null); }); }, 600);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [message, selectedCompanyId]);
   const [showArchives, setShowArchives] = useState(false);
   const [cardsOpen, setCardsOpen] = useState(false);
@@ -284,9 +288,10 @@ export function Council() {
     previousWorkStatus.current = workStatus;
   }, [workStatus]); // eslint-disable-line react-hooks/exhaustive-deps
   const startWork = useMutation({
-    mutationFn: (input: WorkStartInput) => councilApi.startWork(companyId, roomId!, input),
-    onSuccess: (res, vars) => {
-      if (res.started === false && res.questions?.length) { setPendingClarify({ vars, questions: res.questions, answers: res.questions.map(() => "") }); return; }
+    mutationFn: ({ companyId: targetCompanyId, roomId: targetRoomId, vars }: { companyId: string; roomId: string; vars: WorkStartInput }) => councilApi.startWork(targetCompanyId, targetRoomId, vars),
+    onSuccess: (res, target) => {
+      if (target.companyId !== selectedWorkRoom.current.companyId || target.roomId !== selectedWorkRoom.current.roomId) return;
+      if (res.started === false && res.questions?.length) { setPendingClarify({ ...target, questions: res.questions, answers: res.questions.map(() => "") }); return; }
       setPendingClarify(null);
       void workQuery.refetch(); void comments.refetch();
     },
@@ -1133,7 +1138,7 @@ export function Council() {
           {pendingClarify ? <div className="shrink-0 space-y-2 rounded-xl border bg-background p-3 text-sm" role="group" aria-label="Questions from the chair">
             <p className="font-medium">Before starting, the chair has {pendingClarify.questions.length === 1 ? "a question" : `${pendingClarify.questions.length} questions`}:</p>
             {pendingClarify.questions.map((q, i) => <label key={q} className="block space-y-1"><span className="text-muted-foreground">{q}</span><input className="w-full rounded-md border bg-background px-2 py-1 text-sm" value={pendingClarify.answers[i] ?? ""} onChange={(e) => setPendingClarify((cur) => cur ? { ...cur, answers: cur.answers.map((a, j) => j === i ? e.target.value : a) } : cur)} /></label>)}
-            <div className="flex gap-2"><Button type="button" size="sm" disabled={startWork.isPending} onClick={() => startWork.mutate({ ...pendingClarify.vars, clarifyFirst: undefined, answers: pendingClarify.questions.map((question, i) => ({ question, answer: pendingClarify.answers[i] ?? "" })) })}>Start the work</Button><Button type="button" size="sm" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ ...pendingClarify.vars, clarifyFirst: undefined })}>Skip questions</Button><Button type="button" size="sm" variant="ghost" onClick={() => setPendingClarify(null)}>Cancel</Button></div>
+            <div className="flex gap-2"><Button type="button" size="sm" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId: pendingClarify.companyId, roomId: pendingClarify.roomId, vars: { ...pendingClarify.vars, clarifyFirst: undefined, answers: pendingClarify.questions.map((question, i) => ({ question, answer: pendingClarify.answers[i] ?? "" })) } })}>Start the work</Button><Button type="button" size="sm" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId: pendingClarify.companyId, roomId: pendingClarify.roomId, vars: { ...pendingClarify.vars, clarifyFirst: undefined } })}>Skip questions</Button><Button type="button" size="sm" variant="ghost" onClick={() => setPendingClarify(null)}>Cancel</Button></div>
           </div> : null}
 
           {!creating ? <form
@@ -1142,7 +1147,7 @@ export function Council() {
               e.preventDefault();
               if (!canSend) return;
               if (planFirst && workStatus !== "running") {
-                startWork.mutate({ goal: message.trim(), postGoal: true, ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}) });
+                startWork.mutate({ companyId, roomId: roomId!, vars: { goal: message.trim(), postGoal: true, ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}) } });
                 setMessage("");
                 return;
               }
@@ -1166,7 +1171,7 @@ export function Council() {
                 }
               }}
             />
-            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; startWork.mutate({ goal, ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}) }); }}>Start the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
+            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}) } }); }}>Start the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
             {images.length ? (

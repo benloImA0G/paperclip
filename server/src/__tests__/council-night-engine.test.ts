@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { councilSeats, issues } from "@paperclipai/db";
 
 const mocks = vi.hoisted(() => ({ generateText: vi.fn(), selectFastResponse: vi.fn(), credential: vi.fn(), addComment: vi.fn(), listComments: vi.fn(), create: vi.fn() }));
@@ -37,6 +37,7 @@ beforeEach(() => {
 });
 
 describe("council night engine", () => {
+  afterEach(() => vi.useRealTimers());
   it("ranks three answers using blind labels", async () => {
     mocks.generateText.mockImplementation(async ({ prompt }: { prompt: string }) => ({ text: prompt.includes("You are a judge") ? "RANKING: A > B > C\nWHY: clear" : "A useful answer." }));
     const result = await councilChatService(dbFor(seats)).runRound({ ...base, mode: "ask", message: "What should we do?", ranking: true });
@@ -100,5 +101,21 @@ describe("council night engine", () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect((await service.getWork(companyId, issueId)).steps).toHaveLength(1);
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("aborts startWork during rate-limit backoff without retrying the seat", async () => {
+    vi.useFakeTimers();
+    mocks.generateText.mockRejectedValueOnce(new Error("429 rate limit"));
+    const service = councilChatService(dbFor([seat("chair", "chair", "moderator")]));
+    await service.startWork({ ...base, goal: "Research this" });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.waitFor(() => expect(mocks.generateText).toHaveBeenCalledTimes(1));
+
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await expect(service.stopWork(companyId, issueId)).resolves.toEqual({ stopped: true });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(service.getWork(companyId, issueId)).resolves.toMatchObject({ status: "cancelled" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.generateText).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,3 +1,4 @@
+import { untrusted } from "./council-untrusted.js";
 /**
  * "Clarify first" for work sessions: before planning, the chair may ask Ben up to 3 short
  * questions whose answers would change the plan. Pure helpers (prompt, parser, goal builder).
@@ -5,7 +6,6 @@
 export const MAX_CLARIFY_QUESTIONS = 3;
 const MAX_ANSWERS_BLOCK_CHARS = 2000;
 
-const untrusted = (label: string, value: string) => `--- BEGIN UNTRUSTED ${label} ---\n${value}\n--- END UNTRUSTED ${label} ---`;
 
 export function buildClarifyPrompt({ goal }: { goal: string }): string {
   return [

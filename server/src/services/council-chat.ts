@@ -391,7 +391,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (!row) return null;
       // A session still marked running after a restart cannot be running any more.
       const status = (row.status === "running" ? "failed" : row.status) as CouncilWorkState["status"];
-      return { status, steps: (row.steps ?? []) as CouncilWorkState["steps"], ...(row.summary ? { summary: row.summary } : {}), startedAt: row.startedAt.toISOString() };
+      const steps = ((row.steps ?? []) as CouncilWorkState["steps"]).map((step) => row.status === "running" && (step.status === "running" || step.status === "pending") ? { ...step, status: "failed" as const, error: "Interrupted by a server restart" } : step);
+      return { status, steps, ...(row.summary ? { summary: row.summary } : {}), startedAt: row.startedAt.toISOString() };
     } catch (error) {
       logger.warn({ companyId, issueId, err: error }, "Council work session could not be loaded");
       return null;
@@ -1642,6 +1643,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       }
     }
 
+    await persistWork(input.companyId, input.issueId, input.goal, workStates.get(input.issueId)!);
+
     void (async () => {
       const setState = (state: CouncilWorkState) => {
         workStates.set(input.issueId, copyWorkState(state));
@@ -1683,8 +1686,14 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             let result = await attempt();
             // Free vendors rate-limit on tokens per minute: wait a little and try once more.
             if (result.status !== "ok" && /rate.?limit|429|too many requests/i.test(result.error ?? "") && !session.cancelled) {
-              await new Promise((resolve) => setTimeout(resolve, 20_000));
-              if (!session.cancelled) result = await attempt();
+              await new Promise<void>((resolve) => {
+                const signal = controller.signal;
+                const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+                const timer = setTimeout(finish, 20_000);
+                signal.addEventListener("abort", finish, { once: true });
+                if (signal.aborted) finish();
+              });
+              if (!session.cancelled && !controller.signal.aborted) result = await attempt();
             }
             return result.status === "ok"
               ? { ok: true, text: result.text ?? "" }
@@ -1704,7 +1713,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         // The deliverable (last finished step) plus the summary, saved as an artifact so it can be reviewed and exported.
         if (!cancelled && result.summary) {
           try {
-            const last = [...result.steps].reverse().find((step) => step.status === "done" && step.output);
+            const last = [...result.steps].reverse().find((step) => step.status === "done" && step.grade !== "fail" && step.output);
             await saveArtifact(input.companyId, input.issueId, input.userId, {
               key: "council-output-work-deliverable",
               title: "Work deliverable",
@@ -1741,6 +1750,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           setState({ status: "failed", steps: workStates.get(input.issueId)?.steps ?? [], startedAt });
         }
       } finally {
+        await persistChains.get(input.issueId);
         if (runningWork.get(input.issueId) === session) runningWork.delete(input.issueId);
       }
     })();

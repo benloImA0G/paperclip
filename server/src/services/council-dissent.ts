@@ -1,3 +1,4 @@
+import { untrusted } from "./council-untrusted.js";
 import type { AgreementScore } from "./council-consensus.js";
 
 /**
@@ -7,7 +8,6 @@ import type { AgreementScore } from "./council-consensus.js";
 export type DissentStrength = "strong" | "weak" | "none";
 export type DissentResult = { strength: DissentStrength; argument: string };
 
-const untrusted = (label: string, value: string) => `--- BEGIN UNTRUSTED ${label} ---\n${value}\n--- END UNTRUSTED ${label} ---`;
 
 /** True when agreement came easily: reached, no one disagrees, at least 3 voices, 80%+ agreement. */
 export function shouldRunDissent(score: AgreementScore, opts: { roundsRun: number; maxRounds: number }): boolean {
