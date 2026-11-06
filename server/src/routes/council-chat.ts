@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import { COUNCIL_ROUND_ORDERS, COUNCIL_ROUND_STYLES } from "@paperclipai/shared";
 import { issueService } from "../services/index.js";
-import { COUNCIL_ORIGIN_KIND, councilChatService } from "../services/council-chat.js";
+import { COUNCIL_ORIGIN_KIND, councilChatService, roomMetadata } from "../services/council-chat.js";
 import { badRequest, conflict, forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -14,6 +14,7 @@ import { getCouncilEstimate } from "../services/council-estimate.js";
 import { classifyCouncilQuestion } from "../services/council-modes.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
+const kindSchema = z.object({ kind: z.enum(["quick-fact", "decision", "brainstorm", "review", "plan-and-do"]).nullable() }).strict();
 const briefSchema = z.object({ brief: z.string().max(4000) }).strict();
 const exportSettingSchema = z.object({ requireApproval: z.boolean() }).strict();
 const modelSeatFields = {
@@ -122,11 +123,11 @@ export function councilChatRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     boardUserId(req);
     if (req.query.archived === "1") {
-      res.json(await council.listArchivedRooms(companyId));
+      res.json((await council.listArchivedRooms(companyId)).map((room) => ({ ...room, kind: roomMetadata(room.description).kind ?? null })));
       return;
     }
     const rooms = await issueSvc.list(companyId, { originKind: COUNCIL_ORIGIN_KIND });
-    res.json(rooms);
+    res.json(rooms.map((room) => ({ ...room, kind: roomMetadata(room.description).kind ?? null })));
   });
 
   router.get("/companies/:companyId/council/connections/:connectionId/models", async (req, res) => {
@@ -141,6 +142,24 @@ export function councilChatRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     const room = await council.createRoom(companyId, boardUserId(req), req.body);
     res.status(201).json(room);
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    const room = await council.getRoom(companyId, req.params.issueId as string);
+    res.json({ ...room, kind: roomMetadata(room.description).kind ?? null });
+  });
+
+  router.put("/companies/:companyId/council/rooms/:issueId/kind", validate(kindSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const userId = boardUserId(req);
+    const issueId = req.params.issueId as string;
+    const result = await council.updateKind(companyId, issueId, req.body.kind);
+    await logActivity(db, { companyId, actorType: "user", actorId: userId, action: "council.kind_changed", entityType: "issue", entityId: issueId, issueId, details: { kind: result.kind } });
+    res.json(result);
   });
 
   router.get("/companies/:companyId/council/rooms/:issueId/brief", async (req, res) => {
@@ -292,6 +311,13 @@ export function councilChatRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const userId = boardUserId(req);
+    if (req.body.message) {
+      try {
+        await council.updateKind(companyId, req.params.issueId as string, classifyCouncilQuestion(req.body.message).kind, true);
+      } catch {
+        // Classification is optional and must not prevent the round from running.
+      }
+    }
     const abort = new AbortController();
     res.on("close", () => {
       if (!res.writableFinished) abort.abort();

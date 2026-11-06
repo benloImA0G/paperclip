@@ -21,6 +21,7 @@ import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, typ
 import { CouncilAgentTurnError, createCouncilAgentTurnService, isAgentInvokableForCouncil, isCouncilAgentAdapterType } from "./council-agent-turn.js";
 import { runWork, type WorkStep } from "./council-work.js";
 import { logger } from "../middleware/logger.js";
+import type { CouncilKind } from "./council-modes.js";
 
 /** Issues that are council war rooms carry this origin kind. */
 export const COUNCIL_ORIGIN_KIND = "council";
@@ -79,6 +80,7 @@ type CouncilRoomMetadata = {
   version: typeof COUNCIL_ROOM_METADATA_VERSION;
   brief: string;
   requireApproval: boolean;
+  kind?: CouncilKind | null;
   [key: string]: unknown;
 };
 
@@ -104,7 +106,7 @@ export function roomMetadata(description: string | null | undefined): CouncilRoo
 }
 
 export function roomDescription(metadata: CouncilRoomMetadata) {
-  return metadata.requireApproval
+  return metadata.requireApproval || metadata.kind
     ? JSON.stringify({ ...metadata, __councilRoom: COUNCIL_ROOM_METADATA_VERSION })
     : metadata.brief;
 }
@@ -529,6 +531,20 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId)))
         .returning();
       return { brief: roomMetadata(updatedRoom?.description).brief };
+    });
+  }
+
+  async function updateKind(companyId: string, issueId: string, kind: CouncilKind | null, onlyIfUnset = false) {
+    return db.transaction(async (tx) => {
+      const [room] = await tx.select().from(issues)
+        .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId))).for("update");
+      if (!room || room.originKind !== COUNCIL_ORIGIN_KIND) throw notFound("War room not found");
+      const metadata = roomMetadata(room.description);
+      if (onlyIfUnset && metadata.kind) return { kind: metadata.kind };
+      await tx.update(issues)
+        .set({ description: roomDescription({ ...metadata, kind }), updatedAt: new Date() })
+        .where(and(eq(issues.companyId, companyId), eq(issues.id, issueId)));
+      return { kind };
     });
   }
 
@@ -1786,5 +1802,5 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     return [...new Set(ids)].sort();
   }
 
-  return { getRoom, getBrief, updateBrief, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
+  return { getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
 }

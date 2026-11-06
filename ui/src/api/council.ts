@@ -1,6 +1,9 @@
 import type { CouncilRoundOrder, CouncilRoundStyle, Issue } from "@paperclipai/shared";
 import { api, requestResponse } from "./client";
 
+export type CouncilKind = "quick-fact" | "decision" | "brainstorm" | "review" | "plan-and-do";
+export type CouncilRoom = Issue & { kind: CouncilKind | null };
+
 export interface CouncilSeatFallback {
   connectionId: string;
   grantId: string;
@@ -108,6 +111,7 @@ export const councilApi = {
   /** Suggest how to run a question (heuristic, no model call, no cost). */
   classify: (companyId: string, text: string) => api.post<CouncilModeSuggestion>(`/companies/${companyId}/council/classify`, { text }),
   getEstimate: (companyId: string, roomId: string, mode: CouncilEstimateMode) => api.get<CouncilEstimate>(`/companies/${companyId}/council/rooms/${roomId}/estimate?mode=${mode}`),
+  updateKind: (companyId: string, issueId: string, kind: CouncilKind | null) => api.put<{ kind: CouncilKind | null }>(`/companies/${companyId}/council/rooms/${issueId}/kind`, { kind }),
   updateBrief: (companyId: string, issueId: string, brief: string) => api.put<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`, { brief }),
   listArtifacts: (companyId: string, issueId: string) => api.get<CouncilArtifactSummary[]>(`/companies/${companyId}/council/rooms/${issueId}/artifacts`),
   getArtifact: (companyId: string, issueId: string, key: string, revision?: number | null) => api.get<CouncilArtifact>(`/companies/${companyId}/council/rooms/${issueId}/artifacts/${encodeURIComponent(key)}${revision ? `?revision=${revision}` : ""}`),
@@ -119,8 +123,8 @@ export const councilApi = {
     const response = await requestResponse(`/companies/${companyId}/council/export`, { method: "POST", body: JSON.stringify({ roomId, format, title, markdown, approved, consolidate }) });
     return { blob: await response.blob(), consolidated: response.headers.get("X-Council-Consolidated") === "true" };
   },
-  listRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms`),
-  listArchivedRooms: (companyId: string) => api.get<Issue[]>(`/companies/${companyId}/council/rooms?archived=1`),
+  listRooms: (companyId: string) => api.get<CouncilRoom[]>(`/companies/${companyId}/council/rooms`),
+  listArchivedRooms: (companyId: string) => api.get<CouncilRoom[]>(`/companies/${companyId}/council/rooms?archived=1`),
   listModels: (companyId: string, connectionId: string, grantId: string) =>
     api.get<string[]>(`/companies/${companyId}/council/connections/${connectionId}/models?grantId=${grantId}`),
   createRoom: (companyId: string, title: string) => api.post<Issue>(`/companies/${companyId}/council/rooms`, { title }),
@@ -203,7 +207,7 @@ export interface CouncilWorkState {
 }
 
 export interface CouncilModeSuggestion {
-  kind: "quick-fact" | "decision" | "brainstorm" | "review" | "plan-and-do";
+  kind: CouncilKind;
   mode: "ask" | "discuss";
   rounds: number;
   seats: { min: number; max: number };
