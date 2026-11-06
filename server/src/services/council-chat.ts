@@ -13,7 +13,7 @@ import { issueService } from "./issues.js";
 import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 import { sanitizeMarkdownForPandoc } from "./council-export.js";
-import { aggregateRankings, blindLabels, buildRankingPrompt, parseRanking } from "./council-ranking.js";
+import { aggregateRankings, blindLabels, buildJuryPrompt, buildRankingPrompt, parseJuryVerdict, parseRanking, tallyJury, type JuryVerdict } from "./council-ranking.js";
 import { buildDissentPrompt, parseDissent, shouldRunDissent, type DissentResult } from "./council-dissent.js";
 import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, type ParsedStance } from "./council-consensus.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService, isAgentInvokableForCouncil, isCouncilAgentAdapterType } from "./council-agent-turn.js";
@@ -1210,6 +1210,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     dissent?: boolean;
     /** After the answers, seats rank each other's answers blind (Seat A/B/C) and the order is returned. */
     ranking?: boolean;
+    /** Seats vote pass / revise / fail on the best answer (the top-ranked one when ranking is on). */
+    jury?: boolean;
     roundNumber?: number;
     maxRounds?: number;
     signal?: AbortSignal;
@@ -1477,7 +1479,24 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         }
       }
     }
-    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}), ...(dissent ? { dissent } : {}), ...(ranking ? { ranking } : {}) };
+
+    // Jury: every judge seat votes on the best answer; majority decides, a tie means revise.
+    let jury: { answerSeat: string; verdict: JuryVerdict; counts: Record<JuryVerdict, number>; unanimous: boolean; judges: number } | undefined;
+    if (input.jury && mode === "ask" && !(input.signal?.aborted || await input.isCancelled?.())) {
+      const candidates = results.filter((result) => result.status === "ok" && result.text && !result.orchestrator);
+      const best = (ranking && candidates.find((result) => result.seatName === ranking!.order[0]?.seatName)) || candidates[0];
+      if (best && candidates.length >= 2) {
+        const verdicts: JuryVerdict[] = [];
+        for (const judge of dispatchedSeats.filter((seat) => seat.role !== "moderator" && seat.id !== best.seatId).slice(0, 6)) {
+          const voted = await dispatch(judge, randomUUID(), buildJuryPrompt({ question: message, answer: best.text! }), undefined, { maxOutputTokens: 250, persistComment: false });
+          if (voted.status === "cancelled") break;
+          const parsed = voted.status === "ok" ? parseJuryVerdict(voted.text ?? "") : null;
+          if (parsed) verdicts.push(parsed.verdict);
+        }
+        if (verdicts.length) jury = { answerSeat: best.seatName, judges: verdicts.length, ...tallyJury(verdicts) };
+      }
+    }
+    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}), ...(dissent ? { dissent } : {}), ...(ranking ? { ranking } : {}), ...(jury ? { jury } : {}) };
   }
 
   async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation" | "isCancelled" | "beforeSeatDispatch">) {

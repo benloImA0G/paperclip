@@ -72,6 +72,7 @@ export interface CouncilRoundResult {
   results: CouncilSeatResult[];
   /** Present on a discussion round run with `stance`. */
   agreement?: CouncilAgreement;
+  jury?: { answerSeat: string; verdict: "pass" | "fail" | "revise"; counts: Record<"pass" | "fail" | "revise", number>; unanimous: boolean; judges: number };
   ranking?: { order: Array<{ seatName: string; points: number; firstPlace: number }>; judges: number };
   dissent?: { strength: "strong" | "weak" | "none"; argument: string };
 }
@@ -158,6 +159,8 @@ export const councilApi = {
       dissent?: boolean;
       /** Seats rank each other's answers blind after an ask round. */
       ranking?: boolean;
+      /** Seats vote pass / revise / fail on the best answer. */
+      jury?: boolean;
       roundNumber?: number;
       maxRounds?: number;
     },
@@ -176,6 +179,7 @@ export const councilApi = {
         ...(input.clarify ? { clarify: true } : {}),
         ...(input.stance ? { stance: true } : {}),
         ...(input.ranking ? { ranking: true } : {}),
+        ...(input.jury ? { jury: true } : {}),
         ...(input.dissent ? { dissent: true, roundNumber: input.roundNumber, maxRounds: input.maxRounds } : {}),
       },
       { signal },
