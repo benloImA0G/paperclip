@@ -75,6 +75,9 @@ const roundSchema = z
     maxOutputTokens: z.number().int().min(64).max(4096).optional(),
     clarify: z.boolean().optional(),
     stance: z.boolean().optional(),
+    dissent: z.boolean().optional(),
+    roundNumber: z.number().int().min(1).max(20).optional(),
+    maxRounds: z.number().int().min(1).max(20).optional(),
   })
   .strict();
 const workSchema = z.object({
@@ -300,6 +303,9 @@ export function councilChatRoutes(db: Db) {
         maxOutputTokens: req.body.maxOutputTokens,
         clarify: req.body.clarify,
         stance: req.body.stance,
+        dissent: req.body.dissent,
+        roundNumber: req.body.roundNumber,
+        maxRounds: req.body.maxRounds,
         signal: abort.signal,
       }),
     );

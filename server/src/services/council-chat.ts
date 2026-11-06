@@ -13,6 +13,7 @@ import { issueService } from "./issues.js";
 import { documentService } from "./documents.js";
 import { providerUsageReceipt } from "./provider-usage.js";
 import { sanitizeMarkdownForPandoc } from "./council-export.js";
+import { buildDissentPrompt, parseDissent, shouldRunDissent, type DissentResult } from "./council-dissent.js";
 import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, type ParsedStance } from "./council-consensus.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService, isAgentInvokableForCouncil, isCouncilAgentAdapterType } from "./council-agent-turn.js";
 import { runWork, type WorkStep } from "./council-work.js";
@@ -1171,6 +1172,10 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     maxOutputTokens?: number;
     clarify?: boolean;
     stance?: boolean;
+    /** After a fast, confident agreement, one seat argues against it (devil's advocate). */
+    dissent?: boolean;
+    roundNumber?: number;
+    maxRounds?: number;
     signal?: AbortSignal;
     generation: number;
     isCancelled?: () => Promise<boolean>;
@@ -1399,7 +1404,19 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       }
       results.push(...answers, ...finals.filter((f): f is CouncilSeatTurnResult => !!f));
     }
-    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}) };
+
+    // Dissent check: agreement came easily, so one seat argues the other side before it is accepted.
+    let dissent: DissentResult | undefined;
+    if (input.dissent && discuss && agreement && shouldRunDissent(agreement, { roundsRun: input.roundNumber ?? 1, maxRounds: input.maxRounds ?? 3 })
+      && !(input.signal?.aborted || await input.isCancelled?.())) {
+      const advocate = [...dispatchedSeats].reverse().find((seat) => seat.role !== "moderator" && activeSeats.some((active) => active.id === seat.id));
+      const position = results.filter((result) => result.status === "ok" && result.text).map((result) => councilTurn(result.seatName, result.text!)).join("\n\n");
+      if (advocate && position) {
+        const advocateResult = await dispatch(advocate, randomUUID(), buildDissentPrompt({ question: message, position }), undefined, { maxOutputTokens: 500, persistComment: false });
+        if (advocateResult.status === "ok" && advocateResult.text) dissent = parseDissent(advocateResult.text) ?? undefined;
+      }
+    }
+    return { roundId, userCommentId: userComment?.id ?? null, compactedTurns: compact.compacted, results, ...(agreement ? { agreement } : {}), ...(dissent ? { dissent } : {}) };
   }
 
   async function runRound(input: Omit<Parameters<typeof runRoundImpl>[0], "generation" | "isCancelled" | "beforeSeatDispatch">) {
