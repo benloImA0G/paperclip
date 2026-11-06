@@ -28,7 +28,11 @@ export function buildRankingPrompt({ question, answers }: { question: string; an
 export function parseRanking(text: string, labels: string[]): string[] | null {
   const line = text.replaceAll("**", "").match(/RANKING\s*:\s*(.+)/i)?.[1];
   if (!line) return null;
-  const letters = [...line.matchAll(/(?:seat\s+)?\b([A-Z])\b/gi)].map((m) => m[1]!.toUpperCase());
+  // Split on the ">" separators so stray words ("a close call") cannot count as labels.
+  const letters = line.split(/>|,|;/).flatMap((part) => {
+    const m = part.trim().match(/^\W*(?:seat\s+)?([A-Z])\b/i);
+    return m ? [m[1]!.toUpperCase()] : [];
+  });
   const wanted = new Map(labels.map((label) => [label.replace(/^Seat\s+/i, "").toUpperCase(), label]));
   const seen = new Set<string>();
   const ordered: string[] = [];

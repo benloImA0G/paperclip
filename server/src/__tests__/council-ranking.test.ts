@@ -17,6 +17,10 @@ describe("ranking", () => {
     expect(parseRanking("RANKING: B > A > C\nWHY: clearer", labels)).toEqual(["Seat B", "Seat A", "Seat C"]);
     expect(parseRanking("**RANKING:** Seat C > Seat A > Seat B", labels)).toEqual(["Seat C", "Seat A", "Seat B"]);
   });
+  it("ignores trailing words that look like letters", () => {
+    expect(parseRanking("RANKING: B > A > C (a close call)", labels)).toEqual(["Seat B", "Seat A", "Seat C"]);
+    expect(parseRanking("RANKING: Seat B > Seat A > Seat C. A tough one", labels)).toEqual(["Seat B", "Seat A", "Seat C"]);
+  });
   it("rejects missing, duplicate or unknown labels", () => {
     expect(parseRanking("RANKING: A > B", labels)).toBeNull();
     expect(parseRanking("RANKING: A > A > B", labels)).toBeNull();

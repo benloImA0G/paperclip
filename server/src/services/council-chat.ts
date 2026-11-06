@@ -1485,7 +1485,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         const blind = shuffled.map((result, index) => ({ label: labels[index]!, text: result.text! }));
         const rankings: string[][] = [];
         for (const judge of dispatchedSeats.filter((seat) => seat.role !== "moderator").slice(0, 6)) {
-          const judged = await dispatch(judge, randomUUID(), buildRankingPrompt({ question: message, answers: blind }), undefined, { maxOutputTokens: 300, persistComment: false });
+          const judged = await dispatch(judge, randomUUID(), buildRankingPrompt({ question: message, answers: blind }), undefined, { maxOutputTokens: 1200, persistComment: false });
           if (judged.status === "cancelled") break;
           const parsed = judged.status === "ok" ? parseRanking(judged.text ?? "", labels) : null;
           if (parsed) rankings.push(parsed);
@@ -1507,7 +1507,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (best && candidates.length >= 2) {
         const verdicts: JuryVerdict[] = [];
         for (const judge of dispatchedSeats.filter((seat) => seat.role !== "moderator" && seat.id !== best.seatId).slice(0, 6)) {
-          const voted = await dispatch(judge, randomUUID(), buildJuryPrompt({ question: message, answer: best.text! }), undefined, { maxOutputTokens: 250, persistComment: false });
+          const voted = await dispatch(judge, randomUUID(), buildJuryPrompt({ question: message, answer: best.text! }), undefined, { maxOutputTokens: 1000, persistComment: false });
           if (voted.status === "cancelled") break;
           const parsed = voted.status === "ok" ? parseJuryVerdict(voted.text ?? "") : null;
           if (parsed) verdicts.push(parsed.verdict);
