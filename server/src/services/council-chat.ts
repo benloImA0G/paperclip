@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { generateText } from "ai";
-import { and, asc, eq, isNotNull, isNull, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, gt, gte, lte, ne, or, sql } from "drizzle-orm";
 import { agents, budgetReservations, connectionGrants, councilRoundClaims, councilSeats, councilWorkSessions, issueComments, issues, toolConnections, type CouncilSeatFallback, type CouncilSeatRole, type CouncilSeatStoredConfig, type Db } from "@paperclipai/db";
 import { aiConnectionCatalogSlug, aiConnectionMetadataSchema, centsToUnits, unitsToCents, type CouncilRoundOrder, type CouncilRoundStyle } from "@paperclipai/shared";
 import { badGateway, conflict, notFound, unprocessable } from "../errors.js";
@@ -358,30 +358,55 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
 
   /** Best-effort: keep the latest work session in the database so it survives a restart. Never throws. */
   const persistChains = new Map<string, Promise<void>>();
-  function persistWork(companyId: string, issueId: string, goal: string, state: CouncilWorkState): Promise<void> {
+  function persistWork(companyId: string, issueId: string, goal: string, state: CouncilWorkState, owner: string): Promise<void> {
     if (!hasDurableRoundClaims) return Promise.resolve();
     // Saves for one room run in order, so an older state can never overwrite a newer one.
     const snapshot = copyWorkState(state);
-    const next = (persistChains.get(issueId) ?? Promise.resolve()).then(() => persistWorkNow(companyId, issueId, goal, snapshot));
+    const next = (persistChains.get(issueId) ?? Promise.resolve()).then(() => persistWorkNow(companyId, issueId, goal, snapshot, owner));
     persistChains.set(issueId, next);
     void next.then(() => { if (persistChains.get(issueId) === next) persistChains.delete(issueId); });
     return next;
   }
 
-  async function persistWorkNow(companyId: string, issueId: string, goal: string, state: CouncilWorkState) {
+  async function persistWorkNow(companyId: string, issueId: string, goal: string, state: CouncilWorkState, owner: string) {
     try {
-      const values = {
-        issueId, companyId, goal: goal.slice(0, 20_000), status: state.status,
-        steps: state.steps as unknown[], summary: state.summary ?? null,
-        startedAt: state.startedAt ? new Date(state.startedAt) : new Date(),
-      };
-      await db.insert(councilWorkSessions).values(values).onConflictDoUpdate({
-        target: councilWorkSessions.issueId,
-        set: { goal: values.goal, status: values.status, steps: values.steps, summary: values.summary, startedAt: values.startedAt, updatedAt: sql`now()` },
-      });
+      await db.update(councilWorkSessions).set({
+        goal: goal.slice(0, 20_000), status: state.status,
+        steps: state.steps as unknown[],
+        summary: state.status === "running" ? workLeaseSummary(owner, state.summary) : state.summary ?? null,
+        updatedAt: sql`now()`,
+      }).where(and(eq(councilWorkSessions.companyId, companyId), eq(councilWorkSessions.issueId, issueId),
+        eq(councilWorkSessions.status, "running"), gt(councilWorkSessions.updatedAt, sql`now() - ${ROUND_CLAIM_TTL_MS} * interval '1 millisecond'`),
+        sql`${councilWorkSessions.summary} LIKE ${`work-lease:${owner}:%`}`));
     } catch (error) {
       logger.warn({ companyId, issueId, err: error }, "Council work session could not be saved");
     }
+  }
+
+  function workLeaseSummary(owner: string, summary?: string) {
+    return `work-lease:${owner}:${JSON.stringify(summary ?? null)}`;
+  }
+
+  async function claimWork(companyId: string, issueId: string, goal: string, steps: WorkStep[], startedAt: string, owner: string) {
+    if (!hasDurableRoundClaims) return true;
+    await db.insert(councilWorkSessions).values({ companyId, issueId, goal: goal.slice(0, 20_000), status: "idle", steps: [], startedAt: new Date(startedAt) }).onConflictDoNothing();
+    const [claimed] = await db.update(councilWorkSessions).set({
+      goal: goal.slice(0, 20_000), status: "running", steps: steps as unknown[],
+      summary: workLeaseSummary(owner), startedAt: new Date(startedAt), updatedAt: sql`now()`,
+    }).where(and(eq(councilWorkSessions.companyId, companyId), eq(councilWorkSessions.issueId, issueId),
+      or(ne(councilWorkSessions.status, "running"), lte(councilWorkSessions.updatedAt, sql`now() - ${ROUND_CLAIM_TTL_MS} * interval '1 millisecond'`))))
+      .returning({ issueId: councilWorkSessions.issueId });
+    return !!claimed;
+  }
+
+  async function renewWork(companyId: string, issueId: string, owner: string) {
+    if (!hasDurableRoundClaims) return true;
+    const [row] = await db.update(councilWorkSessions).set({ updatedAt: sql`now()` })
+      .where(and(eq(councilWorkSessions.companyId, companyId), eq(councilWorkSessions.issueId, issueId),
+        eq(councilWorkSessions.status, "running"), gt(councilWorkSessions.updatedAt, sql`now() - ${ROUND_CLAIM_TTL_MS} * interval '1 millisecond'`),
+        sql`${councilWorkSessions.summary} LIKE ${`work-lease:${owner}:%`}`))
+      .returning({ issueId: councilWorkSessions.issueId });
+    return !!row;
   }
 
   async function loadPersistedWork(companyId: string, issueId: string): Promise<CouncilWorkState | null> {
@@ -390,10 +415,15 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       const [row] = await db.select().from(councilWorkSessions)
         .where(and(eq(councilWorkSessions.companyId, companyId), eq(councilWorkSessions.issueId, issueId))).limit(1);
       if (!row) return null;
-      // A session still marked running after a restart cannot be running any more.
-      const status = (row.status === "running" ? "failed" : row.status) as CouncilWorkState["status"];
-      const steps = ((row.steps ?? []) as CouncilWorkState["steps"]).map((step) => row.status === "running" && (step.status === "running" || step.status === "pending") ? { ...step, status: "failed" as const, error: "Interrupted by a server restart" } : step);
-      return { status, steps, goal: row.goal, ...(row.summary ? { summary: row.summary } : {}), startedAt: row.startedAt.toISOString() };
+      // Only an expired lease indicates an interrupted session.
+      const interrupted = row.status === "running" && row.updatedAt.getTime() <= Date.now() - ROUND_CLAIM_TTL_MS;
+      const status = (interrupted ? "failed" : row.status) as CouncilWorkState["status"];
+      const steps = ((row.steps ?? []) as CouncilWorkState["steps"]).map((step) => interrupted && (step.status === "running" || step.status === "pending") ? { ...step, status: "failed" as const, error: "Interrupted by a server restart" } : step);
+      let summary = row.summary;
+      if (summary?.startsWith("work-lease:")) {
+        try { summary = JSON.parse(summary.slice(summary.indexOf(":", 11) + 1)) as string | null; } catch { summary = null; }
+      }
+      return { status, steps, goal: row.goal, ...(summary ? { summary } : {}), startedAt: row.startedAt.toISOString() };
     } catch (error) {
       logger.warn({ companyId, issueId, err: error }, "Council work session could not be loaded");
       return null;
@@ -1606,6 +1636,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
       throw conflict("A round or work session is already running in this room");
     }
+    if (previous?.status === "running") throw conflict("A round or work session is already running in this room");
     if (input.resume && (!previous || !previous.steps.some((step) => step.status !== "done" || step.grade === "fail"))) throw unprocessable("Nothing to resume");
     const goal = input.resume ? previous!.goal : input.goal;
     if (!goal) throw unprocessable("Nothing to resume");
@@ -1633,7 +1664,29 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const controller = new AbortController();
     const session = { controller, cancelled: false };
     const startedAt = new Date().toISOString();
+    if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
+      throw conflict("A round or work session is already running in this room");
+    }
     runningWork.set(input.issueId, session);
+    const owner = randomUUID();
+    try {
+      if (!await claimWork(input.companyId, input.issueId, workGoal, previous?.steps ?? [], startedAt, owner)) {
+        throw conflict("A round or work session is already running in this room");
+      }
+    } catch (error) {
+      if (runningWork.get(input.issueId) === session) runningWork.delete(input.issueId);
+      throw error;
+    }
+    const heartbeat = setInterval(() => {
+      if (workStates.get(input.issueId)?.status !== "running") return;
+      void renewWork(input.companyId, input.issueId, owner)
+        .then((owned) => { if (!owned) controller.abort(); })
+        .catch((error) => {
+          logger.warn({ err: error, issueId: input.issueId }, "Council work lease could not be renewed");
+          controller.abort();
+        });
+    }, ROUND_CLAIM_TTL_MS / 3);
+    heartbeat.unref();
     // Bound memory: keep only the most recent 50 rooms' work states (oldest finished ones go first).
     workStates.delete(input.issueId);
     for (const key of workStates.keys()) {
@@ -1645,19 +1698,21 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       try {
         await issueSvc.addComment(input.issueId, goal, { userId: input.userId });
       } catch (error) {
+        clearInterval(heartbeat);
+        await persistWork(input.companyId, input.issueId, workGoal, { status: "failed", steps: previous?.steps ?? [], startedAt }, owner);
         runningWork.delete(input.issueId);
         workStates.delete(input.issueId);
         throw error;
       }
     }
 
-    await persistWork(input.companyId, input.issueId, workGoal, workStates.get(input.issueId)!);
+    await persistWork(input.companyId, input.issueId, workGoal, workStates.get(input.issueId)!, owner);
 
     void (async () => {
       const setState = (state: CouncilWorkState) => {
         state = { ...state, goal: workGoal };
         workStates.set(input.issueId, copyWorkState(state));
-        void persistWork(input.companyId, input.issueId, workGoal, state);
+        void persistWork(input.companyId, input.issueId, workGoal, state, owner);
       };
       try {
         const result = await runWork({
@@ -1680,6 +1735,10 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             });
           },
           callSeat: async (seatName, prompt) => {
+            if (!await renewWork(input.companyId, input.issueId, owner)) {
+              controller.abort();
+              return { ok: false, error: "Council work lease lost" };
+            }
             const seat = seats.find((candidate) => candidate.name === seatName);
             if (!seat) return { ok: false, error: `No active seat named ${seatName}` };
             const attempt = () => runOrchestratorSeatTurn({
@@ -1761,6 +1820,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           setState({ status: "failed", steps: workStates.get(input.issueId)?.steps ?? [], startedAt });
         }
       } finally {
+        clearInterval(heartbeat);
         await persistChains.get(input.issueId);
         if (runningWork.get(input.issueId) === session) runningWork.delete(input.issueId);
       }

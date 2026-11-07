@@ -78,6 +78,7 @@ describe("durable Council round claims", { timeout: 60_000 }, () => {
     const startedAt = new Date("2026-11-01T12:00:00.000Z");
     await db.insert(councilWorkSessions).values({
       companyId, issueId, goal: "Finish the report", status: "running", startedAt,
+      updatedAt: startedAt, // lease long expired, so the session counts as interrupted
       summary: null,
       steps: [
         { n: 1, title: "Completed research", expected: "facts", assignee: "One", status: "done", output: "Research retained" },
