@@ -23,38 +23,47 @@ export type CouncilModeSuggestion = {
 
 const has = (text: string, pattern: RegExp) => pattern.test(text);
 
-const WORK = /\b(build|implement|create|write|draft|produce|generate|set ?up|migrate|refactor|fix|deliver|ship|prepare|make me|automate|design and)\b/;
-const REVIEW = /\b(review|critique|audit|check this|red[- ]?team|poke holes|what.s wrong|stress[- ]?test|is this (safe|secure|correct|ok)|find (bugs|flaws|risks))\b/;
-const DECISION = /\b(should (i|we)|which (one|option|is better)|\bvs\.?\b|versus|choose|pick|decide|decision|trade-?off|go\/no-go|worth it|better (option|approach)|or should)\b/;
-const BRAINSTORM = /\b(brainstorm|ideas?|options|alternatives|ways to|how (could|can|might) (i|we)|what if|creative|name(s)? for|suggest)\b/;
-const FACT = /^(what|who|when|where|how (many|much|long|old)|is|are|does|do|can)\b/;
+const WORK = /\b(build|implement|create|write|draft|produce|generate|set ?up|migrate|refactor|fix|deliver|ship|prepare|make me|automate|design and|buat(?:kan)?|bikin|siapkan|perbaiki)\b/;
+const REVIEW = /\b(review|critique|audit|check this|red[- ]?team|poke holes|what(?: is|['’]s) wrong|stress[- ]?test|is this (safe|secure|correct|ok)|find (bugs|flaws|risks)|periksa|tinjau|cek|evaluasi|cari kelemahan|apa risikonya)\b/;
+const DECISION = /\b(should (i|we)|which (one|option|is better)|vs\.?|versus|choose|pick|decide|decision|trade-?off|go\/no-go|worth it|better (option|approach)|or should|sebaiknya|pilih|memilih|mana yang|lebih baik)\b/;
+const BRAINSTORM = /\b(brainstorm|ideas?|options|alternatives|ways to|how (could|can|might) (i|we)|what if|creative|name(s)? for|suggest|ide|saran|alternatif|bagaimana cara)\b/;
+const FACT = /^(what|who|when|where|how (many|much|long|old)|is|are|does|do|can|apa|siapa|kapan|berapa|di mana)\b/;
 
 export function classifyCouncilQuestion(rawText: string): CouncilModeSuggestion {
   const text = rawText.trim().toLowerCase().slice(0, 4000);
   const words = text.split(/\s+/).filter(Boolean).length;
 
   if (words === 0) {
-    return build("quick-fact", "No question yet, so a single quick answer is the safe default.");
+    return build("quick-fact");
   }
   if (has(text, REVIEW)) {
-    return build("review", "Looks like a review: seats challenge the work and list risks.");
+    return build("review");
   }
   if (has(text, DECISION)) {
-    return build("decision", "Looks like a choice between options: seats debate it and a decision record is kept.");
+    return build("decision");
   }
   if (has(text, BRAINSTORM)) {
-    return build("brainstorm", "Looks like idea generation: many different seats, then a short synthesis.");
+    return build("brainstorm");
   }
-  if (has(text, WORK) && words >= 8) {
-    return build("plan-and-do", "Looks like a job to be done: the chair plans steps, seats do them, a checker grades each.");
+  if (has(text, WORK) && words >= 6) {
+    return build("plan-and-do");
   }
   if (words <= 14 && (has(text, FACT) || text.endsWith("?"))) {
-    return build("quick-fact", "Short factual question: each seat answers once, no debate.");
+    return build("quick-fact");
   }
-  return build("decision", "Not clearly one type, so a balanced debate is the middle road.");
+  return build("decision");
 }
 
-function build(kind: CouncilKind, reason: string): CouncilModeSuggestion {
+const REASONS: Record<CouncilKind, string> = {
+  "quick-fact": "Short factual question: each seat answers once, no debate.",
+  decision: "Looks like a choice between options: seats debate it and a decision record is kept.",
+  brainstorm: "Looks like idea generation: many different seats, then a short synthesis.",
+  review: "Looks like a review: seats challenge the work and list risks.",
+  "plan-and-do": "Looks like a job to be done: the chair plans steps, seats do them, a checker grades each.",
+};
+
+function build(kind: CouncilKind): CouncilModeSuggestion {
+  const reason = REASONS[kind];
   switch (kind) {
     case "quick-fact":
       return { kind, mode: "ask", rounds: 1, seats: { min: 1, max: 3 }, autoSummary: false, dissentCheck: false, peerRanking: false, workSession: false, template: "quick-check", reason };
