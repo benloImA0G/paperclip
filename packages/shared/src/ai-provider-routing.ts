@@ -57,16 +57,26 @@ export const aiProviderRoutingSchema = z
         const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(
           url.hostname,
         );
+        // URL normalizes shorthand and non-decimal IPv4 forms, so inspect the
+        // original authority before accepting a private dotted-quad address.
+        const authority = route.baseUrl?.match(/^https?:\/\/([^/?#]*)/i)?.[1] ?? "";
+        const host = authority.replace(/:\d+$/, "");
+        const octets = host.split(".");
+        const privateIpv4 = octets.length === 4 && octets.every((part) =>
+          /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255
+        ) && (Number(octets[0]) === 10 ||
+          (Number(octets[0]) === 172 && Number(octets[1]) >= 16 && Number(octets[1]) <= 31) ||
+          (Number(octets[0]) === 192 && Number(octets[1]) === 168));
         if (
           url.username ||
           url.password ||
           url.search ||
           url.hash ||
-          (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+          (url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || route.kind === "local")))
         )
           throw new Error();
-        if (route.kind === "local" && !loopback)
-          invalid("A local endpoint must use localhost or a loopback address.");
+        if (route.kind === "local" && !loopback && !(url.protocol === "http:" && privateIpv4))
+          invalid("A local endpoint must use localhost or a loopback or private-network address.");
       } catch {
         invalid(
           "Enter an HTTPS base URL without credentials, query parameters, or a fragment. Local endpoints may use HTTP.",

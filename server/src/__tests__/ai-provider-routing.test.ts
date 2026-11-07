@@ -9,6 +9,21 @@ import {
 import { managedProviderRouting } from "../services/ai-provider-routing.js";
 
 describe("provider routing", () => {
+  it.each(["http://172.25.240.1:11434", "http://192.168.1.5:11434", "http://10.1.2.3"])(
+    "accepts a private local endpoint %s", (baseUrl) => {
+      expect(aiProviderRoutingSchema.safeParse({ kind: "local", protocol: "chat", auth: "none", baseUrl }).success).toBe(true);
+    },
+  );
+  it.each([
+    "http://8.8.8.8", "http://172.32.0.1", "http://169.254.169.254",
+    "http://example.com", "http://user:pw@192.168.1.5", "http://0.0.0.0",
+    "http://10.1.2", "http://10.1.2.256", "http://010.1.2.3", "https://10.1.2.3",
+  ])("rejects an invalid local endpoint %s", (baseUrl) => {
+    expect(aiProviderRoutingSchema.safeParse({ kind: "local", protocol: "chat", auth: "none", baseUrl }).success).toBe(false);
+  });
+  it("rejects a private HTTP gateway", () => {
+    expect(aiProviderRoutingSchema.safeParse({ kind: "gateway", protocol: "chat", baseUrl: "http://192.168.1.5" }).success).toBe(false);
+  });
   it("routes managed OpenRouter accounts to direct and native Pi without OpenCode configuration", () => {
     const routing = aiProviderRoutingSchema.parse({ kind: "openrouter", protocol: "chat" });
     expect(aiRoutingHarness("paperclip_runner", "acpx", "pi")).toBe("pi_local");
