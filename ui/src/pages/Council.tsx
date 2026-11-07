@@ -20,6 +20,7 @@ import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilEstimate } from "../components/CouncilEstimate";
+import { CouncilSuggestSeats } from "./council-suggest-seats";
 import { queryKeys } from "../lib/queryKeys";
 import { Link } from "../lib/router";
 import { CouncilTemplates } from "../components/CouncilTemplates";
@@ -886,6 +887,11 @@ export function Council() {
               {!activeSeats.length ? <p className="px-1 text-xs text-muted-foreground">No active participants.</p> : null}
             </div>
           </details>
+          {advancedMode && cardsOpen ? <CouncilSuggestSeats key={roomId} companyId={companyId} roomId={roomId} onAdd={(proposal) => {
+            const conn = connectionOptions.find((candidate) => candidate.id === proposal.connectionId);
+            if (!conn) { setError("This connection is no longer available. Refresh and try again."); return; }
+            activateVendor.mutate({ conn, draft: { name: proposal.name, model: proposal.model, persona: "", role: "none" } });
+          }} /> : null}
           <div className={`${advancedMode && cardsOpen ? "grid" : "hidden"} shrink-0 gap-3 pb-2 [grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))]`}>
             {[
               ...allSeats.map((seat) => ({ conn: connectionOptions.find((candidate) => candidate.id === seat.connectionId), seat })),

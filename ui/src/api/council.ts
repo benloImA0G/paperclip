@@ -4,6 +4,13 @@ import { api, requestResponse } from "./client";
 export type CouncilKind = "quick-fact" | "decision" | "brainstorm" | "review" | "plan-and-do";
 export type CouncilRoom = Issue & { kind: CouncilKind | null };
 
+export interface CouncilSeatProposal {
+  connectionId: string;
+  vendor: string;
+  model: string;
+  name: string;
+}
+
 export interface CouncilSeatFallback {
   connectionId: string;
   grantId: string;
@@ -130,6 +137,8 @@ export const councilApi = {
   createRoom: (companyId: string, title: string) => api.post<Issue>(`/companies/${companyId}/council/rooms`, { title }),
   listSeats: (companyId: string, issueId: string) =>
     api.get<CouncilSeat[]>(`/companies/${companyId}/council/rooms/${issueId}/seats`),
+  suggestSeats: (companyId: string, roomId: string, input: { count: number; seed?: number }) =>
+    api.post<{ proposals: CouncilSeatProposal[] }>(`/companies/${companyId}/council/rooms/${roomId}/seats/suggest`, input),
   addSeat: (companyId: string, issueId: string, input: CouncilSeatInput) =>
     api.post<CouncilSeat>(`/companies/${companyId}/council/rooms/${issueId}/seats`, input),
   updateSeat: (
