@@ -11,6 +11,7 @@ import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../servi
 import { getCouncilReliability } from "../services/council-reliability.js";
 import { logActivity } from "../services/activity-log.js";
 import { getCouncilEstimate } from "../services/council-estimate.js";
+import { suggestCouncilSeats } from "../services/council-autofill.js";
 import { classifyCouncilQuestion } from "../services/council-modes.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
@@ -271,6 +272,13 @@ export function councilChatRoutes(db: Db) {
     boardUserId(req);
     await council.getRoom(companyId, req.params.issueId as string);
     res.json(await council.listSeats(companyId, req.params.issueId as string));
+  });
+
+  router.post("/companies/:companyId/council/rooms/:roomId/seats/suggest", validate(z.object({ count: z.number().int().min(1).max(8), seed: z.number().int().min(0).max(2147483647).optional() }).strict()), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const proposals = await suggestCouncilSeats(db, companyId, boardUserId(req), req.params.roomId as string, req.body);
+    res.json({ proposals });
   });
 
   router.post("/companies/:companyId/council/rooms/:issueId/seats", validate(addSeatSchema), async (req, res) => {
