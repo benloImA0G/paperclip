@@ -192,7 +192,7 @@ export const councilApi = {
       { signal },
     ),
   /** Work session: the chair plans steps, seats carry them out, the summary lands in the thread. */
-  startWork: (companyId: string, issueId: string, input: { goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean; juryChecks?: boolean; finalReview?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) =>
+  startWork: (companyId: string, issueId: string, input: { goal?: string; resume?: boolean; decision?: string; postGoal?: boolean; createTasks?: boolean; juryChecks?: boolean; finalReview?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) =>
     api.post<{ started: boolean; questions?: string[] }>(`/companies/${companyId}/council/rooms/${issueId}/work`, input),
   getWork: (companyId: string, issueId: string) =>
     api.get<CouncilWorkState>(`/companies/${companyId}/council/rooms/${issueId}/work`),
@@ -214,6 +214,7 @@ export interface WorkStep {
 }
 
 export interface CouncilWorkState {
+  goal?: string;
   status: "idle" | "running" | "done" | "partial" | "failed" | "cancelled";
   steps: WorkStep[];
   summary?: string | null;

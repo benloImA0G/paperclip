@@ -63,6 +63,7 @@ export type CouncilWorkState = {
   status: "idle" | "running" | "done" | "partial" | "failed" | "cancelled";
   steps: WorkStep[];
   summary?: string;
+  goal?: string;
   startedAt?: string;
 };
 
@@ -392,7 +393,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       // A session still marked running after a restart cannot be running any more.
       const status = (row.status === "running" ? "failed" : row.status) as CouncilWorkState["status"];
       const steps = ((row.steps ?? []) as CouncilWorkState["steps"]).map((step) => row.status === "running" && (step.status === "running" || step.status === "pending") ? { ...step, status: "failed" as const, error: "Interrupted by a server restart" } : step);
-      return { status, steps, ...(row.summary ? { summary: row.summary } : {}), startedAt: row.startedAt.toISOString() };
+      return { status, steps, goal: row.goal, ...(row.summary ? { summary: row.summary } : {}), startedAt: row.startedAt.toISOString() };
     } catch (error) {
       logger.warn({ companyId, issueId, err: error }, "Council work session could not be loaded");
       return null;
@@ -1596,11 +1597,18 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     }
   }
 
-  async function startWork(input: { companyId: string; issueId: string; userId: string; goal: string; decision?: string; postGoal?: boolean; createTasks?: boolean; juryChecks?: boolean; finalReview?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) {
+  async function startWork(input: { companyId: string; issueId: string; userId: string; goal?: string; resume?: boolean; decision?: string; postGoal?: boolean; createTasks?: boolean; juryChecks?: boolean; finalReview?: boolean; clarifyFirst?: boolean; answers?: Array<{ question: string; answer: string }> }) {
     await getRoom(input.companyId, input.issueId);
     if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
       throw conflict("A round or work session is already running in this room");
     }
+    const previous = input.resume ? await loadPersistedWork(input.companyId, input.issueId) : null;
+    if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
+      throw conflict("A round or work session is already running in this room");
+    }
+    if (input.resume && (!previous || !previous.steps.some((step) => step.status !== "done" || step.grade === "fail"))) throw unprocessable("Nothing to resume");
+    const goal = input.resume ? previous!.goal : input.goal;
+    if (!goal) throw unprocessable("Nothing to resume");
     const seats = (await listSeats(input.companyId, input.issueId)).filter((seat) => seat.active);
     if (!seats.length) throw unprocessable("Add at least one active seat first");
     if (runningRounds.has(input.issueId) || runningWork.has(input.issueId)) {
@@ -1610,13 +1618,13 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       ?? seats.find((seat) => seat.role === "synthesizer")
       ?? seats[0]!;
     // Clarify first: the chair may ask Ben up to 3 questions; the UI resubmits with the answers.
-    let workGoal = input.goal;
-    if (input.answers?.length) {
-      workGoal = buildGoalWithAnswers(input.goal, input.answers);
-    } else if (input.clarifyFirst) {
+    let workGoal = goal;
+    if (!input.resume && input.answers?.length) {
+      workGoal = buildGoalWithAnswers(goal, input.answers);
+    } else if (!input.resume && input.clarifyFirst) {
       const asked = await runOrchestratorSeatTurn({
         companyId: input.companyId, issueId: input.issueId, userId: input.userId, roundId: `work-${randomUUID()}`,
-        seat: chair, prompt: buildClarifyPrompt({ goal: input.goal }), maxOutputTokens: 1200,
+        seat: chair, prompt: buildClarifyPrompt({ goal }), maxOutputTokens: 1200,
         signal: AbortSignal.timeout(60_000), persistComment: false, isCancelled: async () => false,
       }, seats);
       const questions = asked.status === "ok" ? parseClarifyQuestions(asked.text ?? "") : [];
@@ -1632,10 +1640,10 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (workStates.size < 50) break;
       if (!runningWork.has(key)) workStates.delete(key);
     }
-    workStates.set(input.issueId, { status: "running", steps: [], startedAt });
-    if (input.postGoal) {
+    workStates.set(input.issueId, { status: "running", steps: previous?.steps ?? [], goal: workGoal, startedAt });
+    if (input.postGoal && !input.resume) {
       try {
-        await issueSvc.addComment(input.issueId, input.goal, { userId: input.userId });
+        await issueSvc.addComment(input.issueId, goal, { userId: input.userId });
       } catch (error) {
         runningWork.delete(input.issueId);
         workStates.delete(input.issueId);
@@ -1643,16 +1651,18 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       }
     }
 
-    await persistWork(input.companyId, input.issueId, input.goal, workStates.get(input.issueId)!);
+    await persistWork(input.companyId, input.issueId, workGoal, workStates.get(input.issueId)!);
 
     void (async () => {
       const setState = (state: CouncilWorkState) => {
+        state = { ...state, goal: workGoal };
         workStates.set(input.issueId, copyWorkState(state));
-        void persistWork(input.companyId, input.issueId, input.goal, state);
+        void persistWork(input.companyId, input.issueId, workGoal, state);
       };
       try {
         const result = await runWork({
           goal: workGoal,
+          ...(previous ? { resume: { steps: previous.steps } } : {}),
           decision: input.decision,
           seatNames: seats.map((seat) => seat.name),
           chairName: chair.name,

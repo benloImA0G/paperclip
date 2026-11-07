@@ -18,6 +18,7 @@ type SeatResult = { ok: boolean; text?: string; error?: string };
 
 export type RunWorkDependencies = {
   goal: string;
+  resume?: { steps: WorkStep[] };
   seatNames: string[];
   chairName: string;
   decision?: string;
@@ -177,9 +178,13 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     return { grade: failed ? "fail" : "pass", note };
   };
 
-  if (cancelled()) return finishCancelled([]);
-  const plan = await call(deps.chairName, buildPlanPrompt(deps));
-  const steps = plan.ok ? parsePlan(plan.text ?? "", deps.seatNames, deps.chairName) : [];
+  if (cancelled() && !deps.resume) return finishCancelled([]);
+  const plan = deps.resume ? null : await call(deps.chairName, buildPlanPrompt(deps));
+  const steps = deps.resume ? deps.resume.steps.map((step) => {
+    if (step.status === "done" && step.grade !== "fail") return { ...step };
+    const { error, grade, gradeNote, attempts, output, ...rest } = step;
+    return { ...rest, status: "pending" as const };
+  }) : plan?.ok ? parsePlan(plan.text ?? "", deps.seatNames, deps.chairName) : [];
   if (steps.length === 0) steps.push({ n: 1, title: deps.goal, expected: "A complete answer", assignee: deps.chairName, status: "pending" });
   emit("plan", steps);
 

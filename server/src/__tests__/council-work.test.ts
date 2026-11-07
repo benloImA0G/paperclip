@@ -76,6 +76,52 @@ describe("council work", () => {
     expect(result).toEqual({ steps: [], summary: null, status: "cancelled" });
     expect(callSeat).not.toHaveBeenCalled();
   });
+
+  it("resumes saved work without replanning, preserving completed output and resetting unfinished steps", async () => {
+    const saved: WorkStep[] = [
+      { n: 1, title: "Research", expected: "facts", assignee: "Researcher One", status: "done", output: "retained facts", attempts: 1 },
+      { n: 2, title: "Draft", expected: "answer", assignee: "Writer", status: "failed", output: "stale draft", error: "interrupted", grade: "fail", gradeNote: "incomplete", attempts: 2 },
+      { n: 3, title: "Finalize", expected: "deliverable", assignee: "Chair", status: "running", output: "partial", error: "interrupted", attempts: 1 },
+    ];
+    const calls: Array<[string, string]> = [];
+    const events: string[] = [];
+    const result = await runWork({
+      goal: "Complete the report", seatNames: seats, chairName: "Chair", resume: { steps: saved },
+      callSeat: async (seat, prompt) => {
+        calls.push([seat, prompt]);
+        if (prompt.includes("one-page summary")) return { ok: true, text: "Summary" };
+        return { ok: true, text: `${seat} result` };
+      },
+      onEvent: (event) => events.push(event.type),
+    });
+
+    expect(calls.map(([seat]) => seat)).toEqual(["Writer", "Chair", "Chair"]);
+    expect(calls.some(([, prompt]) => prompt.includes("You are the council chair. Reply ONLY"))).toBe(false);
+    expect(calls[0]?.[1]).toContain("retained facts");
+    expect(result.steps).toMatchObject([
+      { n: 1, status: "done", output: "retained facts", attempts: 1 },
+      { n: 2, status: "done", output: "Writer result", attempts: 1 },
+      { n: 3, status: "done", output: "Chair result", attempts: 1 },
+    ]);
+    expect(result.steps[1]).not.toHaveProperty("error");
+    expect(result.steps[1]).not.toHaveProperty("grade");
+    expect(events[0]).toBe("plan");
+    expect(result.status).toBe("done");
+  });
+
+  it("does not rerun completed checker-failed steps when resuming", async () => {
+    const callSeat = vi.fn(async (_seat: string, prompt: string) => {
+      if (prompt.includes("one-page summary")) return { ok: true, text: "Summary" };
+      return { ok: true, text: "unexpected" };
+    });
+    const result = await runWork({
+      goal: "Goal", seatNames: ["Chair"], chairName: "Chair",
+      resume: { steps: [{ n: 1, title: "Rejected", expected: "x", assignee: "Chair", status: "done", output: "preserve", grade: "fail", error: "Checker rejected" }] },
+      callSeat,
+    });
+    expect(callSeat).toHaveBeenCalledTimes(2);
+    expect(result.steps[0]).toMatchObject({ status: "done", output: "unexpected" });
+  });
 });
 
 describe("step checking", () => {

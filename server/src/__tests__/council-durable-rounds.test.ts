@@ -88,10 +88,30 @@ describe("durable Council round claims", { timeout: 60_000 }, () => {
 
     // A new service instance has no in-memory work state and must recover from the DB row.
     const recovered = await councilChatService(db).getWork(companyId, issueId);
-    expect(recovered).toMatchObject({ status: "failed", startedAt: startedAt.toISOString(), steps: [
+    expect(recovered).toMatchObject({ status: "failed", goal: "Finish the report", startedAt: startedAt.toISOString(), steps: [
       { n: 1, status: "done", output: "Research retained" },
       { n: 2, status: "failed", error: "Interrupted by a server restart", output: "Partial draft" },
       { n: 3, status: "failed", error: "Interrupted by a server restart" },
+    ] });
+  });
+
+  it("roundtrips the work goal with persisted progress to a new service instance", async () => {
+    mocks.generateText
+      .mockResolvedValueOnce({ text: "1. Research | assignee: One | expected: facts" })
+      .mockResolvedValueOnce({ text: "Research output" })
+      .mockResolvedValueOnce({ text: "GRADE: PASS NOTE: sufficient" })
+      .mockResolvedValueOnce({ text: "Completed report" });
+    const { councilChatService } = await import("../services/council-chat.js");
+    const first = councilChatService(db);
+    await expect(first.startWork({ companyId, issueId, userId: "alice", goal: "Persist this exact goal" })).resolves.toMatchObject({ started: true });
+
+    await vi.waitFor(async () => {
+      const rows = await db.select().from(councilWorkSessions).where(and(eq(councilWorkSessions.companyId, companyId), eq(councilWorkSessions.issueId, issueId)));
+      expect(rows[0]).toMatchObject({ goal: "Persist this exact goal", status: "done", summary: "Completed report" });
+    });
+    const restored = await councilChatService(db).getWork(companyId, issueId);
+    expect(restored).toMatchObject({ goal: "Persist this exact goal", status: "done", summary: "Completed report", steps: [
+      { title: "Research", status: "done", output: "Research output" },
     ] });
   });
 });

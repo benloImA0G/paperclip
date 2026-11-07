@@ -85,7 +85,8 @@ const roundSchema = z
   })
   .strict();
 const workSchema = z.object({
-  goal: z.string().trim().min(1).max(4000),
+  goal: z.string().trim().min(1).max(4000).optional(),
+  resume: z.boolean().optional(),
   decision: z.string().max(8000).optional(),
   /** Post the goal as the user's message in the thread (plan-first asks). */
   postGoal: z.boolean().optional(),
@@ -94,7 +95,7 @@ const workSchema = z.object({
   finalReview: z.boolean().optional(),
   clarifyFirst: z.boolean().optional(),
   answers: z.array(z.object({ question: z.string().max(400), answer: z.string().max(1000) }).strict()).max(3).optional(),
-}).strict();
+}).strict().refine((value) => value.resume || value.goal !== undefined, { message: "Goal is required", path: ["goal"] });
 const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional(), consolidate: z.boolean().optional() }).strict();
 const artifactKeySchema = z.string().regex(/^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid artifact key");
 const artifactSchema = z.object({ key: artifactKeySchema, title: z.string().trim().min(1).max(200), markdown: z.string().trim().min(1).max(100_000) }).strict();

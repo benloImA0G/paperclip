@@ -144,6 +144,27 @@ describe("council work routes", () => {
     pending.resolve({ text: "late plan" });
   });
 
+  it("returns startWork errors through the route", async () => {
+    const server = await app(dbFor([]));
+    const response = await request(server).post(workPath).send({ goal: "Research this" });
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain("active seat");
+  });
+
+  it("returns a goal-comment failure and releases the attempted work session", async () => {
+    const server = await app(dbFor([seat("chair", "moderator")]));
+    mocks.addComment.mockRejectedValueOnce(Object.assign(new Error("comment unavailable"), { status: 503 }));
+
+    const failed = await request(server).post(workPath).send({ goal: "Research this", postGoal: true });
+    expect(failed.status).toBe(503);
+    expect(failed.body.error).toBe("comment unavailable");
+    expect(mocks.generateText).not.toHaveBeenCalled();
+
+    mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: chair | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
+    const retry = await request(server).post(workPath).send({ goal: "Retry", postGoal: true });
+    expect(retry.status).toBe(202);
+  });
+
   it("persists one chair-authored summary comment with collapsed step outputs", async () => {
     mocks.generateText.mockResolvedValueOnce({ text: "1. Research | assignee: worker | expected: facts" }).mockResolvedValueOnce({ text: "facts" }).mockResolvedValueOnce({ text: "GRADE: PASS NOTE: ok" }).mockResolvedValueOnce({ text: "# Summary" });
     const server = await app(dbFor([seat("chair", "moderator"), seat("worker")]));
