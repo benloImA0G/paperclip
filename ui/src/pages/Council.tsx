@@ -23,6 +23,8 @@ import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilEstimate } from "../components/CouncilEstimate";
 import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../components/CouncilMentionPicker";
 import { useOptionalToastActions } from "../context/ToastContext";
+import { CouncilEmptyState } from "../components/CouncilEmptyState";
+import { CouncilRoomStats, formatCouncilMarkdown } from "../components/CouncilRoomStats";
 import { CouncilReplyFooter } from "../components/CouncilReplyFooter";
 import { CouncilStyleSwitch, type CouncilQuickStyle } from "../components/CouncilStyleSwitch";
 import { CouncilEgressBanner } from "../components/CouncilEgressBanner";
@@ -73,12 +75,6 @@ const SEAT_COLORS = [
   "var(--council-seat-color-6)",
   "var(--council-seat-color-7)",
   "var(--council-seat-color-8)",
-];
-
-const QUICK_PROMPTS = [
-  { title: "Architecture debate", hint: "Compare SQLite vs Postgres for state", text: "Compare SQLite and Postgres for storing our app state. Recommend one and say what would change your mind." },
-  { title: "Coding & workers", hint: "Async worker with backpressure", text: "Design an async job worker with backpressure. Show the key code and the failure cases." },
-  { title: "Security audit", hint: "Audit JWT refresh & replay protection", text: "Audit a JWT refresh-token flow for replay and theft risks. List concrete fixes." },
 ];
 
 /** Starting choices per vendor (matched by connection name prefix); `auto` vendors join every new room. */
@@ -724,7 +720,7 @@ export function Council() {
           <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40"><MessagesSquare className="h-5 w-5" /></span>
           <div className="min-w-0">
             <div className="flex items-center gap-2"><h1 className="truncate text-lg font-semibold leading-tight">Multi-Vendor Council Chat</h1>{room?.kind ? <KindChip kind={room.kind} /> : null}</div>
-            <p className="truncate text-xs text-muted-foreground" title="Post a challenge; vendors debate and reconcile into one vision.">Post a challenge; vendors debate and reconcile into one vision.</p>
+            {room ? <><p className="truncate text-xs text-muted-foreground">{room.title}</p><CouncilRoomStats replies={(comments.data ?? []).filter((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((c) => ({ metadata: c.metadata as { councilReliability?: CouncilReplyReliability } | null }))} /></> : null}
           </div>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
@@ -744,6 +740,7 @@ export function Council() {
             {moreOpen ? <div id="council-more-actions" className="absolute right-0 z-20 mt-1 flex min-w-44 flex-col rounded-lg border bg-popover p-1 shadow-lg">
 
               <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || setArchived.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Archive Thread unavailable while a round is running" : "Archive Thread"} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}><Archive /> Archive Thread</Button>
+              <Button variant="ghost" size="sm" className="justify-start" disabled={!comments.data?.length} onClick={() => { const text = formatCouncilMarkdown((comments.data ?? []).map((c) => ({ name: c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX) ? seatById.get(c.authorUserId)?.name ?? "Seat" : "You", body: c.body }))); void navigator.clipboard.writeText(text).then(() => { toast?.pushToast({ tone: "success", title: "Copied" }); setMoreOpen(false); }).catch(() => setError("Could not copy messages")); }}>Copy as Markdown</Button>
               <Button variant="ghost" size="sm" className="justify-start text-destructive" disabled={!roomId || !room || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Delete Thread unavailable while a round is running" : "Delete Thread"} onClick={() => { if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id); }}><Trash2 /> Delete Thread</Button>
               <Button variant="ghost" size="sm" className="justify-start" onClick={() => { setShowArchives((v) => !v); setMoreOpen(false); }}>Archives <span className="rounded-full bg-accent px-1.5 text-xs">{archived.data?.length ?? 0}</span></Button>
               <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || !comments.data?.length || clearChat.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Clear Chat unavailable while a round is running" : "Clear Chat"} onClick={() => { if (window.confirm("Clear every message in this war room? The vendors stay.")) clearChat.mutate(); }}>Clear Chat</Button>
@@ -1192,10 +1189,7 @@ export function Council() {
               </details>
             ))}
             {!comments.isLoading && !comments.isError && comments.data && !comments.data.length ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">{activeSeats.length ? "Ask the council one question, or start from an example." : "Switch at least one vendor to Active, then ask."}</p>
-                {activeSeats.length ? <div className="grid shrink-0 gap-2 md:grid-cols-3">{QUICK_PROMPTS.map((q) => <button key={q.title} type="button" onClick={() => setMessage(q.text)} className="rounded-lg border p-2 text-left hover:bg-accent/50"><div className="text-sm font-medium">{q.title}</div><div className="text-xs text-muted-foreground">{q.hint}</div></button>)}</div> : null}
-              </div>
+              <CouncilEmptyState hasFreeConnection={hasFreeConnection} addDisabled={hasFreeConnection && (!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending)} onAdd={() => { if (hasFreeConnection) addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam }); else { setAdvancedMode(true); setCardsOpen(true); } }} onPrompt={(prompt) => { setMessage(prompt); messageRef.current?.focus(); }} />
             ) : null}
             <div ref={threadEndRef} />
           </div>
@@ -1252,6 +1246,7 @@ export function Council() {
               onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 144)}px`; }}
               className="council-message-input field-sizing-fixed min-h-0 min-w-0 flex-1 resize-none border-0 text-sm shadow-none focus-visible:ring-2 focus-visible:ring-primary"
               onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); return; }
                 if (token && mentionSeats.length) {
                   if (e.key === "Escape") { e.preventDefault(); setMentionClosed(true); return; }
                   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); setMentionIndex((selectedMention + (e.key === "ArrowDown" ? 1 : -1) + mentionSeats.length) % mentionSeats.length); return; }
@@ -1263,6 +1258,7 @@ export function Council() {
                 }
               }}
             />
+            <span className="hidden text-xs text-muted-foreground lg:inline">Ctrl+Enter to send</span>
             {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
