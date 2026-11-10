@@ -369,6 +369,21 @@ export function councilChatRoutes(db: Db) {
     });
   });
 
+  // Quick health check of every active seat; nothing is written to the room.
+  router.post("/companies/:companyId/council/rooms/:issueId/seats/check", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const userId = boardUserId(req);
+    const abort = new AbortController();
+    res.on("close", () => {
+      if (!res.writableFinished) abort.abort();
+    });
+    const checked = await council.checkSeats({ companyId, issueId: req.params.issueId as string, userId, signal: abort.signal });
+    res.json({
+      results: checked.results.map((result) => (result.error ? { ...result, error: friendlySeatError(result.error) } : result)),
+    });
+  });
+
   router.post("/companies/:companyId/council/rooms/:issueId/rounds/stop", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);

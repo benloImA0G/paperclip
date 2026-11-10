@@ -2006,5 +2006,55 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     return [...new Set(ids)].sort();
   }
 
-  return { getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, forkRoom, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
+  /**
+   * Pings every active seat with a tiny prompt (nothing is saved to the room) so a person can see
+   * which seats work before running a real round. Seats are checked in parallel.
+   */
+  async function checkSeats(input: { companyId: string; issueId: string; userId: string; signal?: AbortSignal }) {
+    await getRoom(input.companyId, input.issueId);
+    const rows = await db
+      .select()
+      .from(councilSeats)
+      .where(and(eq(councilSeats.companyId, input.companyId), eq(councilSeats.issueId, input.issueId), eq(councilSeats.active, true)))
+      .orderBy(asc(councilSeats.position), asc(councilSeats.createdAt));
+    const roundId = `check-${randomUUID()}`;
+    const results = await Promise.all(rows.map(async (seat) => {
+      const startedAt = Date.now();
+      try {
+        const result = await runSeatTurn({
+          companyId: input.companyId,
+          issueId: input.issueId,
+          userId: input.userId,
+          roundId,
+          seat,
+          prompt: "Connection check. Reply with the single word OK.",
+          maxOutputTokens: 512,
+          persistComment: false,
+          signal: input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
+        });
+        return {
+          seatId: seat.id,
+          seatName: seat.name,
+          model: result.model ?? seat.model,
+          ok: result.status === "ok",
+          status: result.status,
+          durationMs: result.durationMs ?? Date.now() - startedAt,
+          ...(result.status === "ok" ? {} : { error: result.error ?? result.status }),
+        };
+      } catch (error) {
+        return {
+          seatId: seat.id,
+          seatName: seat.name,
+          model: seat.model,
+          ok: false,
+          status: "error" as const,
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : "Check failed",
+        };
+      }
+    }));
+    return { results };
+  }
+
+  return { checkSeats, getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, forkRoom, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
 }
