@@ -2056,7 +2056,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       .where(and(eq(councilSeats.companyId, input.companyId), eq(councilSeats.issueId, input.issueId), eq(councilSeats.active, true)))
       .orderBy(asc(councilSeats.position), asc(councilSeats.createdAt));
     const roundId = `check-${randomUUID()}`;
-    const results = await Promise.all(rows.map(async (seat) => {
+    const checkOne = async (seat: (typeof rows)[number]) => {
       const startedAt = Date.now();
       if (seat.seatKind === "agent") {
         // Never start a real agent run for a check: read the agent's own status instead.
@@ -2107,8 +2107,21 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           error: error instanceof Error ? error.message : "Check failed",
         };
       }
+    };
+    // Seats on the same connection are pinged one after another so a vendor's rate limit is not tripped;
+    // different connections run in parallel. Results keep the seat order.
+    const groups = new Map<string, typeof rows>();
+    for (const seat of rows) {
+      const key = seat.connectionId ?? `seat:${seat.id}`;
+      const group = groups.get(key);
+      if (group) group.push(seat);
+      else groups.set(key, [seat]);
+    }
+    const done = new Map<string, Awaited<ReturnType<typeof checkOne>>>();
+    await Promise.all([...groups.values()].map(async (group) => {
+      for (const seat of group) done.set(seat.id, await checkOne(seat));
     }));
-    return { results };
+    return { results: rows.map((seat) => done.get(seat.id)!) };
   }
 
   return { checkSeats, getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, forkRoom, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
