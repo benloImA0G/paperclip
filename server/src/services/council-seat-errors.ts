@@ -5,6 +5,8 @@ export function friendlySeatError(raw: string, ctx?: { model?: string; local?: b
   if (/agent returned an empty reply/i.test(raw)) return "The agent finished without writing a reply. Try again or check its instructions.";
   if (!raw.trim() || /empty answer|no reply/i.test(raw)) return "The model returned an empty response. Thinking models can use up the answer limit; raise it in Settings or try another model.";
   if (/\b(?:401|403)\b|unauthorized|invalid api key|forbidden/i.test(raw)) return "The connection was refused (wrong or expired key). Check the connection's credentials.";
+  if (/does not exist|do not have access|no access to (?:this|the) model|not available on this/i.test(raw)) return "That model is not available on this connection. Pick another model.";
+  if (/not enabled for (?:this )?model|instruction not enabled|does not support/i.test(raw)) return "This model does not support what the room asked for. Pick another model.";
   if (/\b404\b|model not found|not found/i.test(raw)) return "That model is not available on this connection. Pick another model.";
   if (/\b429\b|rate limit|quota|too many requests/i.test(raw)) return "The provider is rate limiting this connection. Wait a minute or switch seat to another model.";
   if (/timeout|timed out|etimedout/i.test(raw)) return "The model took too long to answer. Try again or pick a faster model.";

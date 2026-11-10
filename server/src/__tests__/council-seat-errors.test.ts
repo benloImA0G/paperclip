@@ -12,6 +12,8 @@ describe("friendlySeatError", () => {
     ["maximum context exceeded", "The conversation is too long for this model. Clear the chat or use a larger-context model."],
     ["503 service unavailable", "The provider had a temporary problem. Try again."],
     ["Budget limit reached", "Budget limit reached"],
+    ["The model `x-9000` does not exist or you do not have access to it.", "That model is not available on this connection. Pick another model."],
+    ["Developer instruction is not enabled for models/antigravity", "This model does not support what the room asked for. Pick another model."],
     ["Agent turn failed", "The agent could not finish its turn. Check that the agent is running (Agents page) and that its gateway is reachable."],
     ["Council agent returned an empty reply", "The agent finished without writing a reply. Try again or check its instructions."],
   ])("formats %s", (raw, expected) => {
