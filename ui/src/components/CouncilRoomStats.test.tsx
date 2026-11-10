@@ -8,13 +8,16 @@ describe("room totals", () => {
   });
   it("distinguishes local, missing prices and missing usage", () => {
     expect(sumCouncilReplies([{ metadata: { councilReliability: { local: true } } }]).cost).toBe("FREE (Local)");
-    expect(sumCouncilReplies([{ metadata: { councilReliability: { local: true } } }, {}])).toEqual({ replies: 2, tokens: null, allHaveTokens: false, cost: "cost unavailable" });
+    expect(sumCouncilReplies([{ metadata: { councilReliability: { local: true } } }, {}])).toEqual({ replies: 2, tokens: null, allHaveTokens: false, cost: "cost not reported" });
     expect(renderToStaticMarkup(<CouncilRoomStats replies={[]} />)).toBe("");
   });
   it("marks partial token totals", () => {
     const replies = [{ metadata: { councilReliability: { usage: { inputTokens: 10 } } } }, {}];
     expect(sumCouncilReplies(replies).allHaveTokens).toBe(false);
-    expect(renderToStaticMarkup(<CouncilRoomStats replies={replies} />)).toContain("2 replies · at least 10 tokens");
+    const html = renderToStaticMarkup(<CouncilRoomStats replies={replies} />);
+    expect(html).toContain("10+ tokens");
+    expect(html).toContain("Some replies did not report their token count, so the real total is higher.");
+    expect(html).toContain("Free local models cost nothing; cloud vendors did not report a price.");
   });
   it("formats messages in order", () => {
     expect(formatCouncilMarkdown([{ name: "You", body: "Hello" }, { name: "Ada", body: "First\nSecond" }])).toBe("**You:** Hello\n\n**Ada:** First\nSecond");

@@ -26,14 +26,15 @@ export function parseActionItems(value: string | null): CouncilActionItem[] {
 }
 
 function section(text: string, heading: string, next: string): string | null {
-  const start = text.search(new RegExp(`^### ${heading}\\s*$`, "im"));
+  const start = text.search(new RegExp(`^### ${heading}[ \t]*$`, "im"));
   if (start < 0) return null;
   const bodyStart = text.indexOf("\n", start) + 1;
-  const end = text.search(new RegExp(`^### ${next}\\s*$`, "im"));
-  return text.slice(bodyStart, end >= bodyStart ? end : text.length).trim() || null;
+  const end = text.search(new RegExp(`^### ${next}[ \t]*$`, "im"));
+  return text.slice(bodyStart, end >= bodyStart ? end : text.length).trim();
 }
 
-function bullets(value: string): string[] {
+function bullets(value: string | null): string[] {
+  if (!value || value.toLowerCase() === "none") return [];
   return value.split("\n").map((line) => line.replace(/^\s*[-*+]\s+/, "").trim()).filter(Boolean);
 }
 
@@ -49,6 +50,6 @@ export function parseCouncilDecisionRecord(markdown: string): CouncilDecisionRec
   const nextQuestion = section(markdown, "Next question", "Action items");
   const actionItems = parseActionItems(section(markdown, "Action items", "__end__"));
   const confidence = markdown.match(/^\*\*Confidence:\*\*\s*(High|Medium|Low)\b([^\n]*)/im);
-  if (!recommendation || !agreementText || !dissentText || !risksText || !nextQuestion || !confidence) return null;
-  return { recommendation: withoutConfidence(recommendation), confidence: `${confidence[1]}${confidence[2]}`.trim(), agreement: bullets(agreementText), dissent: dissentText.toLowerCase() === "none" ? [] : bullets(dissentText), risks: bullets(risksText), nextQuestion, actionItems };
+  if (recommendation === null || agreementText === null || dissentText === null || risksText === null || nextQuestion === null || !confidence) return null;
+  return { recommendation: withoutConfidence(recommendation), confidence: `${confidence[1]}${confidence[2]}`.trim(), agreement: bullets(agreementText), dissent: bullets(dissentText), risks: bullets(risksText), nextQuestion, actionItems };
 }

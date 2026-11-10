@@ -11,5 +11,6 @@ it("shows measured values and keeps missing details in the title", () => {
 
 it("shows local cost and supports old replies", () => {
   expect(renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { local: true, costCents: 3, usage: { outputTokens: 0 } } }} />)).toContain("0 out · FREE (Local) · Not fact-checked");
+  expect(renderToStaticMarkup(<CouncilReplyFooter />)).toContain("This vendor did not report a price.");
   expect(renderToStaticMarkup(<CouncilReplyFooter />)).toMatch(/>Not fact-checked<\/div>/);
 });

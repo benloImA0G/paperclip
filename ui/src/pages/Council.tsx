@@ -1108,13 +1108,13 @@ export function Council() {
                     </div>
                     {decision ? (
                       <section aria-label="Council decision" className="space-y-3 rounded-md border border-border/70 bg-card p-3">
-                        <div>
+                        {decision.recommendation ? <div>
                           <h2 className="text-xs font-semibold text-muted-foreground">Recommendation</h2>
                           <MarkdownBody className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] [&>*:first-child]:mt-1 [&>*:last-child]:mb-0">{decision.recommendation}</MarkdownBody>
-                        </div>
+                        </div> : null}
                         <span className="inline-flex w-fit rounded-full bg-primary/10 px-2 py-1 text-xs font-semibold text-primary" aria-label={`Confidence: ${decision.confidence}`}>Confidence: {decision.confidence}</span>
                         <div className="space-y-1">
-                          {[["Where seats agree", decision.agreement], ["Disagreement / dissent", decision.dissent], ["Risks and unknowns", decision.risks]].map(([label, items]) => (
+                          {[["Where seats agree", decision.agreement], ["Disagreement / dissent", decision.dissent], ["Risks and unknowns", decision.risks]].filter(([, items]) => (items as string[]).length > 0).map(([label, items]) => (
                             <details key={label as string} className="rounded-md border border-border/60 px-2 py-1.5">
                               <summary className="cursor-pointer text-xs font-medium">{label as string}</summary>
                               <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-muted-foreground">{(items as string[]).map((item) => <li key={item}>{item}</li>)}</ul>
@@ -1122,12 +1122,12 @@ export function Council() {
                           ))}
                         </div>
                         <div className="border-t border-border/60 pt-2">
-                          <p className="text-xs font-semibold text-muted-foreground">Next question</p>
+                          {decision.nextQuestion ? <><p className="text-xs font-semibold text-muted-foreground">Next question</p>
                           {roomId && roomIssueQuery.data?.identifier ? <CreateTaskFromDecisionButton roomId={roomId} roomIdentifier={roomIssueQuery.data.identifier} roomTitle={room?.title ?? "Council room"} decision={decision} /> : null}
                           <Button type="button" variant="outline" size="sm" className="mt-1 h-auto w-full flex-col items-start gap-0.5 text-left" onClick={() => setMessage(decision.nextQuestion)} aria-label={`Ask this question: ${decision.nextQuestion}`}>
                             <span className="font-semibold">Ask this question</span>
                             <span className="text-muted-foreground">{decision.nextQuestion}</span>
-                          </Button>
+                          </Button></> : null}
                           {companyId && roomIssueQuery.data?.identifier && decision.actionItems.length > 0 ? (
                             <div className="mt-2">
                               <ActionItemsChecklist
@@ -1254,14 +1254,14 @@ export function Council() {
                 <summary className="cursor-pointer px-2.5 py-1.5 font-medium hover:text-foreground" aria-label={`Show run details for round ${index + 1}`}>Run details · round {index + 1}</summary>
                 <div className="overflow-x-auto border-t border-border/50">
                   <table className="w-full text-left">
-                    <thead className="text-(length:--text-nano) text-muted-foreground"><tr className="border-b border-border/50"><th className="px-2.5 py-1.5 font-medium">Seat</th><th className="px-2.5 py-1.5 font-medium">Time</th><th className="px-2.5 py-1.5 font-medium">Tokens in</th><th className="px-2.5 py-1.5 font-medium">Tokens out</th><th className="px-2.5 py-1.5 font-medium">Model</th><th className="px-2.5 py-1.5 font-medium">Status</th></tr></thead>
+                    <thead className="text-(length:--text-nano) text-muted-foreground"><tr className="border-b border-border/50"><th className="px-2.5 py-1.5 font-medium">Seat</th><th className="px-2.5 py-1.5 font-medium">Replies</th><th className="px-2.5 py-1.5 font-medium">Time</th><th className="px-2.5 py-1.5 font-medium">Tokens in</th><th className="px-2.5 py-1.5 font-medium">Tokens out</th><th className="px-2.5 py-1.5 font-medium">Model</th><th className="px-2.5 py-1.5 font-medium">Status</th></tr></thead>
                     <tbody className="divide-y divide-border/50">
                   {results.map((result, resultIndex) => {
                     const seat = allSeats.find((candidate) => candidate.id === result.seatId);
                     const status = result.status === "ok" ? "ok" : result.status === "blocked" ? "skipped" : result.status === "cancelled" ? "stopped" : "failed";
                     const statusLabel = result.status === "cancelled" ? "Stopped" : status;
                     return (
-                      <tr key={`${result.seatId}-${resultIndex}`}><td className="px-2.5 py-1.5 font-medium text-foreground">{seat ? vendorOf(seat) : "Unknown vendor"}{result.orchestrator ? " (orchestrator)" : ""}</td><td className="px-2.5 py-1.5">{result.latencyMs == null ? "—" : `${(result.latencyMs / 1000).toFixed(1)}s`}</td><td className="px-2.5 py-1.5">{result.usage?.inputTokens ?? "—"}</td><td className="px-2.5 py-1.5">{result.usage?.outputTokens ?? "—"}</td><td className="max-w-40 truncate px-2.5 py-1.5" title={result.model}>{result.model ?? "—"}{result.fallbackUsed ? " (fallback)" : ""}</td><td className={status === "ok" ? "px-2.5 py-1.5 text-emerald-600" : status === "failed" ? "px-2.5 py-1.5 text-destructive" : "px-2.5 py-1.5"}>{statusLabel}{result.status === "cancelled" ? " — you stopped this round" : result.error ? ` — ${result.error.slice(0, 80)}` : ""}</td></tr>
+                      <tr key={`${result.seatId}-${resultIndex}`}><td className="px-2.5 py-1.5 font-medium text-foreground">{seat ? vendorOf(seat) : "Unknown vendor"}{result.orchestrator ? " (orchestrator)" : ""}</td><td className="px-2.5 py-1.5">{result.status === "ok" ? "1" : seat?.active === false ? "Seat is switched off" : "No reply this round"}</td><td className="px-2.5 py-1.5">{result.latencyMs == null ? "—" : `${(result.latencyMs / 1000).toFixed(1)}s`}</td><td className="px-2.5 py-1.5">{result.usage?.inputTokens ?? "—"}</td><td className="px-2.5 py-1.5">{result.usage?.outputTokens ?? "—"}</td><td className="max-w-40 truncate px-2.5 py-1.5" title={result.model}>{result.model ?? "—"}{result.fallbackUsed ? " (fallback)" : ""}</td><td className={status === "ok" ? "px-2.5 py-1.5 text-emerald-600" : status === "failed" ? "px-2.5 py-1.5 text-destructive" : "px-2.5 py-1.5"}>{statusLabel}{result.status === "cancelled" ? " — you stopped this round" : result.error ? ` — ${result.error.slice(0, 80)}` : ""}</td></tr>
                     );
                   })}
                     </tbody>

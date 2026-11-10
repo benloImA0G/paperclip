@@ -22,13 +22,13 @@ export function sumCouncilReplies(replies: Reply[]) {
     if (!Number.isFinite(price) || price < 0 || /unknown|estimated[-_ ]missing/i.test(r?.costStatus ?? "")) allPriced = false;
     else costCents += price;
   }
-  return { replies: replies.length, tokens: hasTokens ? tokens : null, allHaveTokens, cost: allLocal ? "FREE (Local)" : allPriced && replies.length ? `$${(costCents / 100).toFixed(6).replace(/0+$/, "").replace(/\.$/, ".00").replace(/(\.\d)$/, "$10")}` : "cost unavailable" };
+  return { replies: replies.length, tokens: hasTokens ? tokens : null, allHaveTokens, cost: allLocal ? "FREE (Local)" : allPriced && replies.length ? `$${(costCents / 100).toFixed(6).replace(/0+$/, "").replace(/\.$/, ".00").replace(/(\.\d)$/, "$10")}` : "cost not reported" };
 }
 
 export function CouncilRoomStats({ replies }: { replies: Reply[] }) {
   if (!replies.length) return null;
   const total = sumCouncilReplies(replies);
-  return <p className="text-xs text-muted-foreground">{total.replies} {total.replies === 1 ? "reply" : "replies"} · {total.tokens === null ? "tokens unavailable" : `${total.allHaveTokens ? "" : "at least "}${total.tokens.toLocaleString()} tokens`} · {total.cost}</p>;
+  return <p className="text-xs text-muted-foreground">{total.replies} {total.replies === 1 ? "reply" : "replies"} · {total.tokens === null ? "tokens unavailable" : <span title={total.allHaveTokens ? undefined : "Some replies did not report their token count, so the real total is higher."}>{total.tokens.toLocaleString()}{total.allHaveTokens ? "" : "+"} tokens</span>} · <span title={total.cost === "cost not reported" ? "Free local models cost nothing; cloud vendors did not report a price." : undefined}>{total.cost}</span></p>;
 }
 
 export function formatCouncilMarkdown(messages: Array<{ name: string; body: string }>) {

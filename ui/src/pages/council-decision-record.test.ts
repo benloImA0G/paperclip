@@ -16,6 +16,12 @@ describe("parseCouncilDecisionRecord", () => {
     expect(withItems?.actionItems).toEqual([{ text: "Sign the contract", owner: "Ben" }, { text: "Draft the memo" }, { text: "Review" }]);
     expect(parseCouncilDecisionRecord(`${base}\n\n### Action items\nNone`)?.actionItems).toEqual([]);
   });
+  it("accepts empty decision sections", () => {
+    const decision = parseCouncilDecisionRecord("### Recommendation\nChoose A.\n**Confidence:** High\n### Where seats agree\n### Disagreement / dissent\nNone\n### Risks and unknowns\n### Next question\nQ?");
+    expect(decision?.agreement).toEqual([]);
+    expect(decision?.dissent).toEqual([]);
+    expect(decision?.risks).toEqual([]);
+  });
   it("returns null for ordinary markdown", () => {
     expect(parseCouncilDecisionRecord("### Recommendation\nOnly this section")).toBeNull();
   });
