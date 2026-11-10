@@ -28,6 +28,7 @@ import { CouncilStyleSwitch, type CouncilQuickStyle } from "../components/Counci
 import { CouncilEgressBanner } from "../components/CouncilEgressBanner";
 import type { CouncilReplyReliability } from "./council-reply-labels";
 import { CouncilSuggestSeats } from "./council-suggest-seats";
+import { planFreeTeam } from "./council-free-team";
 import { queryKeys } from "../lib/queryKeys";
 import { Link } from "../lib/router";
 import { CouncilTemplates } from "../components/CouncilTemplates";
@@ -349,6 +350,8 @@ export function Council() {
   // Keep every persisted seat visible. A connection can have multiple seats; display is not mutation authority.
   const seatOf = (connectionId: string) => allSeats.find((s) => s.connectionId === connectionId);
   const activeSeats = allSeats.filter((s) => s.active);
+  const freeTeam = planFreeTeam(connectionOptions, allSeats.map((seat) => seat.name));
+  const hasFreeConnection = planFreeTeam(connectionOptions, []).length > 0;
   const token = mentionClosed ? null : mentionToken(message, mentionCursor);
   const mentionSeats = token ? activeSeats.filter((seat) => seat.name.toLowerCase().startsWith(token.query.toLowerCase())) : [];
   const selectedMention = Math.min(mentionIndex, mentionSeats.length - 1);
@@ -405,6 +408,19 @@ export function Council() {
       createSeatFor(roomId!, conn, draft),
     onSettled: () => void refresh("seats"),
     onError: () => setError("Couldn’t add this seat. Try again."),
+  });
+
+  const addFreeTeam = useMutation({
+    mutationFn: async ({ targetRoomId, plans }: { targetRoomId: string; plans: typeof freeTeam }) => {
+      for (const plan of plans) {
+        const conn = connectionOptions.find((candidate) => candidate.id === plan.connectionId)!;
+        await createSeatFor(targetRoomId, conn, plan);
+      }
+      return plans.length;
+    },
+    onSuccess: (count) => { toast?.pushToast({ tone: "success", title: `Added ${count} seats` }); },
+    onError: () => { if (toast) toast.pushToast({ tone: "error", title: "Could not add seats" }); else setError("Could not add seats"); },
+    onSettled: (_data, _error, { targetRoomId }) => void refreshSeatsFor(targetRoomId),
   });
 
   const addDefaults = useMutation({
@@ -839,6 +855,10 @@ export function Council() {
           <QueryState label="connections" loading={connections.isLoading} error={connections.isError} onRetry={() => void connections.refetch()} />
           <QueryState label="seats" loading={seats.isLoading} error={seats.isError} onRetry={() => void seats.refetch()} />
             {!connections.isLoading && !connections.isError && !connectionOptions.length ? <p className="text-sm text-muted-foreground">No AI connections yet. <button type="button" className="underline" onClick={() => { setSettingsOpen(true); }}>Open seat settings</button> to add one.</p> : null}
+          {activeSeats.length < 3 && !connections.isLoading && !connections.isError && !seats.isLoading && !seats.isError ? <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending} onClick={() => addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam })}>Add a free team</Button>
+            {!hasFreeConnection ? <span className="text-xs text-muted-foreground">Connect a free AI first</span> : null}
+          </div> : null}
           <div className={advancedMode ? "flex items-center justify-between text-xs" : "hidden"}>
             <span className="font-semibold uppercase tracking-wide text-muted-foreground">
               ● Select participating seats <span className="council-vendor-helper font-normal normal-case">· click Active / Inactive to include a seat · selected seats respond concurrently</span>
