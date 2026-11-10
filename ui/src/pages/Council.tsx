@@ -963,7 +963,7 @@ export function Council() {
             <div className="flex flex-wrap gap-1 border-t px-2 py-2">
               {activeSeats.map((seat) => {
                 const result = latestRound.find((candidate) => candidate.seatId === seat.id) ?? lastResults[roomId ?? ""]?.[seat.id];
-                const status = running && !result ? "working…" : result ? (result.status === "ok" ? "answered" : result.status === "blocked" ? "skipped" : result.status === "cancelled" ? "stopped" : "failed") : "waiting";
+                const status = running && !result ? "working…" : result ? (result.status === "ok" ? "answered" : result.status === "blocked" ? "skipped" : result.status === "cancelled" ? "stopped" : "failed") : "ready";
                 const latency = result?.latencyMs ?? result?.durationMs;
                 const statusTone = status === "answered" ? "text-emerald-600" : status === "failed" ? "text-destructive" : status === "working…" ? "text-primary" : "text-muted-foreground";
                 return (
