@@ -43,6 +43,8 @@ describe("repeat last council question", () => {
     expect(mocks.selectFastResponse).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "second-connection" }));
     expect(mocks.addComment).toHaveBeenCalledTimes(1);
     expect(mocks.addComment).toHaveBeenCalledWith(base.issueId, "A useful answer", { userId: "council-seat:second" }, expect.anything());
+    // The reply remembers which question it answers, since no new user message is posted.
+    expect(mocks.addComment.mock.calls[0]![3]).toMatchObject({ metadata: { councilReliability: { askedAgain: "Second question" } } });
     const prompt = mocks.generateText.mock.calls[0]![0].prompt as string;
     expect(prompt).toContain("Second question");
     // Earlier context stays; only the replies to the question being asked again are hidden.

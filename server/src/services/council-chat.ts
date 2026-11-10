@@ -893,6 +893,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     attempt: number;
     /** Set on a repeat call to the same model so its cost receipt gets its own idempotency key. */
     retryIndex?: number;
+    /** The question being asked again (no new user message is posted); stored with the reply. */
+    askedAgain?: string;
     prompt: string;
     images?: CouncilImage[];
     maxOutputTokens: number;
@@ -1034,6 +1036,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
               provider,
               model: target.model,
               local: metadata.routing?.kind === "local",
+              // "Ask again": remember which question this reply answers, since no new user message is posted.
+              ...(input.askedAgain ? { askedAgain: input.askedAgain.slice(0, 300) } : {}),
             },
             sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
           },
@@ -1183,6 +1187,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     persistComment?: boolean;
     stance?: boolean;
     stanceOnly?: boolean;
+    askedAgain?: string;
     generation?: number;
     isCancelled?: () => Promise<boolean>;
     abort?: () => void;
@@ -1507,6 +1512,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         maxOutputTokens: options?.maxOutputTokens ?? maxOutputTokens, signal, generation: input.generation,
         isCancelled: input.isCancelled, abort: input.abort, persistComment: options?.persistComment,
         stance: options?.stance ?? (discuss && input.stance), stanceOnly: options?.stanceOnly,
+        askedAgain: input.repeatLast ? message : undefined,
       });
     };
     const results: CouncilSeatTurnResult[] = [];
@@ -2118,6 +2124,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           ok: result.status === "ok",
           status: result.status,
           durationMs: result.durationMs ?? Date.now() - startedAt,
+          // The seat works, but only because a backup model answered: say so, so a broken main model is not hidden.
+          ...(result.status === "ok" && result.failedAttempts?.length ? { backupUsed: true, primaryError: result.failedAttempts[0]!.error } : {}),
           ...(result.status === "ok" ? {} : { error: result.error ?? result.status }),
         };
       } catch (error) {

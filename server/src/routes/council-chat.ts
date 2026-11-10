@@ -389,7 +389,11 @@ export function councilChatRoutes(db: Db) {
     });
     const checked = await council.checkSeats({ companyId, issueId: req.params.issueId as string, userId, signal: abort.signal });
     res.json({
-      results: checked.results.map((result) => (result.error && !("plainError" in result && result.plainError) ? { ...result, error: friendlySeatError(result.error) } : result)),
+      results: checked.results.map((raw) => {
+        // Never send raw provider text: plain wording for the error and for the main model's failure.
+        const result = "primaryError" in raw && typeof raw.primaryError === "string" ? { ...raw, primaryError: friendlySeatError(raw.primaryError) } : raw;
+        return result.error && !("plainError" in result && result.plainError) ? { ...result, error: friendlySeatError(result.error) } : result;
+      }),
     });
   });
 
