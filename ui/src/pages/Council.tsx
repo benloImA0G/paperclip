@@ -20,6 +20,7 @@ import { CouncilWorkPanel } from "./council-work-step";
 import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
+import { CouncilSeatCheck } from "../components/CouncilSeatCheck";
 import { CouncilEstimate } from "../components/CouncilEstimate";
 import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../components/CouncilMentionPicker";
 import { useOptionalToastActions } from "../context/ToastContext";
@@ -892,6 +893,7 @@ export function Council() {
               })}
             </div>
           ) : null}
+          {roomId && activeSeats.length > 0 ? <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }} /> : null}
           <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className={advancedMode ? "council-participants shrink-0 rounded-lg border bg-muted/10" : "hidden"}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
               <span className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Participants <span className="font-normal text-muted-foreground">{activeSeats.length} active</span></span>

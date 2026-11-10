@@ -56,6 +56,16 @@ export type CouncilSeatInput = {
   role?: CouncilSeatRole;
 };
 
+export interface CouncilSeatCheckResult {
+  seatId: string;
+  seatName: string;
+  model: string | null;
+  ok: boolean;
+  status: string;
+  durationMs: number;
+  error?: string;
+}
+
 export interface CouncilSeatResult {
   seatId: string;
   seatName: string;
@@ -139,6 +149,8 @@ export const councilApi = {
   createRoom: (companyId: string, title: string) => api.post<Issue>(`/companies/${companyId}/council/rooms`, { title }),
   listSeats: (companyId: string, issueId: string) =>
     api.get<CouncilSeat[]>(`/companies/${companyId}/council/rooms/${issueId}/seats`),
+  checkSeats: (companyId: string, roomId: string) =>
+    api.post<{ results: CouncilSeatCheckResult[] }>(`/companies/${companyId}/council/rooms/${roomId}/seats/check`, {}, { timeoutMs: 70000 }),
   suggestSeats: (companyId: string, roomId: string, input: { count: number; seed?: number }) =>
     api.post<{ proposals: CouncilSeatProposal[] }>(`/companies/${companyId}/council/rooms/${roomId}/seats/suggest`, input),
   addSeat: (companyId: string, issueId: string, input: CouncilSeatInput) =>
