@@ -51,6 +51,7 @@ function AgentRow({ agent, roomId, seats, addingAgentId, addError, onAdd }: {
   const isHermes = agent.adapterType === "hermes_gateway" || agent.adapterType === "hermes_local";
   // Mirrors the server gate (isAgentInvokableForCouncil); a missing lifecycleState counts as ready.
   const agentReady = (agent.lifecycleState ?? "ready") === "ready" && !["paused", "terminated", "pending_approval", "error", "deleted"].includes(agent.status);
+  const blockedStatus = ["error", "paused", "terminated", "pending_approval"].includes(agent.status) ? agent.status.replaceAll("_", " ") : null;
   const alreadyAdded = seats.some((seat) => seat.kind === "agent" && seat.agentId === agent.id);
   const agentSeatLimitReached = seats.filter((seat) => seat.kind === "agent").length >= 3;
   const addUnavailableReason = agent.adapterType !== "hermes_gateway" ? "Only Hermes gateway agents can join war rooms." : !agentReady ? "This agent is not ready (paused, errored or still being set up)." : alreadyAdded ? "This agent is already in the room." : agentSeatLimitReached ? "This room already has three agents." : undefined;
@@ -66,6 +67,7 @@ function AgentRow({ agent, roomId, seats, addingAgentId, addError, onAdd }: {
           >
             {agent.name}
           </Link>
+          {blockedStatus ? <span className="text-xs text-muted-foreground">{blockedStatus}: fix it under Agents first</span> : null}
           {isHermes ? <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Hermes</span> : null}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">

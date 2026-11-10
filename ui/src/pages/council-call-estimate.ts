@@ -1,5 +1,6 @@
 export interface CallEstimateOptions {
   answeringSeats: number;
+  targetedSeats?: number;
   hasModerator: boolean;
   rounds: number;
   untilAgreement: boolean;
@@ -12,6 +13,10 @@ export interface CallEstimateOptions {
 }
 
 export function estimateCalls(options: CallEstimateOptions): { low: number; high: number; lines: string[] } {
+  if (options.targetedSeats !== undefined) {
+    const seats = options.targetedSeats;
+    return { low: seats, high: seats, lines: [`${seats} seats answer`] };
+  }
   const { work } = options;
   const lines: string[] = [];
   if (work.planFirst) {

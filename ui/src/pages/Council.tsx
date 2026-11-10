@@ -612,7 +612,7 @@ export function Council() {
             seatId: m === "summarize" ? summarySeatId || fastSeatId : undefined,
             // reasoning models spend part of the budget thinking; 1024 left them with empty answers
             maxOutputTokens: 3072,
-            ...(panel && m !== "summarize" ? { panel } : {}),
+            ...(panel && m !== "summarize" && mentioned === undefined ? { panel } : {}),
             ...extra,
           },
           controller.signal,
@@ -639,13 +639,14 @@ export function Council() {
       };
       const text = message.trim();
       const pics = images.map(({ mediaType, data }) => ({ mediaType, data }));
-      const debate = mode === "ask" && discussion && activeSeats.length > 1 ? DEPTHS[depth] : null;
+      const targeted = mentionedSeatIds(text, activeSeats) !== undefined;
+      const debate = mode === "ask" && !targeted && discussion && activeSeats.length > 1 ? DEPTHS[depth] : null;
       const plan =
         mode === "ask"
           ? [
               "Answers",
               ...Array.from({ length: debate?.rounds ?? 0 }, (_, i) => `Discussion ${i + 1}`),
-              ...(autoSummary ? ["Summary"] : []),
+              ...(autoSummary && !targeted ? ["Summary"] : []),
             ]
           : [mode === "discuss" ? "Discussion" : "Summary"];
       let step = 0;
@@ -655,8 +656,8 @@ export function Council() {
       };
       setSteps(plan);
       if (mode === "ask") {
-        begin("Round 1: every vendor answers in parallel…");
-        const asked = await run("ask", { message: text, images: pics, clarify, ranking: peerRanking, jury });
+        begin(targeted ? "Asking the selected seats…" : "Round 1: every vendor answers in parallel…");
+        const asked = await run("ask", { message: text, images: pics, clarify: targeted ? false : clarify, ranking: targeted ? false : peerRanking, jury: targeted ? false : jury });
         collect(asked);
         if (asked.jury) setReviewNotice(`Jury on ${asked.jury.answerSeat}'s answer (${asked.jury.judges} judges): ${asked.jury.verdict.toUpperCase()} - pass ${asked.jury.counts.pass}, revise ${asked.jury.counts.revise}, fail ${asked.jury.counts.fail}`);
         if (asked.ranking) setReviewNotice(`Blind peer ranking (${asked.ranking.judges} judges): ${asked.ranking.order.map((row, i) => `${i + 1}. ${row.seatName}`).join("  ")}`);
@@ -677,7 +678,7 @@ export function Council() {
             if (untilAgreement && (round.agreement.reached || (prev !== undefined && Math.abs(last - prev) <= 3))) break;
           }
         }
-        if (autoSummary && !controller.signal.aborted) {
+        if (autoSummary && !targeted && !controller.signal.aborted) {
           await refresh("comments");
           begin("Writing the 1-page summary…");
           collect(await run("summarize"));
@@ -754,7 +755,9 @@ export function Council() {
   if (!selectedCompanyId) return <EmptyState icon={Users} message="Select an organization to use Council." />;
 
   const hasModerator = activeSeats.some((seat) => seat.role === "moderator");
+  const targetedSeatIds = mentionedSeatIds(message, activeSeats);
   const callEstimate = estimateCalls({
+    targetedSeats: targetedSeatIds?.length,
     answeringSeats: activeSeats.length - (hasModerator && activeSeats.length > 1 ? 1 : 0),
     hasModerator, rounds: discussion && activeSeats.length > 1 ? DEPTHS[depth].rounds + 1 : 1,
     untilAgreement: discussion && activeSeats.length > 1 && depth === "agree",
@@ -896,7 +899,7 @@ export function Council() {
           }}
         >
           <div className="flex items-center gap-2">
-            <Input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Room title" className="h-8 min-w-0 flex-1" aria-label="Room title" />
+            <Input autoFocus value={newTitle} onFocus={(e) => { if (newTitle === COUNCIL_TEMPLATES.find((template) => template.id === selectedTemplate)?.title) e.currentTarget.select(); }} onChange={(e) => setNewTitle(e.target.value)} placeholder="Room title" className="h-8 min-w-0 flex-1" aria-label="Room title" />
             <Button type="submit" size="sm" disabled={createRoom.isPending || !newTitle.trim()}>{createRoom.isPending ? "Creating…" : "Create"}</Button>
             <Button type="button" size="sm" variant="ghost" aria-label="Cancel new war room" onClick={() => setCreating(false)}><X /></Button>
           </div>
@@ -1102,7 +1105,7 @@ export function Council() {
                       <span>
                         {c.metadata?.councilReliability?.councilKind === "critique" ? <span className="mr-1 rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground">Critique</span> : null}
                         {seat?.role === "moderator" ? <span className="mr-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">Orchestrator</span> : null}@{name} • {seat ? vendorOf(seat) : "Vendor"}
-                        <span className="sr-only">{seat ? ` (${seat.model})` : ""}</span>
+                        <span className="sr-only">{c.metadata?.councilReliability?.model || seat?.model ? ` (${c.metadata?.councilReliability?.model || seat?.model})` : ""}</span>
                       </span>
                       <span className="font-normal text-muted-foreground">{clock(c.createdAt)}</span>
                     </div>
@@ -1247,7 +1250,7 @@ export function Council() {
                 </div>
               );
             })}
-            {workQuery.data && workQuery.data.status !== "idle" ? <CouncilWorkPanel steps={workQuery.data.steps} running={workQuery.data.status === "running"} summary={workQuery.data.summary} /> : null}
+            {workQuery.data && workQuery.data.status !== "idle" ? <CouncilWorkPanel steps={workQuery.data.steps} running={workQuery.data.status === "running"} summary={workQuery.data.summary} status={workQuery.data.status} /> : null}
             {roomId && agreements[roomId] ? <CouncilAgreementMeter agreement={agreements[roomId]!.agreement} round={agreements[roomId]!.round} /> : null}
             {(roundDetails[roomId ?? ""] ?? []).map((results, index) => (
               <details key={`round-details-${index}`} className="rounded-md border border-border/60 bg-muted/20 text-xs text-muted-foreground">
@@ -1271,7 +1274,7 @@ export function Council() {
               </details>
             ))}
             {!comments.isLoading && !comments.isError && comments.data && !comments.data.length ? (
-              <CouncilEmptyState hasFreeConnection={hasFreeConnection} addDisabled={hasFreeConnection && (!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending)} onAdd={() => { if (hasFreeConnection) addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam }); else { setAdvancedMode(true); setCardsOpen(true); } }} onPrompt={(prompt) => { setMessage(prompt); messageRef.current?.focus(); }} />
+              <CouncilEmptyState activeSeatNames={activeSeats.map((seat) => seat.name)} hasFreeConnection={hasFreeConnection} addDisabled={hasFreeConnection && (!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending)} onAdd={() => { if (hasFreeConnection) addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam }); else { setAdvancedMode(true); setCardsOpen(true); } }} onPrompt={(prompt) => { setMessage(prompt); messageRef.current?.focus(); }} />
             ) : null}
             <div ref={threadEndRef} />
           </div>
@@ -1310,7 +1313,7 @@ export function Council() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!canSend) return;
-              if (planFirst && workStatus !== "running") {
+              if (planFirst && workStatus !== "running" && targetedSeatIds === undefined) {
                 startWork.mutate({ companyId, roomId: roomId!, vars: { goal: message.trim(), postGoal: true, ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } });
                 setMessage("");
                 return;
@@ -1319,7 +1322,7 @@ export function Council() {
             }}
           >
             {suggestion ? <p className="px-1 text-xs text-muted-foreground" data-testid="council-mode-hint">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
-            {message.trim() ? <p className="px-1 text-xs text-muted-foreground" title={callEstimate.lines.join("; ")}>About {callEstimate.low}{callEstimate.low !== callEstimate.high ? `–${callEstimate.high}` : ""} model calls</p> : null}
+            {message.trim() ? <p className="px-1 text-xs text-muted-foreground" title={callEstimate.lines.join("; ")}>About {callEstimate.low}{callEstimate.low !== callEstimate.high ? `–${callEstimate.high}` : ""} model call{callEstimate.high === 1 ? "" : "s"}</p> : null}
             {startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground">Only this seat will answer</p> : null}
             {token && mentionSeats.length ? <CouncilMentionPicker seats={mentionSeats} selected={selectedMention} onChoose={chooseMention} /> : null}
             <div className="flex items-end gap-2">

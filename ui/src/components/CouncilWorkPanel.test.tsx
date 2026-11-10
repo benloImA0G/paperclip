@@ -23,7 +23,7 @@ describe("CouncilWorkPanel", () => {
       );
     });
     const text = host.textContent ?? "";
-    expect(text).toContain("1 of 3 steps done");
+    expect(text).toContain("Working: step 2 of 3… (0s)");
     expect(text).toContain("Gather facts");
     expect(text).toContain("Gemini");
     expect(text).toContain("Produces: Slide titles");

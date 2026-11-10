@@ -100,6 +100,24 @@ describe("Council page", () => {
     await renderPage(); await click("Ask again");
     await waitFor(() => expect(api.runRound).toHaveBeenCalledWith("company-1", "room-1", { mode: "ask", seatId: "seat-1", repeatLast: true, repeatFromCommentId: "reply-1" }, expect.any(AbortSignal)));
   });
+  it("uses the model recorded with a reply", async () => {
+    api.comments["room-1"] = [question, { ...reply, metadata: { councilReliability: { model: "original-model", fallbackUsed: true } } }];
+    await renderPage();
+    expect(container.textContent).toContain("(original-model)");
+    expect(container.textContent).toContain("answered by a backup model");
+  });
+  it("sends a targeted question as one answer without ranking or jury", async () => {
+    await renderPage();
+    const input = container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "@Alice What do you think?");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("About 1 model call");
+    await click("Send");
+    await waitFor(() => expect(api.runRound).toHaveBeenCalledTimes(1));
+    expect(api.runRound.mock.calls[0][2]).toMatchObject({ mode: "ask", ranking: false, jury: false });
+  });
   it("forks from the reply", async () => {
     await renderPage(); await click("Fork from here");
     await waitFor(() => expect(api.forkRoom).toHaveBeenCalledWith("company-1", "room-1", "reply-1"));

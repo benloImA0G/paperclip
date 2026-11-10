@@ -14,3 +14,8 @@ it("shows local cost and supports old replies", () => {
   expect(renderToStaticMarkup(<CouncilReplyFooter />)).toContain("This vendor did not report a price.");
   expect(renderToStaticMarkup(<CouncilReplyFooter />)).toMatch(/>Not fact-checked<\/div>/);
 });
+
+it("identifies answers from a backup model", () => {
+  expect(renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { fallbackUsed: true } }} />)).toContain("answered by a backup model");
+  expect(renderToStaticMarkup(<CouncilReplyFooter />)).not.toContain("answered by a backup model");
+});

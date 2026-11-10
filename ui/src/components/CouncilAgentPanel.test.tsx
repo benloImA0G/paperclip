@@ -184,4 +184,12 @@ describe("CouncilAgentPanel", () => {
     expect(buttons[1].disabled).toBe(true);
     expect(buttons[1].title).toBe("This room already has three agents.");
   });
+  it.each(["error", "paused", "terminated", "pending_approval"] as const)("explains why %s agents cannot join", async (status) => {
+    agentsApi.list.mockResolvedValue([makeAgent({ adapterType: "hermes_gateway", status })]);
+    await render({ roomId: "room-1" });
+    await waitFor(() => expect(container.textContent).toContain("Add to room"));
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Add Ada to this room"]')?.disabled).toBe(true);
+    expect(container.textContent).toContain(`${status.replaceAll("_", " ")}: fix it under Agents first`);
+  });
+
 });

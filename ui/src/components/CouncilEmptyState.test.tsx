@@ -11,3 +11,9 @@ it("shows the steps, prompts and appropriate add action", () => {
   expect(html).toContain("Find the weak points in my plan");
   expect(renderToStaticMarkup(<CouncilEmptyState {...props} hasFreeConnection={false} />)).toContain("Add a seat");
 });
+
+it("shows the ready team when three seats are active", () => {
+  const html = renderToStaticMarkup(<CouncilEmptyState activeSeatNames={["Alice", "Bob", "Cara"]} hasFreeConnection onAdd={() => {}} onPrompt={() => {}} />);
+  expect(html).toContain("Your team is ready: Alice, Bob, Cara");
+  expect(html).not.toContain("Add a free team");
+});

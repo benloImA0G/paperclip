@@ -17,6 +17,7 @@ export function CouncilReplyFooter({ metadata }: { metadata?: { councilReliabili
   if (reply?.local === true) parts.push("FREE (Local)");
   else if (measured(cost)) parts.push(`$${(cost / 100).toFixed(4).replace(/0+$/, "").replace(/\.$/, ".00")}`);
   else unavailable.push("This vendor did not report a price.");
+  if (reply?.fallbackUsed) parts.push("answered by a backup model");
   parts.push("Not fact-checked");
   return <div className="mt-1 text-(length:--text-nano) text-muted-foreground" title={unavailable.join(" · ")}>{parts.join(" · ")}</div>;
 }

@@ -109,7 +109,11 @@ export function VendorSeatCard({
   const presetMatch = PERSONAS.find((p) => p.text === persona.trim())?.label ?? (persona.trim() ? "__custom" : "");
   // Typed persona text autosaves shortly after the last keystroke, so a reload never loses it.
   const [text, setText] = useState(persona);
-  useEffect(() => setText(persona), [persona]);
+  useEffect(() => { setText(persona); setRolePreset(""); }, [persona]);
+  useEffect(() => setRolePreset(""), [seat?.role]);
+  const matchedRolePreset = COUNCIL_ROLE_PRESETS.find((preset) => preset.role === (seat?.role ?? draft.role ?? "none") && preset.persona === text);
+  const selectedPreset = matchedRolePreset ?? COUNCIL_ROLE_PRESETS.find((preset) => preset.id === rolePreset && preset.persona === text);
+  const genericName = ["", "CodeBot", "Creative", "Techie", "Friendly", "Builder", "Reviewer", "Chairman", "Contrarian"].includes(name.trim());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveVersion = useRef(0);
   const seatId = seat?.id ?? null;
@@ -194,8 +198,11 @@ export function VendorSeatCard({
       </label>
 
       <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
-        <span>Start from a role</span>
-        <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={rolePreset} onChange={(e) => {
+        <span className="flex justify-between">
+          Start from a role
+          {selectedPreset && genericName && name !== selectedPreset.label ? <button type="button" className="underline" onClick={(e) => { e.preventDefault(); change({ name: selectedPreset.label }); }}>Rename seat to {selectedPreset.label}</button> : null}
+        </span>
+        <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={selectedPreset?.id ?? ""} onChange={(e) => {
           const id = e.target.value;
           setRolePreset(id);
           const preset = COUNCIL_ROLE_PRESETS.find((item) => item.id === id);
@@ -212,7 +219,7 @@ export function VendorSeatCard({
       </label>
 
       <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
-        <span>Role</span>
+        <span>Job in the debate</span>
         <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => { setRolePreset(""); change({ role: e.target.value as CouncilSeatRole }); }}>
           <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option><option value="moderator">Orchestrator</option>
         </select>

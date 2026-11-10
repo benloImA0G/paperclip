@@ -12,6 +12,9 @@ const bounds = (options: CallEstimateOptions) => {
 };
 
 describe("estimateCalls", () => {
+  it("counts only targeted answers even when other features are enabled", () => {
+    expect(bounds({ ...base, targetedSeats: 1, rounds: 3, autoSummary: true, clarify: true, jury: true, peerRanking: true, work: { ...base.work, planFirst: true } })).toEqual([1, 1]);
+  });
   it("counts answers and the moderator only for at least two seats", () => {
     expect(bounds(base)).toEqual([3, 3]);
     expect(bounds({ ...base, hasModerator: true })).toEqual([4, 4]);
