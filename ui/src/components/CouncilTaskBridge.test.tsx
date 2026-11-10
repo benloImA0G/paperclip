@@ -92,6 +92,8 @@ describe("CouncilTaskBridge", () => {
     });
     await flush();
 
+    expect(container.querySelector("summary")?.textContent).toBe("Tasks from this room (1)");
+    expect(container.querySelector("details")?.open).toBe(true);
     expect(container.textContent).toContain("PAP-42");
     expect(container.textContent).toContain("Prepare pricing launch");
     expect(container.textContent).toContain("Agent agent-1");
@@ -108,7 +110,7 @@ describe("CouncilTaskBridge", () => {
     });
     await flush();
 
-    expect(container.textContent).toContain("No tasks yet");
+    expect(container.textContent).toBe("");
     act(() => root.unmount());
   });
 
@@ -176,13 +178,13 @@ describe("CouncilTaskBridge", () => {
       actionItems: [{ text: "Draft pricing memo" }],
     };
 
-    function renderChecklist(existingTitles?: string[], record = decision) {
+    function renderChecklist(existingTasks?: Array<{ id: string; identifier: string | null; title: string; status: string; assigneeAgentId: string | null; assigneeUserId: string | null }>, record = decision) {
       const root = createRoot(container);
       const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
       act(() => {
         root.render(
           <QueryClientProvider client={client}>
-            <ActionItemsChecklist companyId="company-1" roomIdentifier="PAP-41" decision={record} existingTitles={existingTitles} />
+            <ActionItemsChecklist companyId="company-1" roomIdentifier="PAP-41" decision={record} existingTasks={existingTasks} />
           </QueryClientProvider>,
         );
       });
@@ -194,7 +196,7 @@ describe("CouncilTaskBridge", () => {
     }
 
     it("creates a task for a row with the selected assignee and then shows the identifier link", async () => {
-      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43" });
+      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43", status: "todo" });
       const root = renderChecklist();
       await flush();
 
@@ -220,9 +222,8 @@ describe("CouncilTaskBridge", () => {
         }),
       );
       const row = rowFor("Draft pricing memo");
-      expect(row?.querySelector('a[href="/issues/PAP-43"]')?.textContent).toBe("open");
-      expect(row?.textContent).toContain("Task created: PAP-43 (open)");
-      expect(row?.textContent).toContain("Assigned to Researcher; it will pick the task up.");
+      expect(row?.querySelector('a[href="/issues/PAP-43"]')?.textContent).toBe("PAP-43 · Researcher · todo");
+      expect(row?.querySelector("select")).toBeNull();
       expect(row?.querySelector("button")).toBeNull();
       act(() => root.unmount());
     });
@@ -248,19 +249,19 @@ describe("CouncilTaskBridge", () => {
 
     it("does not preselect an unavailable matching agent and confirms backlog creation", async () => {
       mocks.listAgents.mockResolvedValue([{ id: "owner", name: "CodeBot", status: "paused" }]);
-      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43" });
+      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43", status: "backlog" });
       const root = renderChecklist(undefined, { ...decision, actionItems: [{ text: "Draft pricing memo", owner: "CodeBot" }] });
       await flush();
       expect((container.querySelector("select") as HTMLSelectElement).value).toBe("");
       act(() => (rowFor("Draft pricing memo")?.querySelector("button") as HTMLButtonElement).click());
       await flush();
       expect(mocks.create.mock.calls[0]![1]).not.toHaveProperty("assigneeAgentId");
-      expect(rowFor("Draft pricing memo")?.textContent).toContain("Saved to the backlog; assign it when you are ready.");
+      expect(rowFor("Draft pricing memo")?.textContent).toContain("PAP-43 · Unassigned · backlog");
       act(() => root.unmount());
     });
 
     it("summarizes tasks created in a batch", async () => {
-      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43" });
+      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43", status: "backlog" });
       const root = renderChecklist(undefined, { ...decision, actionItems: [{ text: "First" }, { text: "Second" }, { text: "Third" }] });
       await flush();
       act(() => container.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => (checkbox as HTMLInputElement).click()));
@@ -269,6 +270,28 @@ describe("CouncilTaskBridge", () => {
       expect(container.querySelector('[role="status"]')?.textContent).toBe("Created 3 tasks");
       act(() => root.unmount());
     });
+
+    it("keeps human-owned items for the user without task controls", async () => {
+      const root = renderChecklist(undefined, { ...decision, actionItems: ["Ben", "Ask Ben later", "you", "USER", "me"].map((owner) => ({ text: `Question for ${owner}`, owner })) });
+      await flush();
+      expect(container.querySelectorAll("li")).toHaveLength(5);
+      expect(container.querySelectorAll("li input, li select, li button")).toHaveLength(0);
+      expect(container.textContent?.match(/Needs you/g)).toHaveLength(5);
+      act(() => root.unmount());
+    });
+
+    it("clears the batch summary after eight seconds", async () => {
+      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43", status: "backlog" });
+      const root = renderChecklist();
+      await flush();
+      act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+      act(() => (Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.startsWith("Create selected")) as HTMLButtonElement).click());
+      await flush();
+      expect(container.textContent).toContain("Created 1 task");
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 8100)); });
+      expect(container.textContent).not.toContain("Created 1 task");
+      act(() => root.unmount());
+    }, 12000);
 
     it("shows an alert and a Retry button when creating a task fails", async () => {
       mocks.create.mockRejectedValue(new Error("Network down"));
@@ -285,11 +308,12 @@ describe("CouncilTaskBridge", () => {
     });
 
     it("shows 'Task exists' and no create button for items already linked to the room", async () => {
-      const root = renderChecklist(["Draft pricing memo"]);
+      const root = renderChecklist([{ id: "issue-43", identifier: "PAP-43", title: "Draft pricing memo", status: "backlog", assigneeAgentId: "agent-1", assigneeUserId: null }]);
       await flush();
 
       const row = rowFor("Draft pricing memo");
-      expect(row?.textContent).toContain("Task exists");
+      expect(row?.querySelector("a")?.textContent).toBe("PAP-43 · Researcher · backlog");
+      expect(row?.querySelector("select")).toBeNull();
       expect(row?.querySelector("button")).toBeNull();
       act(() => root.unmount());
     });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CouncilActionItem, CouncilDecisionRecord } from "../pages/council-decision-record";
 import { agentsApi } from "../api/agents";
@@ -69,16 +69,16 @@ function actionItemDescription(item: CouncilActionItem, decision: CouncilDecisio
 export type ActionItemsChecklistProps = {
   companyId: string;
   roomIdentifier: string;
+  roomId?: string;
   decision: CouncilDecisionRecord;
-  /** Titles of tasks already linked to the room, so a reload does not allow double-creating. */
-  existingTitles?: string[];
+  existingTasks?: Array<{ id: string; identifier: string | null; title: string; status: string; assigneeAgentId: string | null; assigneeUserId: string | null }>;
 };
 
-type RowState = { status: "idle" | "creating" | "done" | "error"; identifier?: string; message?: string; assigneeName?: string };
+type RowState = { status: "idle" | "creating" | "done" | "error"; identifier?: string; message?: string; assigneeName?: string; issueStatus?: string };
 
 const unavailableStatuses = new Set(["paused", "error", "terminated", "pending_approval"]);
 
-export function ActionItemsChecklist({ companyId, roomIdentifier, decision, existingTitles = [] }: ActionItemsChecklistProps) {
+export function ActionItemsChecklist({ companyId, roomIdentifier, decision, roomId, existingTasks = [] }: ActionItemsChecklistProps) {
   const items = decision.actionItems ?? [];
   const queryClient = useQueryClient();
   const agents = useQuery({ queryKey: queryKeys.agents.list(companyId), queryFn: () => agentsApi.list(companyId), enabled: Boolean(companyId) });
@@ -86,6 +86,11 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
   const [assignees, setAssignees] = useState<Record<number, string>>({});
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [summary, setSummary] = useState<string | null>(null);
+  useEffect(() => {
+    if (!summary) return;
+    const timer = window.setTimeout(() => setSummary(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [summary]);
   const assigneeFor = (index: number) => assignees[index] ?? (agents.data ?? []).find((agent) => agent.name === items[index]?.owner && !unavailableStatuses.has(agent.status))?.id ?? "";
   const create = useMutation({
     mutationFn: ({ item, index }: { item: CouncilActionItem; index: number }) => issuesApi.create(companyId, {
@@ -103,8 +108,9 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
     setRows((current) => ({ ...current, [index]: { status: "creating" } }));
     try {
       const issue = await create.mutateAsync({ item, index });
-      setRows((current) => ({ ...current, [index]: { status: "done", identifier: issue.identifier ?? issue.id, assigneeName } }));
+      setRows((current) => ({ ...current, [index]: { status: "done", identifier: issue.identifier ?? issue.id, assigneeName, issueStatus: issue.status } }));
       void queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(roomIdentifier) });
+      if (roomId && roomId !== roomIdentifier) void queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(roomId) });
       return true;
     } catch (error) {
       setRows((current) => ({ ...current, [index]: { status: "error", message: error instanceof Error ? error.message : "Couldn't create task" } }));
@@ -112,10 +118,11 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
     }
   }
 
-  const alreadyLinked = (item: CouncilActionItem) => existingTitles.includes(item.text);
+  const linkedTask = (item: CouncilActionItem) => existingTasks.find((issue) => issue.title === item.text);
+  const needsYou = (item: CouncilActionItem) => /ben/i.test(item.owner ?? "") || /^(you|user|me)$/i.test(item.owner?.trim() ?? "");
   const pending = items
     .map((_, index) => index)
-    .filter((index) => selected[index] && rows[index]?.status !== "done" && rows[index]?.status !== "creating" && !alreadyLinked(items[index]!));
+    .filter((index) => selected[index] && rows[index]?.status !== "done" && rows[index]?.status !== "creating" && !linkedTask(items[index]!) && !needsYou(items[index]!));
 
   return (
     <section aria-labelledby="council-action-items-title" className="space-y-2 rounded-lg border border-border p-3">
@@ -129,29 +136,35 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
       <ul className="space-y-2">
         {items.map((item, index) => {
           const state = rows[index] ?? { status: "idle" as const };
-          const done = state.status === "done" || alreadyLinked(item);
+          const linked = linkedTask(item);
+          const human = needsYou(item);
+          const done = state.status === "done" || Boolean(linked);
+          const identifier = linked?.identifier ?? linked?.id ?? state.identifier;
+          const agentNames = new Map((agents.data ?? []).map((agent) => [agent.id, agent.name]));
           return (
             <li key={`${index}-${item.text}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-2 sm:flex-row sm:items-center">
               <label className="flex min-w-0 flex-1 items-start gap-2 text-sm">
-                <input type="checkbox" disabled={done} checked={done || Boolean(selected[index])} onChange={(event) => setSelected((current) => ({ ...current, [index]: event.target.checked }))} className="mt-1" />
+                {!human ? <input type="checkbox" disabled={done} checked={done || Boolean(selected[index])} onChange={(event) => setSelected((current) => ({ ...current, [index]: event.target.checked }))} className="mt-1" /> : null}
                 <span className="min-w-0">
                   <span className="block">{item.text}</span>
                   {item.owner ? <span className="block text-xs text-muted-foreground">Suggested owner: {item.owner}</span> : null}
                 </span>
               </label>
               <div className="flex flex-wrap items-center gap-2">
-                <NativeSelect aria-label={`Assignee for ${item.text}`} disabled={done} value={assigneeFor(index)} onChange={(event) => setAssignees((current) => ({ ...current, [index]: event.target.value }))}>
-                  <option value="">Unassigned</option>
-                  {(agents.data ?? []).map((agent) => <option key={agent.id} value={agent.id} disabled={unavailableStatuses.has(agent.status)}>{agent.name}{unavailableStatuses.has(agent.status) ? ` (${agent.status})` : ""}</option>)}
-                </NativeSelect>
-                {done ? (
-                  <span className="text-xs text-muted-foreground">
-                    {state.identifier ? <>Task created: {state.identifier} (<Link to={`/issues/${state.identifier}`} className="underline">open</Link>)<span className="block">{state.assigneeName ? `Assigned to ${state.assigneeName}; it will pick the task up.` : "Saved to the backlog; assign it when you are ready."}</span></> : "Task exists"}
-                  </span>
+                {human ? <span className="rounded-full bg-muted px-2 py-1 text-xs">Needs you</span> : done && identifier ? (
+                  <Link to={`/issues/${identifier}`} className="text-xs text-muted-foreground underline">
+                    {identifier} · {linked ? assigneeLabel(linked, agentNames) : state.assigneeName ?? "Unassigned"} · {linked?.status ?? state.issueStatus}
+                  </Link>
                 ) : (
-                  <Button type="button" size="sm" disabled={state.status === "creating"} onClick={() => void createRow(index)}>
-                    {state.status === "creating" ? "Creating…" : state.status === "error" ? "Retry" : "Create task"}
-                  </Button>
+                  <>
+                    <NativeSelect aria-label={`Assignee for ${item.text}`} value={assigneeFor(index)} onChange={(event) => setAssignees((current) => ({ ...current, [index]: event.target.value }))}>
+                      <option value="">Unassigned</option>
+                      {(agents.data ?? []).map((agent) => <option key={agent.id} value={agent.id} disabled={unavailableStatuses.has(agent.status)}>{agent.name}{unavailableStatuses.has(agent.status) ? ` (${agent.status})` : ""}</option>)}
+                    </NativeSelect>
+                    <Button type="button" size="sm" disabled={state.status === "creating"} onClick={() => void createRow(index)}>
+                      {state.status === "creating" ? "Creating…" : state.status === "error" ? "Retry" : "Create task"}
+                    </Button>
+                  </>
                 )}
               </div>
               {state.status === "error" ? <p role="alert" className="text-xs text-destructive">{state.message}</p> : null}
@@ -177,9 +190,11 @@ export function LinkedTasksPanel({ roomId, companyId, onAskInRoom }: { roomId: s
   });
   const linkedTasks = tasks.data?.relatedWork?.inbound ?? [];
 
+  if (!tasks.isError && linkedTasks.length === 0) return null;
+
   return (
-    <section aria-labelledby="council-linked-tasks-title" className="space-y-2 rounded-lg border border-border p-3">
-      <h2 id="council-linked-tasks-title" className="text-sm font-semibold">Linked tasks</h2>
+    <details key={`${roomId}-${linkedTasks.some(({ issue }) => issue.status !== "done")}`} open={tasks.isError || linkedTasks.some(({ issue }) => issue.status !== "done")} className="space-y-2 rounded-lg border border-border p-2">
+      <summary id="council-linked-tasks-title" className="cursor-pointer text-sm font-semibold">Tasks from this room ({linkedTasks.length})</summary>
       {tasks.isLoading ? <p role="status" className="text-xs text-muted-foreground">Loading tasks…</p> : null}
       {tasks.isError ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -211,6 +226,6 @@ export function LinkedTasksPanel({ roomId, companyId, onAskInRoom }: { roomId: s
           ))}
         </ul>
       ) : null}
-    </section>
+    </details>
   );
 }
