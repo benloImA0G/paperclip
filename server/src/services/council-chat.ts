@@ -2012,15 +2012,21 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       actorType: "user",
       actorId: userId,
     });
-    const res = await fetch(google ? "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" : `${base}/models`, {
-      headers: google
-        ? { "x-goog-api-key": credential }
-        : metadata.routing?.auth === "none"
-          ? {}
-          : { authorization: `Bearer ${credential}` },
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(google ? "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200" : `${base}/models`, {
+        headers: google
+          ? { "x-goog-api-key": credential }
+          : metadata.routing?.auth === "none"
+            ? {}
+            : { authorization: `Bearer ${credential}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      // A vendor that is down or unreachable is a normal situation, not a server crash.
+      throw unprocessable("Could not reach this vendor to list its models. You can still type a model name.");
+    }
     if (!res.ok) throw unprocessable(`The vendor refused the model list (${res.status})`);
     const body = (await res.json()) as {
       data?: Array<{ id?: string }>;
