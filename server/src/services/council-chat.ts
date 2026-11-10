@@ -2041,6 +2041,23 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const roundId = `check-${randomUUID()}`;
     const results = await Promise.all(rows.map(async (seat) => {
       const startedAt = Date.now();
+      if (seat.seatKind === "agent") {
+        // Never start a real agent run for a check: read the agent's own status instead.
+        const [agent] = seat.agentId
+          ? await db.select({ status: agents.status }).from(agents).where(and(eq(agents.id, seat.agentId), eq(agents.companyId, input.companyId)))
+          : [];
+        const bad = !agent ? "missing" : ["error", "paused", "terminated", "pending_approval"].includes(agent.status) ? agent.status : null;
+        return {
+          seatId: seat.id,
+          seatName: seat.name,
+          model: seat.model,
+          ok: !bad,
+          status: bad ? ("error" as const) : ("ok" as const),
+          durationMs: Date.now() - startedAt,
+          agentSeat: true,
+          ...(bad ? { error: bad === "missing" ? "This agent no longer exists. Remove the seat." : `The agent is ${bad.replace("_", " ")}. Open it under Agents and fix or resume it.`, plainError: true } : {}),
+        };
+      }
       try {
         const result = await runSeatTurn({
           companyId: input.companyId,

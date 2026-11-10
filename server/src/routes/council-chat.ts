@@ -382,7 +382,7 @@ export function councilChatRoutes(db: Db) {
     });
     const checked = await council.checkSeats({ companyId, issueId: req.params.issueId as string, userId, signal: abort.signal });
     res.json({
-      results: checked.results.map((result) => (result.error ? { ...result, error: friendlySeatError(result.error) } : result)),
+      results: checked.results.map((result) => (result.error && !("plainError" in result && result.plainError) ? { ...result, error: friendlySeatError(result.error) } : result)),
     });
   });
 
