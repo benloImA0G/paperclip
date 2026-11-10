@@ -814,9 +814,10 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     companyId: string,
     issueId: string,
     seatId: string,
-    patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole; fallbacks?: CouncilSeatFallback[]; kind?: "model" | "agent"; agentId?: string },
+    patch: { name?: string; persona?: string; model?: string; active?: boolean; acceptsImages?: boolean; role?: CouncilSeatRole; fallbacks?: CouncilSeatFallback[]; kind?: "model" | "agent"; agentId?: string },
   ) {
     const set: Partial<typeof councilSeats.$inferInsert> = {};
+    if (patch.acceptsImages !== undefined) set.acceptsImages = patch.acceptsImages;
     if (patch.name !== undefined) {
       const name = patch.name.trim();
       if (!name) throw unprocessable("A seat needs a name");

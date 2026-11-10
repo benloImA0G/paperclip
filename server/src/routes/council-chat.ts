@@ -53,6 +53,7 @@ const updateSeatSchema = z
     persona: z.string().max(2000).optional(),
     model: z.string().trim().min(1).max(256).optional(),
     active: z.boolean().optional(),
+    acceptsImages: z.boolean().optional(),
     role: z.enum(["none", "researcher", "builder", "critic", "synthesizer", "moderator"]).optional(),
     fallbacks: z.array(z.object({ connectionId: z.string().uuid(), grantId: z.string().uuid(), model: z.string().trim().min(1).max(256) }).strict()).max(3).optional(),
   })
