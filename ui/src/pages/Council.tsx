@@ -20,6 +20,8 @@ import { CouncilWorkPanel } from "./council-work-step";
 import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
+import { CouncilSeatProgress } from "../components/CouncilSeatProgress";
+import { mentionedSeatIds, seatProgress } from "./council-seat-progress";
 import { CouncilSeatCheck } from "../components/CouncilSeatCheck";
 import { CouncilSavedTeams } from "../components/CouncilSavedTeams";
 import { CouncilSeatPill, councilSeatMayUseCloud } from "../components/CouncilSeatPill";
@@ -247,6 +249,13 @@ export function Council() {
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
   const [running, setRunning] = useState(false);
+  const [roundTracking, setRoundTracking] = useState<{ startedAt: number; targetIds?: string[]; chain: boolean; roomId: string } | null>(null);
+  const [roundNow, setRoundNow] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setRoundNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
   const [stoppedNote, setStoppedNote] = useState(false);
   const [pendingDefaultRoomId, setPendingDefaultRoomId] = useState<string | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<{ roomId: string; templateId: CouncilTemplateId } | null>(null);
@@ -579,8 +588,12 @@ export function Council() {
       abortRef.current = controller;
       const panelSeed = Math.floor(Math.random() * 2147483647);
       const panel = panelSize >= 2 ? { size: panelSize, seed: panelSeed } : undefined;
-      const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }>; clarify?: boolean; ranking?: boolean; jury?: boolean; panel?: { size: number; seed: number }; stance?: boolean; dissent?: boolean; roundNumber?: number; maxRounds?: number } = {}) =>
-        councilApi.runRound(
+      const run = (m: RoundMode, extra: { message?: string; images?: Array<{ mediaType: string; data: string }>; clarify?: boolean; ranking?: boolean; jury?: boolean; panel?: { size: number; seed: number }; stance?: boolean; dissent?: boolean; roundNumber?: number; maxRounds?: number } = {}) => {
+        const startedAt = Date.now();
+        const mentioned = m === "ask" || m === "discuss" ? mentionedSeatIds(extra.message ?? "", activeSeats) : undefined;
+        setRoundTracking({ startedAt, targetIds: m === "summarize" ? [summarySeatId || fastSeatId].filter((id): id is string => !!id) : mentioned, chain: m === "ask" && answerStyle === "chain", roomId: runRoomId });
+        setRoundNow(startedAt);
+        return councilApi.runRound(
           companyId,
           runRoomId,
           {
@@ -595,7 +608,11 @@ export function Council() {
           },
           controller.signal,
         );
+      };
       if (typeof request !== "string") {
+        const startedAt = Date.now();
+        setRoundTracking({ startedAt, targetIds: [request.seatId], chain: false, roomId: runRoomId });
+        setRoundNow(startedAt);
         setSteps(["Ask again"]);
         setProgress("Asking this seat again…");
         const result = await councilApi.runRound(companyId, runRoomId, { mode: "ask", seatId: request.seatId, repeatLast: true, repeatFromCommentId: request.commentId }, controller.signal);
@@ -697,6 +714,7 @@ export function Council() {
     onSettled: () => {
       setProgress("");
       setRunning(false);
+      setRoundTracking(null);
       setSteps([]);
       void refresh("comments");
       void refresh("rooms");
@@ -728,6 +746,9 @@ export function Council() {
   });
   const canSend = !ask.isPending && !!message.trim() && activeSeats.length > 0;
   const room = rooms.data?.find((r) => r.id === roomId);
+  const trackedProgress = running && roundTracking?.roomId === roomId ? seatProgress({ activeSeats, targetedSeatIds: roundTracking.targetIds, comments: comments.data ?? [], roundStartedAt: roundTracking.startedAt, now: roundNow }) : null;
+  const waitingSeats = trackedProgress?.seats.filter((seat) => seat.status === "waiting") ?? [];
+  const answeredCount = (trackedProgress?.seats.length ?? 0) - waitingSeats.length;
   const seatById = new Map(allSeats.map((s) => [`${SEAT_AUTHOR_PREFIX}${s.id}`, s]));
   const latestRound = roundDetails[roomId ?? ""]?.at(-1) ?? [];
   const roleLabel = (role: CouncilSeat["role"]) => role === "none" ? "Participant" : role === "moderator" ? "Orchestrator" : role[0].toUpperCase() + role.slice(1);
@@ -912,7 +933,7 @@ export function Council() {
                     {seat ? <CouncilSeatPill local={reliability?.local} routingKind={conn?.routing?.kind} provider={conn?.provider ?? reliability?.provider} /> : null}
                     {label ? <span className="rounded-full bg-accent px-1.5 py-0.5 text-(length:--text-nano) text-muted-foreground">{label}</span> : null}
                     {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-(length:--text-nano) text-primary">Orchestrator</span> : null}
-                    {advancedMode ? <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} /> : null}
+                    {seat && trackedProgress?.seats.find((item) => item.id === seat.id) ? <CouncilSeatProgress status={trackedProgress.seats.find((item) => item.id === seat.id)!.status} /> : advancedMode ? <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} /> : null}
                   </button>
                 );
               })}
@@ -1234,6 +1255,7 @@ export function Council() {
             <div ref={threadEndRef} />
           </div>
 
+          {trackedProgress ? <p className="text-xs text-muted-foreground">{roundTracking?.chain && trackedProgress.current ? `${trackedProgress.current.name} is answering next (${answeredCount} of ${trackedProgress.seats.length} done)` : waitingSeats.length ? `Waiting for ${waitingSeats.map((seat) => seat.name).join(", ")}… (${answeredCount} of ${trackedProgress.seats.length} answered, ${trackedProgress.elapsedSeconds}s)` : `All ${answeredCount} seats answered (${trackedProgress.elapsedSeconds}s)`}</p> : null}
           {reviewNotice ? <p role="status" className="text-sm text-emerald-600">{reviewNotice}</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {stoppedNote ? <p className="text-sm text-muted-foreground">Stopped. Replies that already arrived are kept.</p> : null}
