@@ -43,7 +43,8 @@ export function vendorIcon(vendor: string): string {
 }
 
 export function mentionOf(seat: { name: string }): string {
-  return `@${seat.name.split(/\s+/)[0]}`;
+  // The full name keeps seats like "Smoke A" and "Smoke B" apart; the server matches full names first.
+  return `@${seat.name.trim()}`;
 }
 
 export interface VendorDraft {
