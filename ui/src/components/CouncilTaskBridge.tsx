@@ -87,7 +87,8 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
     mutationFn: ({ item, index }: { item: CouncilActionItem; index: number }) => issuesApi.create(companyId, {
       title: item.text,
       description: actionItemDescription(item, decision, roomIdentifier),
-      ...(assignees[index] ? { assigneeAgentId: assignees[index] } : {}),
+      // Picking an agent hands the work over: "todo" lets the agent pick it up; unassigned items stay in the backlog.
+      ...(assignees[index] ? { assigneeAgentId: assignees[index], status: "todo" } : {}),
     }),
   });
   if (items.length === 0) return null;

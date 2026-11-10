@@ -216,6 +216,7 @@ describe("CouncilTaskBridge", () => {
           title: "Draft pricing memo",
           description: expect.stringContaining("[PAP-41](/issues/PAP-41)"),
           assigneeAgentId: "agent-1",
+          status: "todo",
         }),
       );
       const row = rowFor("Draft pricing memo");
