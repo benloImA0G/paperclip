@@ -215,6 +215,8 @@ export function Council() {
   const [roundDetails, setRoundDetails] = useState<Record<string, CouncilSeatResult[][]>>({});
   const [agreements, setAgreements] = useState<Record<string, { agreement: CouncilAgreement; round: number }>>({});
   const [error, setError] = useState<string | null>(null);
+  const [freeTeamNote, setFreeTeamNote] = useState<string | null>(null);
+  useEffect(() => { if (!freeTeamNote) return; const timer = window.setTimeout(() => setFreeTeamNote(null), 6000); return () => window.clearTimeout(timer); }, [freeTeamNote]);
   const [discussion, setDiscussion] = useState(false);
   const [depth, setDepth] = useState<Depth>("medium");
   const [autoSummary, setAutoSummary] = useState(false);
@@ -436,9 +438,9 @@ export function Council() {
         const conn = connectionOptions.find((candidate) => candidate.id === plan.connectionId)!;
         await createSeatFor(targetRoomId, conn, plan);
       }
-      return plans.length;
+      return plans.map((plan) => plan.name);
     },
-    onSuccess: (count) => { toast?.pushToast({ tone: "success", title: `Added ${count} seats` }); },
+    onSuccess: (names) => { const note = names.length ? `Added ${names.length} seats: ${names.join(", ")}` : "Nothing added: those seats already exist"; setFreeTeamNote(note); toast?.pushToast({ tone: "success", title: note }); },
     onError: () => { if (toast) toast.pushToast({ tone: "error", title: "Could not add seats" }); else setError("Could not add seats"); },
     onSettled: (_data, _error, { targetRoomId }) => void refreshSeatsFor(targetRoomId),
   });
@@ -461,7 +463,8 @@ export function Council() {
   const applyTemplate = (id: CouncilTemplateId) => {
     const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === id)!;
     setSelectedTemplate(id);
-    setNewTitle(template.title);
+    const previousTitle = COUNCIL_TEMPLATES.find((candidate) => candidate.id === selectedTemplate)?.title;
+    setNewTitle((title) => !title.trim() || title === previousTitle ? template.title : title);
     setDiscussion(template.discussion);
     setAnswerStyle(template.answerStyle ?? "side-by-side");
     setDepth(template.depth);
@@ -782,7 +785,8 @@ export function Council() {
           <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40"><MessagesSquare className="h-5 w-5" /></span>
           <div className="min-w-0">
             <div className="flex items-center gap-2"><h1 className="truncate text-lg font-semibold leading-tight">Multi-Vendor Council Chat</h1>{room?.kind ? <KindChip kind={room.kind} /> : null}</div>
-            {room ? <><p className="truncate text-xs text-muted-foreground">{room.title}</p><CouncilRoomStats replies={(comments.data ?? []).filter((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((c) => ({ metadata: c.metadata as { councilReliability?: CouncilReplyReliability } | null }))} /></> : null}
+            <p className="text-xs text-muted-foreground">Ask several AIs the same question, compare their answers, then turn the result into tasks.</p>
+            {room ? <><CouncilRoomStats replies={(comments.data ?? []).filter((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((c) => ({ metadata: c.metadata as { councilReliability?: CouncilReplyReliability } | null }))} /></> : null}
           </div>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
@@ -812,12 +816,12 @@ export function Council() {
             <summary className="cursor-pointer list-none px-2 py-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Reliability</summary>
             <div className="absolute right-0 z-20 mt-1 w-80 max-w-full rounded-lg border bg-popover p-3 shadow-lg">
               {reliabilityQuery.isLoading ? <p className="text-muted-foreground">Loading reply history…</p> : reliabilityQuery.isError ? <p className="text-destructive">Reliability is unavailable.</p> : reliabilityQuery.data ? <>
-                <table className="w-full text-left"><caption className="sr-only">Council reliability by seat</caption><thead><tr className="border-b text-muted-foreground"><th className="py-1 pr-2 font-medium">Seat</th><th className="py-1 pr-2 font-medium">Replies</th><th className="py-1 pr-2 font-medium">Avg time</th><th className="py-1 font-medium">Used backup</th></tr></thead><tbody>
+                <table className="w-full text-left"><caption className="sr-only">Council reliability by seat</caption><thead><tr className="border-b text-muted-foreground"><th className="py-1 pr-2 font-medium">Seat</th><th className="py-1 pr-2 font-medium">Replies</th><th className="py-1 pr-2 font-medium">Avg time</th><th className="py-1 font-medium">Backup model used</th></tr></thead><tbody>
                   {reliabilityQuery.data.seats.map((seat) => <tr key={seat.seatId} className="border-b last:border-0"><th scope="row" className="max-w-32 truncate py-1.5 pr-2 font-medium">{seat.seatName}</th><td className="py-1.5 pr-2">{seat.replies}</td><td className="py-1.5 pr-2">{seat.averageLatencyMs == null ? "—" : `${(seat.averageLatencyMs / 1000).toFixed(1)}s`}</td><td className="py-1.5">{seat.fallbackRate == null ? "—" : `${Math.round(seat.fallbackRate * 100)}%`}</td></tr>)}
                   <tr className="font-semibold"><th scope="row" className="py-1.5 pr-2">Total</th><td className="py-1.5 pr-2">{reliabilityQuery.data.totals.replies}</td><td className="py-1.5 pr-2">{reliabilityQuery.data.totals.averageLatencyMs == null ? "—" : `${(reliabilityQuery.data.totals.averageLatencyMs / 1000).toFixed(1)}s`}</td><td className="py-1.5">{reliabilityQuery.data.totals.fallbackRate == null ? "—" : `${Math.round(reliabilityQuery.data.totals.fallbackRate * 100)}%`}</td></tr>
                 </tbody></table>
                 <p className="mt-2 text-muted-foreground">Based on {reliabilityQuery.data.totals.replies} replies; small samples are not reliable</p>
-                <p className="mt-1 text-muted-foreground">Run details are only available for this session when older replies have no saved details.</p>
+                <p className="mt-1 text-muted-foreground">Older replies did not save timing details, so they are not counted here.</p>
               </> : null}
             </div>
           </details>
@@ -963,9 +967,10 @@ export function Council() {
             finally { void refreshSeatsFor(roomId); }
           }} onAdded={(count) => toast?.pushToast({ tone: "success", title: `Added ${count} seats` })} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not add seats", body: errorText(error) }); else setError(`Could not add seats: ${errorText(error)}`); }} />
           {activeSeats.length < 3 && !connections.isLoading && !connections.isError && !seats.isLoading && !seats.isError ? <>
-            <Button type="button" variant="outline" size="sm" disabled={!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending} onClick={() => addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam })}>Add a free team</Button>
+            <Button type="button" variant="outline" size="sm" disabled={!hasFreeConnection || addFreeTeam.isPending || addDefaults.isPending} onClick={() => addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam })}>Add a free team</Button>
             {!hasFreeConnection ? <span className="text-xs text-muted-foreground">Connect a free AI first</span> : null}
           </> : null}
+          {freeTeamNote ? <span role="status" className="text-xs text-muted-foreground">{freeTeamNote}</span> : null}
           </CouncilSeatCheck>
           <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className={advancedMode ? "council-participants shrink-0 rounded-lg border bg-muted/10" : "hidden"}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
@@ -1144,12 +1149,13 @@ export function Council() {
                           const result = await councilApi.forkRoom(companyId, roomId, c.id);
                           await rooms.refetch();
                           setRoomId(result.room.id);
+                          toast?.pushToast({ tone: "success", title: "Forked into a new room" });
                         } catch (err) {
                           toast?.pushToast({ tone: "error", title: "Could not fork this room", body: errorText(err) });
                           if (!toast) setError(`Could not fork this room: ${errorText(err)}`);
                         }
                       }}>Fork from here</Button>
-                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" title="Ask this seat the same question again" disabled={running || ask.isPending || reviewArtifact.isPending || !seat} onClick={() => { if (seat) ask.mutate({ seatId: seat.id, commentId: c.id }); }}>Ask again</Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" title="Ask this seat the same question again" disabled={running || ask.isPending || reviewArtifact.isPending || !seat} onClick={() => { if (seat) { toast?.pushToast({ tone: "success", title: `Asking ${seat.name} again…` }); ask.mutate({ seatId: seat.id, commentId: c.id }); } }}>Ask again</Button>
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
                         setArtifactDraft({ markdown: c.body, title: `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
@@ -1298,7 +1304,7 @@ export function Council() {
             }
             return cloudProviders.size ? <CouncilEgressBanner local={false} provider={[...cloudProviders].join(", ")} /> : null;
           })()}
-          {!creating ? <div><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} />{discussion && depth === "low" && discussionStyle === "challenge" && answerStyle !== "chain" ? <p className="text-xs text-muted-foreground">Seats answer, then challenge each other for 1 round.</p> : null}</div> : null}
+          {!creating ? <div><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /></div> : null}
           {!creating ? <form
             className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
             onSubmit={(e) => {
@@ -1340,7 +1346,7 @@ export function Council() {
                 }
               }}
             />
-            <span className="hidden text-xs text-muted-foreground lg:inline">Ctrl+Enter to send</span>
+            <span className="hidden text-xs text-muted-foreground lg:inline">Enter or Ctrl+Enter sends, Shift+Enter adds a line. Type @ to ask one seat, or @all for everyone.</span>
             {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
@@ -1406,7 +1412,7 @@ export function Council() {
               </div> : null}</div>
           </form> : null}
           {!creating ? <p className="text-xs text-muted-foreground">
-            Enter sends, Shift+Enter adds a line. Tag one vendor with its @name, or <code>@all</code> for everyone.
+            Enter or Ctrl+Enter sends, Shift+Enter adds a line. Type @ to ask one seat, or @all for everyone.
           </p> : null}
           </div>
         </>

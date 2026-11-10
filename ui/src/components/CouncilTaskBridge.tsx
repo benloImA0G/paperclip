@@ -74,7 +74,9 @@ export type ActionItemsChecklistProps = {
   existingTitles?: string[];
 };
 
-type RowState = { status: "idle" | "creating" | "done" | "error"; identifier?: string; message?: string };
+type RowState = { status: "idle" | "creating" | "done" | "error"; identifier?: string; message?: string; assigneeName?: string };
+
+const unavailableStatuses = new Set(["paused", "error", "terminated", "pending_approval"]);
 
 export function ActionItemsChecklist({ companyId, roomIdentifier, decision, existingTitles = [] }: ActionItemsChecklistProps) {
   const items = decision.actionItems ?? [];
@@ -83,25 +85,30 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
   const [rows, setRows] = useState<Record<number, RowState>>({});
   const [assignees, setAssignees] = useState<Record<number, string>>({});
   const [selected, setSelected] = useState<Record<number, boolean>>({});
+  const [summary, setSummary] = useState<string | null>(null);
+  const assigneeFor = (index: number) => assignees[index] ?? (agents.data ?? []).find((agent) => agent.name === items[index]?.owner && !unavailableStatuses.has(agent.status))?.id ?? "";
   const create = useMutation({
     mutationFn: ({ item, index }: { item: CouncilActionItem; index: number }) => issuesApi.create(companyId, {
       title: item.text,
       description: actionItemDescription(item, decision, roomIdentifier),
       // Picking an agent hands the work over: "todo" lets the agent pick it up; unassigned items stay in the backlog.
-      ...(assignees[index] ? { assigneeAgentId: assignees[index], status: "todo" } : {}),
+      ...(assigneeFor(index) ? { assigneeAgentId: assigneeFor(index), status: "todo" } : {}),
     }),
   });
   if (items.length === 0) return null;
 
   async function createRow(index: number) {
     const item = items[index]!;
+    const assigneeName = (agents.data ?? []).find((agent) => agent.id === assigneeFor(index))?.name;
     setRows((current) => ({ ...current, [index]: { status: "creating" } }));
     try {
       const issue = await create.mutateAsync({ item, index });
-      setRows((current) => ({ ...current, [index]: { status: "done", identifier: issue.identifier ?? issue.id } }));
+      setRows((current) => ({ ...current, [index]: { status: "done", identifier: issue.identifier ?? issue.id, assigneeName } }));
       void queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(roomIdentifier) });
+      return true;
     } catch (error) {
       setRows((current) => ({ ...current, [index]: { status: "error", message: error instanceof Error ? error.message : "Couldn't create task" } }));
+      return false;
     }
   }
 
@@ -114,10 +121,11 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
     <section aria-labelledby="council-action-items-title" className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex items-center justify-between gap-2">
         <h3 id="council-action-items-title" className="text-sm font-semibold">Action items</h3>
-        <Button type="button" size="sm" variant="outline" disabled={pending.length === 0} onClick={() => { for (const index of pending) void createRow(index); }}>
+        <Button type="button" size="sm" variant="outline" disabled={pending.length === 0} onClick={() => { setSummary(null); void Promise.all(pending.map(createRow)).then((results) => { const count = results.filter(Boolean).length; setSummary(`Created ${count} ${count === 1 ? "task" : "tasks"}`); }); }}>
           Create selected{pending.length > 0 ? ` (${pending.length})` : ""}
         </Button>
       </div>
+      {summary ? <p role="status" className="text-xs text-muted-foreground">{summary}</p> : null}
       <ul className="space-y-2">
         {items.map((item, index) => {
           const state = rows[index] ?? { status: "idle" as const };
@@ -132,13 +140,13 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, exis
                 </span>
               </label>
               <div className="flex flex-wrap items-center gap-2">
-                <NativeSelect aria-label={`Assignee for ${item.text}`} disabled={done} value={assignees[index] ?? ""} onChange={(event) => setAssignees((current) => ({ ...current, [index]: event.target.value }))}>
+                <NativeSelect aria-label={`Assignee for ${item.text}`} disabled={done} value={assigneeFor(index)} onChange={(event) => setAssignees((current) => ({ ...current, [index]: event.target.value }))}>
                   <option value="">Unassigned</option>
-                  {(agents.data ?? []).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                  {(agents.data ?? []).map((agent) => <option key={agent.id} value={agent.id} disabled={unavailableStatuses.has(agent.status)}>{agent.name}{unavailableStatuses.has(agent.status) ? ` (${agent.status})` : ""}</option>)}
                 </NativeSelect>
                 {done ? (
                   <span className="text-xs text-muted-foreground">
-                    {state.identifier ? <Link to={`/issues/${state.identifier}`} className="underline">{state.identifier}</Link> : "Task exists"}
+                    {state.identifier ? <>Task created: {state.identifier} (<Link to={`/issues/${state.identifier}`} className="underline">open</Link>)<span className="block">{state.assigneeName ? `Assigned to ${state.assigneeName}; it will pick the task up.` : "Saved to the backlog; assign it when you are ready."}</span></> : "Task exists"}
                   </span>
                 ) : (
                   <Button type="button" size="sm" disabled={state.status === "creating"} onClick={() => void createRow(index)}>

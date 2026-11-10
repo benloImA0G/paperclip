@@ -176,13 +176,13 @@ describe("CouncilTaskBridge", () => {
       actionItems: [{ text: "Draft pricing memo" }],
     };
 
-    function renderChecklist(existingTitles?: string[]) {
+    function renderChecklist(existingTitles?: string[], record = decision) {
       const root = createRoot(container);
       const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
       act(() => {
         root.render(
           <QueryClientProvider client={client}>
-            <ActionItemsChecklist companyId="company-1" roomIdentifier="PAP-41" decision={decision} existingTitles={existingTitles} />
+            <ActionItemsChecklist companyId="company-1" roomIdentifier="PAP-41" decision={record} existingTitles={existingTitles} />
           </QueryClientProvider>,
         );
       });
@@ -220,8 +220,53 @@ describe("CouncilTaskBridge", () => {
         }),
       );
       const row = rowFor("Draft pricing memo");
-      expect(row?.querySelector('a[href="/issues/PAP-43"]')?.textContent).toBe("PAP-43");
+      expect(row?.querySelector('a[href="/issues/PAP-43"]')?.textContent).toBe("open");
+      expect(row?.textContent).toContain("Task created: PAP-43 (open)");
+      expect(row?.textContent).toContain("Assigned to Researcher; it will pick the task up.");
       expect(row?.querySelector("button")).toBeNull();
+      act(() => root.unmount());
+    });
+
+    it("labels and disables unavailable agents and preselects a healthy matching seat", async () => {
+      mocks.listAgents.mockResolvedValue([
+        ...["active", "idle", "running", "paused", "error", "terminated", "pending_approval"].map((status) => ({ id: status, name: status, status })),
+        { id: "owner", name: "CodeBot", status: "idle" },
+      ]);
+      const root = renderChecklist(undefined, { ...decision, actionItems: [{ text: "Draft pricing memo", owner: "CodeBot" }] });
+      await flush();
+      const select = container.querySelector("select") as HTMLSelectElement;
+      expect(select.value).toBe("owner");
+      expect(container.textContent).toContain("Suggested owner: CodeBot");
+      for (const status of ["active", "idle", "running"]) expect((select.querySelector(`option[value="${status}"]`) as HTMLOptionElement).disabled).toBe(false);
+      for (const status of ["paused", "error", "terminated", "pending_approval"]) {
+        const option = select.querySelector(`option[value="${status}"]`) as HTMLOptionElement;
+        expect(option.disabled).toBe(true);
+        expect(option.textContent).toBe(`${status} (${status})`);
+      }
+      act(() => root.unmount());
+    });
+
+    it("does not preselect an unavailable matching agent and confirms backlog creation", async () => {
+      mocks.listAgents.mockResolvedValue([{ id: "owner", name: "CodeBot", status: "paused" }]);
+      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43" });
+      const root = renderChecklist(undefined, { ...decision, actionItems: [{ text: "Draft pricing memo", owner: "CodeBot" }] });
+      await flush();
+      expect((container.querySelector("select") as HTMLSelectElement).value).toBe("");
+      act(() => (rowFor("Draft pricing memo")?.querySelector("button") as HTMLButtonElement).click());
+      await flush();
+      expect(mocks.create.mock.calls[0]![1]).not.toHaveProperty("assigneeAgentId");
+      expect(rowFor("Draft pricing memo")?.textContent).toContain("Saved to the backlog; assign it when you are ready.");
+      act(() => root.unmount());
+    });
+
+    it("summarizes tasks created in a batch", async () => {
+      mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43" });
+      const root = renderChecklist(undefined, { ...decision, actionItems: [{ text: "First" }, { text: "Second" }, { text: "Third" }] });
+      await flush();
+      act(() => container.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => (checkbox as HTMLInputElement).click()));
+      act(() => (Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.startsWith("Create selected")) as HTMLButtonElement).click());
+      await flush();
+      expect(container.querySelector('[role="status"]')?.textContent).toBe("Created 3 tasks");
       act(() => root.unmount());
     });
 

@@ -22,6 +22,7 @@ it("disables during a check and displays and dismisses seat results", async () =
     { seatId: "1", seatName: "Alpha", model: "a", ok: true, status: "ok", durationMs: 1300 },
     { seatId: "2", seatName: "Beta", model: "b", ok: false, status: "error", durationMs: 200, error: "Check the connection." },
   ] }));
+  expect(container.textContent).toContain("1 of 2 seats work. Fix the red ones below.");
   expect(container.textContent).toContain("Alpha: Works · 1.3s");
   expect(container.textContent).toContain("Beta: Needs attention: Check the connection.");
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss seat check results"]')!.click());

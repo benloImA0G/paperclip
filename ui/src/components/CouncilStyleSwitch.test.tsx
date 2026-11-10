@@ -17,10 +17,13 @@ it("shows the current style and selects another", async () => {
   const buttons = [...container.querySelectorAll("button")];
   expect(buttons.map((button) => button.textContent)).toEqual(["Work together", "Challenge each other", "One after another"]);
   expect(buttons[0].getAttribute("aria-pressed")).toBe("true");
+  expect(container.textContent).toContain("Seats answer side by side.");
   await act(async () => buttons[2].click());
   expect(changed).toHaveBeenCalledWith("chain");
   expect(buttons[2].getAttribute("aria-pressed")).toBe("true");
   expect(buttons[0].getAttribute("aria-pressed")).toBe("false");
+  expect(container.textContent).toContain("Each seat sees the previous answer and improves it.");
+  expect(container.textContent).not.toContain("Seats answer side by side.");
   await act(async () => root.unmount());
   container.remove();
 });
