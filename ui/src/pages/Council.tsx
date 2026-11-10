@@ -21,6 +21,8 @@ import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilEstimate } from "../components/CouncilEstimate";
+import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../components/CouncilMentionPicker";
+import { useOptionalToastActions } from "../context/ToastContext";
 import { CouncilReplyFooter } from "../components/CouncilReplyFooter";
 import { CouncilEgressBanner } from "../components/CouncilEgressBanner";
 import type { CouncilReplyReliability } from "./council-reply-labels";
@@ -184,6 +186,11 @@ export function Council() {
   const [selectedTemplate, setSelectedTemplate] = useState<CouncilTemplateId>(DEFAULT_COUNCIL_TEMPLATE_ID);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const [mentionClosed, setMentionClosed] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const messageRef = useRef<HTMLTextAreaElement>(null);
+  const toast = useOptionalToastActions();
   const [brief, setBrief] = useState("");
   const [briefOpen, setBriefOpen] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
@@ -341,6 +348,18 @@ export function Council() {
   // Keep every persisted seat visible. A connection can have multiple seats; display is not mutation authority.
   const seatOf = (connectionId: string) => allSeats.find((s) => s.connectionId === connectionId);
   const activeSeats = allSeats.filter((s) => s.active);
+  const token = mentionClosed ? null : mentionToken(message, mentionCursor);
+  const mentionSeats = token ? activeSeats.filter((seat) => seat.name.toLowerCase().startsWith(token.query.toLowerCase())) : [];
+  const selectedMention = Math.min(mentionIndex, mentionSeats.length - 1);
+  const chooseMention = (seat: { name: string }) => {
+    if (!token) return;
+    const insertion = `@${seat.name} `;
+    setMessage(message.slice(0, token.start) + insertion + message.slice(token.end));
+    setMentionClosed(true);
+    const cursor = token.start + insertion.length;
+    setMentionCursor(cursor);
+    requestAnimationFrame(() => { messageRef.current?.focus(); messageRef.current?.setSelectionRange(cursor, cursor); });
+  };
   const vendorOf = (s: CouncilSeat) => s.kind === "agent" ? s.adapterTypeLabel : connectionOptions.find((c) => c.id === s.connectionId)?.name ?? "";
   const fastSeatId = (activeSeats.find((s) => /^(gemini|groq)/i.test(vendorOf(s))) ?? activeSeats[0])?.id;
   const hasAnswers = !!comments.data?.some((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX));
@@ -1019,6 +1038,17 @@ export function Council() {
                     ) : <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{c.body}</MarkdownBody>}
                     <CouncilReplyFooter metadata={c.metadata as { councilReliability?: CouncilReplyReliability } | null} />
                     <div className="mt-1 flex justify-end gap-2 text-(length:--text-nano) text-muted-foreground">
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" onClick={async () => {
+                        if (!roomId) return;
+                        try {
+                          const result = await councilApi.forkRoom(companyId, roomId, c.id);
+                          await rooms.refetch();
+                          setRoomId(result.room.id);
+                        } catch (err) {
+                          toast?.pushToast({ tone: "error", title: "Could not fork this room", body: errorText(err) });
+                          if (!toast) setError(`Could not fork this room: ${errorText(err)}`);
+                        }
+                      }}>Fork from here</Button>
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
                         setArtifactDraft({ markdown: c.body, title: `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
@@ -1179,16 +1209,25 @@ export function Council() {
           >
             {suggestion ? <p className="px-1 text-xs text-muted-foreground" data-testid="council-mode-hint">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
             {message.trim() ? <p className="px-1 text-xs text-muted-foreground" title={callEstimate.lines.join("; ")}>About {callEstimate.low}{callEstimate.low !== callEstimate.high ? `–${callEstimate.high}` : ""} model calls</p> : null}
+            {startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground">Only this seat will answer</p> : null}
+            {token && mentionSeats.length ? <CouncilMentionPicker seats={mentionSeats} selected={selectedMention} onChoose={chooseMention} /> : null}
             <div className="flex items-end gap-2">
             <Textarea
+              ref={messageRef}
               value={message}
               aria-label="Message the council"
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(e) => { setMessage(e.target.value); setMentionCursor(e.target.selectionStart); setMentionClosed(false); setMentionIndex(0); }}
+              onSelect={(e) => { setMentionCursor(e.currentTarget.selectionStart); }}
               placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a vendor"}`}
               rows={1}
               onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 144)}px`; }}
               className="council-message-input field-sizing-fixed min-h-0 min-w-0 flex-1 resize-none border-0 text-sm shadow-none focus-visible:ring-2 focus-visible:ring-primary"
               onKeyDown={(e) => {
+                if (token && mentionSeats.length) {
+                  if (e.key === "Escape") { e.preventDefault(); setMentionClosed(true); return; }
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); setMentionIndex((selectedMention + (e.key === "ArrowDown" ? 1 : -1) + mentionSeats.length) % mentionSeats.length); return; }
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); chooseMention(mentionSeats[selectedMention]); return; }
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   e.currentTarget.form?.requestSubmit();

@@ -130,6 +130,8 @@ export const councilApi = {
     const response = await requestResponse(`/companies/${companyId}/council/export`, { method: "POST", body: JSON.stringify({ roomId, format, title, markdown, approved, consolidate }) });
     return { blob: await response.blob(), consolidated: response.headers.get("X-Council-Consolidated") === "true" };
   },
+  forkRoom: (companyId: string, roomId: string, upToCommentId: string) =>
+    api.post<{ room: CouncilRoom; copiedMessages: number; copiedSeats: number }>(`/companies/${companyId}/council/rooms/${roomId}/fork`, { upToCommentId }),
   listRooms: (companyId: string) => api.get<CouncilRoom[]>(`/companies/${companyId}/council/rooms`),
   listArchivedRooms: (companyId: string) => api.get<CouncilRoom[]>(`/companies/${companyId}/council/rooms?archived=1`),
   listModels: (companyId: string, connectionId: string, grantId: string) =>
