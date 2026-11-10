@@ -2,7 +2,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 import { CouncilReplyFooter } from "./CouncilReplyFooter";
 
-it("renders reported reply details and fallback", () => {
-  const html = renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { durationMs: 3200, usage: { inputTokens: 1200, outputTokens: 340 }, costCents: "1.23", fallbackUsed: true } }} />);
-  expect(html).toContain("3.2 s · 1.2k in / 340 out · $0.0123 · Not fact-checked · fallback model used");
+it("shows measured values and keeps missing details in the title", () => {
+  const html = renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { durationMs: 4200, usage: { inputTokens: 1200 }, costCents: 0.2 } }} />);
+  expect(html).toContain("4.2s · 1.2k in · $0.002 · Not fact-checked");
+  expect(html).toContain("First-token time is not measured yet");
+  expect(html).toContain("Output tokens unavailable");
+});
+
+it("shows local cost and supports old replies", () => {
+  expect(renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { local: true, costCents: 3, usage: { outputTokens: 0 } } }} />)).toContain("0 out · FREE (Local) · Not fact-checked");
+  expect(renderToStaticMarkup(<CouncilReplyFooter />)).toMatch(/>Not fact-checked<\/div>/);
 });

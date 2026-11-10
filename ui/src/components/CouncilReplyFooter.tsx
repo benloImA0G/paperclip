@@ -1,5 +1,22 @@
-import { replyFooterParts, type CouncilReplyReliability } from "../pages/council-reply-labels";
+import { formatTokens, type CouncilReplyReliability } from "../pages/council-reply-labels";
 
-export function CouncilReplyFooter({ metadata }: { metadata?: { councilReliability?: CouncilReplyReliability | null } | null }) {
-  return <div className="mt-1 text-(length:--text-nano) text-muted-foreground">{replyFooterParts(metadata).map((part) => part.value).join(" · ")}</div>;
+type Reliability = Omit<CouncilReplyReliability, "costCents"> & { costCents?: number | string };
+const measured = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+export function CouncilReplyFooter({ metadata }: { metadata?: { councilReliability?: Reliability | null } | null }) {
+  const reply = metadata?.councilReliability;
+  const parts: string[] = [];
+  const unavailable = ["First-token time is not measured yet"];
+  if (measured(reply?.durationMs)) parts.push(`${(reply.durationMs / 1000).toFixed(1)}s`);
+  else unavailable.push("Total time unavailable");
+  if (measured(reply?.usage?.inputTokens)) parts.push(`${formatTokens(reply.usage.inputTokens)} in`);
+  else unavailable.push("Input tokens unavailable");
+  if (measured(reply?.usage?.outputTokens)) parts.push(`${formatTokens(reply.usage.outputTokens)} out`);
+  else unavailable.push("Output tokens unavailable");
+  const cost = typeof reply?.costCents === "string" && reply.costCents.trim() !== "" ? Number(reply.costCents) : reply?.costCents;
+  if (reply?.local === true) parts.push("FREE (Local)");
+  else if (measured(cost)) parts.push(`$${(cost / 100).toFixed(4).replace(/0+$/, "").replace(/\.$/, ".00")}`);
+  else unavailable.push("Cost unavailable");
+  parts.push("Not fact-checked");
+  return <div className="mt-1 text-(length:--text-nano) text-muted-foreground" title={unavailable.join(" · ")}>{parts.join(" · ")}</div>;
 }
