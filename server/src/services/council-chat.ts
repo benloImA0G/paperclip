@@ -1329,6 +1329,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     order?: CouncilRoundOrder;
     style?: CouncilRoundStyle;
     seatId?: string;
+    /** Re-ask the chosen seat the latest question without posting it again. */
+    repeatLast?: boolean;
     images?: CouncilImage[];
     maxOutputTokens?: number;
     clarify?: boolean;
@@ -1354,7 +1356,21 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const discuss = mode === "discuss";
     const summarize = mode === "summarize";
     const room = await getRoom(companyId, issueId);
-    const message = (input.message ?? "").trim();
+    let message = (input.message ?? "").trim();
+    // "Ask again": re-ask one seat the latest question without posting it a second time. The seat sees the
+    // thread as it was before that question, so it answers fresh instead of repeating or reacting to old replies.
+    let repeatHistory: Awaited<ReturnType<typeof issueSvc.listComments>> | null = null;
+    if (input.repeatLast) {
+      if (mode !== "ask" || !input.seatId) throw unprocessable("Choose one seat to ask again");
+      const all = await issueSvc.listComments(issueId, { order: "asc" });
+      let cut = -1;
+      for (let i = all.length - 1; i >= 0; i--) {
+        if (!all[i]!.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX)) { cut = i; break; }
+      }
+      if (cut < 0) throw unprocessable("There is no question to ask again");
+      message = (all[cut]!.body ?? "").trim();
+      repeatHistory = all.slice(0, cut);
+    }
     if (mode === "ask" && !message) throw unprocessable("A message is required");
     const allSeats = await listSeats(companyId, issueId);
     const activeSeats = allSeats.filter((s) => s.active);
@@ -1370,6 +1386,11 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       const lower = message.toLowerCase();
       const mentioned = lower.includes("@all") ? [] : matchMentionedSeats(lower, seats);
       if (mentioned.length) seats = mentioned;
+      if (input.repeatLast) {
+        const only = activeSeats.find((s) => s.id === input.seatId);
+        if (!only) throw unprocessable("That seat is not active");
+        seats = [only];
+      }
       directOrchestratorMention = mentioned.length === 1 && mentioned[0]?.role === "moderator";
     }
 
@@ -1389,7 +1410,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     }
 
     // History is loaded before this round's replies exist, which keeps round 1 blind.
-    const history = (await issueSvc.listComments(issueId, { order: "asc" })).slice(-HISTORY_COMMENTS);
+    const history = (repeatHistory ?? await issueSvc.listComments(issueId, { order: "asc" })).slice(-HISTORY_COMMENTS);
     const names = new Map(allSeats.map((s) => [`${COUNCIL_SEAT_AUTHOR_PREFIX}${s.id}`, s.name]));
     const compact = compactCouncilHistory(history);
     const turns = history.map((c, i) =>
@@ -1402,7 +1423,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     // Images only accompany a new question; the thread keeps a text note of them.
     const images = mode === "ask" ? (input.images ?? []) : [];
     const storedMessage = images.length ? `${message}\n\n[${images.length} image(s) attached]` : message;
-    const userComment = message && !summarize ? await issueSvc.addComment(issueId, storedMessage, { userId }) : null;
+    const userComment = message && !summarize && !input.repeatLast ? await issueSvc.addComment(issueId, storedMessage, { userId }) : null;
     if (userComment && (roundCancelled(issueId, input.generation, input.signal ?? new AbortController().signal) || await input.isCancelled?.())) {
       if (typeof db.update === "function") {
         await db.update(issueComments).set({ deletedAt: new Date() }).where(and(eq(issueComments.id, userComment.id), isNull(issueComments.deletedAt)));
