@@ -235,7 +235,7 @@ export function VendorSeatCard({
           value={model}
           onChange={(e) => {
             if (e.target.value === "__custom") {
-              const custom = window.prompt("Model id", model)?.trim();
+              const custom = window.prompt("Type the exact model name from your vendor (for example gpt-oss-120b). Press Check seats afterwards to make sure it works.", model)?.trim();
               if (custom && custom !== model) change({ model: custom });
             } else if (e.target.value !== model) change({ model: e.target.value });
           }}
