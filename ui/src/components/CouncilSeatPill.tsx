@@ -9,6 +9,10 @@ export function councilSeatLocation(input: { local?: boolean | null; routingKind
   return null;
 }
 
+export function councilSeatMayUseCloud(input: Parameters<typeof councilSeatLocation>[0]): boolean {
+  return councilSeatLocation(input) !== "Local";
+}
+
 export function CouncilSeatPill(props: Parameters<typeof councilSeatLocation>[0]) {
   const location = councilSeatLocation(props);
   if (!location) return null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { councilSeatLocation } from "./CouncilSeatPill";
+import { councilSeatLocation, councilSeatMayUseCloud } from "./CouncilSeatPill";
 
 describe("councilSeatLocation", () => {
   it.each(["ollama", "local"])("identifies %s as local", (provider) => {
@@ -15,5 +15,14 @@ describe("councilSeatLocation", () => {
     expect(councilSeatLocation({ local: false, provider: "ollama" })).toBe("Cloud");
     expect(councilSeatLocation({ routingKind: "local" })).toBe("Local");
     expect(councilSeatLocation({ routingKind: "cloud" })).toBe("Cloud");
+  });
+});
+
+describe("councilSeatMayUseCloud", () => {
+  it.each(["groq", "nvidia", "gemini", "openai", "unknown"])("warns for %s", (provider) => {
+    expect(councilSeatMayUseCloud({ provider })).toBe(true);
+  });
+  it("does not warn for ollama", () => {
+    expect(councilSeatMayUseCloud({ provider: "ollama" })).toBe(false);
   });
 });

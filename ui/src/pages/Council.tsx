@@ -22,7 +22,7 @@ import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } 
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilSeatCheck } from "../components/CouncilSeatCheck";
 import { CouncilSavedTeams } from "../components/CouncilSavedTeams";
-import { CouncilSeatPill } from "../components/CouncilSeatPill";
+import { CouncilSeatPill, councilSeatMayUseCloud } from "../components/CouncilSeatPill";
 import { CouncilEstimate } from "../components/CouncilEstimate";
 import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../components/CouncilMentionPicker";
 import { useOptionalToastActions } from "../context/ToastContext";
@@ -567,11 +567,12 @@ export function Council() {
   const setQuickStyle = (style: CouncilQuickStyle) => {
     setAnswerStyle(style === "chain" ? "chain" : "side-by-side");
     setDiscussionStyle(style);
+    if (style === "challenge" && !discussion) { setDiscussion(true); setDepth("low"); }
   };
 
   /** "ask" = answers, then the chosen discussion rounds and summary; the others are one-off rounds. */
   const ask = useMutation({
-    mutationFn: async (request: RoundMode | { seatId: string }) => {
+    mutationFn: async (request: RoundMode | { seatId: string; commentId: string }) => {
       const mode = typeof request === "string" ? request : "ask";
       const runRoomId = roomId!;
       const controller = new AbortController();
@@ -597,7 +598,7 @@ export function Council() {
       if (typeof request !== "string") {
         setSteps(["Ask again"]);
         setProgress("Asking this seat again…");
-        const result = await councilApi.runRound(companyId, runRoomId, { mode: "ask", seatId: request.seatId, repeatLast: true }, controller.signal);
+        const result = await councilApi.runRound(companyId, runRoomId, { mode: "ask", seatId: request.seatId, repeatLast: true, repeatFromCommentId: request.commentId }, controller.signal);
         return { roomId: runRoomId, results: result.results, repeatLast: true };
       }
       const merged: CouncilSeatResult[] = [];
@@ -1107,7 +1108,7 @@ export function Council() {
                           if (!toast) setError(`Could not fork this room: ${errorText(err)}`);
                         }
                       }}>Fork from here</Button>
-                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" title="Ask this seat the same question again" disabled={running || ask.isPending || reviewArtifact.isPending || !seat} onClick={() => { if (seat) ask.mutate({ seatId: seat.id }); }}>Ask again</Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" title="Ask this seat the same question again" disabled={running || ask.isPending || reviewArtifact.isPending || !seat} onClick={() => { if (seat) ask.mutate({ seatId: seat.id, commentId: c.id }); }}>Ask again</Button>
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
                         setArtifactDraft({ markdown: c.body, title: `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
@@ -1250,12 +1251,12 @@ export function Council() {
               const latest = [...(comments.data ?? [])].reverse().find((comment) => comment.authorUserId === `${SEAT_AUTHOR_PREFIX}${seat.id}`);
               const reliability = (latest?.metadata as { councilReliability?: CouncilReplyReliability } | null | undefined)?.councilReliability;
               const connection = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
-              const local = connection?.routing?.kind ? connection.routing.kind === "local" : reliability?.local;
-              if (local === false) cloudProviders.add((vendorOf(seat) || connection?.provider || reliability?.provider || "provider unavailable").replace(/\s*\([^)]*\)\s*$/, ""));
+              const mayUseCloud = councilSeatMayUseCloud({ local: reliability?.local, routingKind: connection?.routing?.kind, provider: connection?.provider ?? reliability?.provider });
+              if (mayUseCloud) cloudProviders.add((vendorOf(seat) || connection?.provider || reliability?.provider || "provider unavailable").replace(/\s*\([^)]*\)\s*$/, ""));
             }
             return cloudProviders.size ? <CouncilEgressBanner local={false} provider={[...cloudProviders].join(", ")} /> : null;
           })()}
-          {!creating ? <CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /> : null}
+          {!creating ? <div><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} />{discussion && depth === "low" && discussionStyle === "challenge" && answerStyle !== "chain" ? <p className="text-xs text-muted-foreground">Seats answer, then challenge each other for 1 round.</p> : null}</div> : null}
           {!creating ? <form
             className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
             onSubmit={(e) => {
