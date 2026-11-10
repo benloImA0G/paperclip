@@ -1862,7 +1862,10 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             .filter((step) => step.output)
             .map((step) => `### ${step.n}. ${step.title}\n\n${step.output!.slice(0, 1500)}`)
             .join("\n\n");
-          const body = ["## Work summary", result.summary, outputs ? `<details>\n<summary>Step outputs</summary>\n\n${outputs}\n\n</details>` : ""].filter(Boolean).join("\n\n");
+          // Lead with the actual deliverable (the last finished step), so the result is not just a description of it.
+          const lastDone = [...result.steps].reverse().find((step) => step.status === "done" && step.output);
+          const deliverable = lastDone ? `### Deliverable (step ${lastDone.n}: ${lastDone.title})\n\n${lastDone.output!.slice(0, 3000)}` : "";
+          const body = ["## Work summary", deliverable, result.summary, outputs ? `<details>\n<summary>Step outputs</summary>\n\n${outputs}\n\n</details>` : ""].filter(Boolean).join("\n\n");
           await issueSvc.addComment(input.issueId, body, { userId: `${COUNCIL_SEAT_AUTHOR_PREFIX}${chair.id}` });
         }
         // The deliverable (last finished step) plus the summary, saved as an artifact so it can be reviewed and exported.

@@ -139,6 +139,7 @@ export function buildSummaryPrompt({ goal, steps, finalReview }: { goal: string;
   return [
     "Write a one-page summary of at most 300 words in Markdown.",
     "Include a heading, what was done (one line per step), the result/deliverable, and open items.",
+    "Only use what is in the work steps: do not invent steps, people, standards or approvals.",
     ...(finalReview?.revised ? ["The deliverable was revised after final review; mention this in the summary."] : []),
     untrusted("GOAL", goal),
     untrusted("WORK STEPS", work),
