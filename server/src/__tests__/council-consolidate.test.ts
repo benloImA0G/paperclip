@@ -76,6 +76,17 @@ describe("Council PPTX consolidation", () => {
     expect(mocks.selectFastResponse).toHaveBeenCalledWith(expect.objectContaining({ connectionId: expectedModel.replace("-model", "-connection") }));
   });
 
+  it("retries once with a larger answer limit when a thinking model returns nothing", async () => {
+    const { councilChatService } = await import("../services/council-chat.js");
+    const service = councilChatService(dbFor([seat("s", "Seat", "moderator")]));
+    mocks.generateText.mockResolvedValueOnce({ text: "" }).mockResolvedValueOnce({ text: deck });
+    const result = await service.consolidateForExport({ companyId, issueId, userId, markdown: source });
+    expect(result.consolidated).toBe(true);
+    expect(mocks.generateText).toHaveBeenCalledTimes(2);
+    const [first, second] = mocks.generateText.mock.calls.map((call) => call[0].maxOutputTokens as number);
+    expect(second).toBeGreaterThan(first);
+  });
+
   it("returns and logs every consolidation fallback reason, sanitizes success, and does not persist a seat comment", async () => {
     const { councilChatService } = await import("../services/council-chat.js");
     const { logger } = await import("../middleware/logger.js");
