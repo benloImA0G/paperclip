@@ -66,6 +66,12 @@ describe("repeat last council question", () => {
     mocks.listComments.mockResolvedValue([{ id: "c1", authorUserId: "alice", body: "What is this?\n\n[1 image(s) attached]" }, { id: "c2", authorUserId: "council-seat:first", body: "No idea" }]);
     await expect(councilChatService(dbFor([seat("first")])).runRound({ ...base, repeatLast: true, seatId: "first" })).rejects.toThrow("picture attached");
   });
+  it("can ask again on the orchestrator seat while other seats exist", async () => {
+    mocks.listComments.mockResolvedValue(thread);
+    const moderator = { ...seat("mod"), fallbacks: { fallbacks: [], role: "moderator" } };
+    const result = await councilChatService(dbFor([seat("first"), moderator as never])).runRound({ ...base, repeatLast: true, seatId: "mod" });
+    expect(result.results.map((r) => r.seatId)).toEqual(["mod"]);
+  });
   it("requires a selected seat", async () => {
     await expect(councilChatService(dbFor([seat("first")])).runRound({ ...base, repeatLast: true })).rejects.toMatchObject({ status: 422, message: "Choose one seat to ask again" });
   });

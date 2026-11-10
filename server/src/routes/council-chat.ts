@@ -370,7 +370,11 @@ export function councilChatRoutes(db: Db) {
     // Seat failures are shown to a beginner: plain wording, no URLs or keys (the raw text stays out of the response).
     res.json({
       ...round,
-      results: round.results.map((result) => (result.status === "error" && result.error ? { ...result, error: friendlySeatError(result.error) } : result)),
+      results: round.results.map((result) => {
+        const plainAttempts = result.failedAttempts?.map((attempt) => ({ ...attempt, error: friendlySeatError(attempt.error) }));
+        const withAttempts = plainAttempts ? { ...result, failedAttempts: plainAttempts } : result;
+        return withAttempts.status === "error" && withAttempts.error ? { ...withAttempts, error: friendlySeatError(withAttempts.error) } : withAttempts;
+      }),
     });
   });
 

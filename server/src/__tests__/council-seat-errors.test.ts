@@ -20,6 +20,14 @@ describe("friendlySeatError", () => {
     expect(friendlySeatError(raw)).toBe(expected);
   });
 
+  it.each(["gsk_abcdef123456", "nvapi-abcdef123456", "xai-abcdef123456"])("redacts vendor key %s", (secret) => {
+    expect(friendlySeatError(`Unexpected problem with ${secret} in the request`)).not.toContain(secret);
+  });
+
+  it("treats an incorrect API key as a refused connection", () => {
+    expect(friendlySeatError("Incorrect API key provided: abc123")).toContain("refused");
+  });
+
   it("identifies an unreachable local server", () => {
     expect(friendlySeatError("ECONNREFUSED", { local: true })).toBe("Could not reach the local model server. Is Ollama running?");
   });

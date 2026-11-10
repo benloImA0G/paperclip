@@ -1199,6 +1199,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     let last: CouncilSeatTurnResult | null = null;
     const turnStartedAt = Date.now();
     let answerCap = input.maxOutputTokens;
+    let emptyRetried = false;
     for (const [attempt, target] of targets.entries()) {
       answerCap = input.maxOutputTokens;
       for (let retry = 0; retry < 2; retry++) {
@@ -1218,7 +1219,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           maxOutputTokens: answerCap,
         });
         // Thinking models can spend a small cap on reasoning and return nothing: try once more with a bigger cap.
-        if (!retry && last.status === "error" && /^Empty answer/i.test(last.error ?? "") && (last.outputTokens ?? 0) > 0 && answerCap < 4096 && !input.signal?.aborted) {
+        // Only once per seat turn, so a model that always returns nothing cannot multiply the cost across fallbacks.
+        if (!retry && !emptyRetried && last.status === "error" && /^Empty answer/i.test(last.error ?? "") && (last.outputTokens ?? 0) > 0 && answerCap < 4096 && !input.signal?.aborted) {
+          emptyRetried = true;
           answerCap = Math.min(answerCap * 4, 4096);
           continue;
         }
@@ -1402,7 +1405,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         if (!only) throw unprocessable("That seat is not active");
         seats = [only];
       }
-      directOrchestratorMention = mentioned.length === 1 && mentioned[0]?.role === "moderator";
+      directOrchestratorMention = input.repeatLast ? seats[0]?.role === "moderator" : mentioned.length === 1 && mentioned[0]?.role === "moderator";
     }
 
     // Random panel (not when specific seats were mentioned): a diverse random subset, each with a persona.
@@ -2044,12 +2047,19 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     return [...new Set(ids)].sort();
   }
 
+  const lastSeatCheck = new Map<string, number>();
+
   /**
    * Pings every active seat with a tiny prompt (nothing is saved to the room) so a person can see
    * which seats work before running a real round. Seats are checked in parallel.
    */
   async function checkSeats(input: { companyId: string; issueId: string; userId: string; signal?: AbortSignal }) {
     await getRoom(input.companyId, input.issueId);
+    // Every check spends real model calls, so a repeated click or script cannot hammer the vendors.
+    const now = Date.now();
+    const previous = lastSeatCheck.get(input.issueId);
+    if (previous !== undefined && now - previous < 8_000) throw conflict("Seats were just checked. Wait a few seconds and try again.");
+    lastSeatCheck.set(input.issueId, now);
     const rows = await db
       .select()
       .from(councilSeats)
