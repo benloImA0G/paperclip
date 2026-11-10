@@ -42,6 +42,19 @@ If a seat fails, the message is plain words, never a URL or key. A thinking mode
 
 Three groups, each control with a one-line description: **Who answers**, **How they talk**, **More**. **Manage AI connections** opens the connections page.
 
+## Free models that worked (tested 2026-11-11)
+
+Checked with **Check seats** on the free connections:
+
+| Vendor | Worked (about seconds) | Did not work |
+| --- | --- | --- |
+| Groq | allam-2-7b (0.3), qwen/qwen3.8-27b (0.3), openai/gpt-oss-120b (0.7), openai/gpt-oss-20b (1.0) | none |
+| Gemini | gemini-3.5-flash-lite (1.3) | preview / deep-research models: not enabled or rate limited |
+| NVIDIA | nvidia/nemotron-3-nano-omni-30b-a3b-reasoning (1.6; a thinking model, so give it room for a longer answer) | most other listed models are refused on this connection |
+| Ollama (local) | devstral-small-2:24b (20), gemma4:26b (37), gemma4:e4b (12-48) | gemma4:31b-cloud needs vendor credits |
+
+A vendor's model list is not proof that a model is available: always press **Check seats** after adding a seat. Local models are slower and vary a lot between runs. `python3 scripts/council-model-matrix.py` repeats this test.
+
 ## Testing it yourself
 
 Scripts that exercise a running dev server using free vendors only:
