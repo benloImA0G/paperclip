@@ -1243,13 +1243,18 @@ export function Council() {
             <div className="flex gap-2"><Button type="button" size="sm" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId: pendingClarify.companyId, roomId: pendingClarify.roomId, vars: { ...pendingClarify.vars, clarifyFirst: undefined, answers: pendingClarify.questions.map((question, i) => ({ question, answer: pendingClarify.answers[i] ?? "" })) } })}>Start the work</Button><Button type="button" size="sm" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId: pendingClarify.companyId, roomId: pendingClarify.roomId, vars: { ...pendingClarify.vars, clarifyFirst: undefined } })}>Skip questions</Button><Button type="button" size="sm" variant="ghost" onClick={() => setPendingClarify(null)}>Cancel</Button></div>
           </div> : null}
 
-          {activeSeats.map((seat) => {
-            const latest = [...(comments.data ?? [])].reverse().find((comment) => comment.authorUserId === `${SEAT_AUTHOR_PREFIX}${seat.id}`);
-            const reliability = (latest?.metadata as { councilReliability?: CouncilReplyReliability } | null | undefined)?.councilReliability;
-            const connection = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
-            const local = connection?.routing?.kind ? connection.routing.kind === "local" : reliability?.local;
-            return <CouncilEgressBanner key={seat.id} local={local} provider={connection?.provider ?? reliability?.provider ?? vendorOf(seat)} />;
-          })}
+          {(() => {
+            // One line for the whole room: every distinct cloud provider that may receive prompts.
+            const cloudProviders = new Set<string>();
+            for (const seat of activeSeats) {
+              const latest = [...(comments.data ?? [])].reverse().find((comment) => comment.authorUserId === `${SEAT_AUTHOR_PREFIX}${seat.id}`);
+              const reliability = (latest?.metadata as { councilReliability?: CouncilReplyReliability } | null | undefined)?.councilReliability;
+              const connection = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
+              const local = connection?.routing?.kind ? connection.routing.kind === "local" : reliability?.local;
+              if (local === false) cloudProviders.add((vendorOf(seat) || connection?.provider || reliability?.provider || "provider unavailable").replace(/\s*\([^)]*\)\s*$/, ""));
+            }
+            return cloudProviders.size ? <CouncilEgressBanner local={false} provider={[...cloudProviders].join(", ")} /> : null;
+          })()}
           {!creating ? <CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /> : null}
           {!creating ? <form
             className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
