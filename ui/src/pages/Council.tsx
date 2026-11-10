@@ -867,17 +867,6 @@ export function Council() {
           <QueryState label="connections" loading={connections.isLoading} error={connections.isError} onRetry={() => void connections.refetch()} />
           <QueryState label="seats" loading={seats.isLoading} error={seats.isError} onRetry={() => void seats.refetch()} />
             {!connections.isLoading && !connections.isError && !connectionOptions.length ? <p className="text-sm text-muted-foreground">No AI connections yet. <button type="button" className="underline" onClick={() => { setSettingsOpen(true); }}>Open seat settings</button> to add one.</p> : null}
-          <CouncilSavedTeams seats={allSeats} onCreate={async (seat) => {
-            const conn = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
-            const grantId = seat.grantId ?? conn?.grantId;
-            if (!grantId) throw new Error("Connection is unavailable");
-            try { return await councilApi.addSeat(companyId, roomId, { ...seat, grantId }); }
-            finally { void refreshSeatsFor(roomId); }
-          }} onAdded={(count) => toast?.pushToast({ tone: "success", title: `Added ${count} seats` })} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not add seats", body: errorText(error) }); else setError(`Could not add seats: ${errorText(error)}`); }} />
-          {activeSeats.length < 3 && !connections.isLoading && !connections.isError && !seats.isLoading && !seats.isError ? <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending} onClick={() => addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam })}>Add a free team</Button>
-            {!hasFreeConnection ? <span className="text-xs text-muted-foreground">Connect a free AI first</span> : null}
-          </div> : null}
           <div className={advancedMode ? "flex items-center justify-between text-xs" : "hidden"}>
             <span className="font-semibold uppercase tracking-wide text-muted-foreground">
               ● Select participating seats <span className="council-vendor-helper font-normal normal-case">· click Active / Inactive to include a seat · selected seats respond concurrently</span>
@@ -917,7 +906,19 @@ export function Council() {
               })}
             </div>
           ) : null}
-          {roomId && activeSeats.length > 0 ? <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }} /> : null}
+          <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} showCheck={activeSeats.length > 0} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }}>
+          <CouncilSavedTeams seats={allSeats} onCreate={async (seat) => {
+            const conn = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
+            const grantId = seat.grantId ?? conn?.grantId;
+            if (!grantId) throw new Error("Connection is unavailable");
+            try { return await councilApi.addSeat(companyId, roomId, { ...seat, grantId }); }
+            finally { void refreshSeatsFor(roomId); }
+          }} onAdded={(count) => toast?.pushToast({ tone: "success", title: `Added ${count} seats` })} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not add seats", body: errorText(error) }); else setError(`Could not add seats: ${errorText(error)}`); }} />
+          {activeSeats.length < 3 && !connections.isLoading && !connections.isError && !seats.isLoading && !seats.isError ? <>
+            <Button type="button" variant="outline" size="sm" disabled={!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending} onClick={() => addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam })}>Add a free team</Button>
+            {!hasFreeConnection ? <span className="text-xs text-muted-foreground">Connect a free AI first</span> : null}
+          </> : null}
+          </CouncilSeatCheck>
           <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className={advancedMode ? "council-participants shrink-0 rounded-lg border bg-muted/10" : "hidden"}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
               <span className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Participants <span className="font-normal text-muted-foreground">{activeSeats.length} active</span></span>

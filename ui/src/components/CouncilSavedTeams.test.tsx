@@ -25,3 +25,18 @@ it("saves a team and creates each missing seat when used", async () => {
   expect(added).toHaveBeenCalledWith(2);
   await act(async () => root.unmount()); container.remove();
 });
+
+it("closes the teams menu on outside click and Escape", async () => {
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(<CouncilSavedTeams seats={[]} onCreate={vi.fn()} onAdded={vi.fn()} onError={vi.fn()} />));
+  const details = container.querySelector("details")!;
+  details.open = true;
+  document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+  expect(details.open).toBe(false);
+  details.open = true;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  expect(details.open).toBe(false);
+  expect(document.activeElement).toBe(container.querySelector("summary"));
+  await act(async () => root.unmount()); container.remove();
+});

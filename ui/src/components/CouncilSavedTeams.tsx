@@ -1,10 +1,25 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CouncilSeat } from "../api/council";
 import { deleteTeam, loadTeams, saveTeam, serializeTeam, type SavedTeamSeat } from "../pages/council-saved-teams";
-import { Button } from "./ui/button";
+import { Button, buttonVariants } from "./ui/button";
 import { Input } from "./ui/input";
 
 export function CouncilSavedTeams({ seats, onCreate, onAdded, onError }: { seats: CouncilSeat[]; onCreate: (seat: SavedTeamSeat) => Promise<unknown>; onAdded: (count: number) => void; onError: (error: unknown) => void }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      if (!detailsRef.current?.contains(event.target as Node)) detailsRef.current?.removeAttribute("open");
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && detailsRef.current?.open) {
+        detailsRef.current.open = false;
+        detailsRef.current.querySelector("summary")?.focus();
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("pointerdown", onPointerDown); document.removeEventListener("keydown", onKeyDown); };
+  }, []);
   const [teams, setTeams] = useState(loadTeams);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
@@ -25,9 +40,9 @@ export function CouncilSavedTeams({ seats, onCreate, onAdded, onError }: { seats
       onAdded(count);
     } catch (error) { onError(error); } finally { setBusy(false); }
   }
-  return <details className="relative">
-    <summary className="cursor-pointer rounded-md border px-2 py-1 text-sm">Teams</summary>
-    <div className="absolute left-0 z-10 mt-1 w-80 max-w-full space-y-2 rounded-md border bg-popover p-3 shadow-lg">
+  return <details ref={detailsRef} className="relative">
+    <summary className={buttonVariants({ variant: "outline", size: "sm", className: "cursor-pointer list-none [&::-webkit-details-marker]:hidden" })}>Teams ▾</summary>
+    <div className="absolute left-0 z-10 mt-1 w-80 space-y-2 rounded-md border bg-popover p-3 shadow-lg">
       {naming ? <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); if (!name.trim()) return; setTeams(saveTeam(serializeTeam(name, seats))); setName(""); setNaming(false); }}>
         <Input aria-label="Team name" placeholder="Team name" value={name} onChange={(event) => setName(event.target.value)} autoFocus />
         <Button type="submit" size="sm" disabled={!name.trim()}>Save</Button>
