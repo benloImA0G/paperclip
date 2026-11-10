@@ -49,3 +49,29 @@ export function estimateCalls(options: CallEstimateOptions): { low: number; high
   if (options.jury && seats >= 2) { const count = Math.min(seats - 1, 6); low += count; high += count; lines.push(`Jury adds ${count}`); }
   return { low, high, lines };
 }
+
+export function estimateTime(options: {
+  seats: Array<{ id: string; local: boolean }>;
+  replies: Array<{ seatId: string; durationMs?: number | null }>;
+  targetedSeatIds?: string[];
+  answerStyle: "side-by-side" | "chain";
+  debateRounds: number;
+}): { low: number; high: number } {
+  const seats = options.seats.filter((seat) => !options.targetedSeatIds || options.targetedSeatIds.includes(seat.id));
+  const medians = seats.map((seat) => {
+    const samples = options.replies.filter((reply) => reply.seatId === seat.id).slice(-5)
+      .map((reply) => reply.durationMs).filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+    if (!samples.length) return seat.local ? 30 : 8;
+    const middle = Math.floor(samples.length / 2);
+    return (samples.length % 2 ? samples[middle] : (samples[middle - 1] + samples[middle]) / 2) / 1000;
+  });
+  const slowest = Math.max(0, ...medians);
+  const seconds = (options.answerStyle === "chain" ? medians.reduce((sum, value) => sum + value, 0) : slowest)
+    + (options.targetedSeatIds ? 0 : Math.max(0, options.debateRounds) * slowest);
+  return { low: seconds * 0.7, high: seconds * 1.6 };
+}
+
+export function formatEstimateTime(seconds: number): string {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} s`;
+  return `${Math.round(seconds / 6) / 10} min`;
+}

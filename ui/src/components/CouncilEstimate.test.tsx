@@ -20,7 +20,7 @@ const estimate = (overrides = {}) => ({
 });
 
 async function render() {
-  await act(async () => root.render(<QueryClientProvider client={queryClient}><CouncilEstimate roomId="room-1" mode="ask" /></QueryClientProvider>));
+  await act(async () => root.render(<QueryClientProvider client={queryClient}><CouncilEstimate roomId="room-1" mode="ask" time={{ low: 5, high: 45 }} /></QueryClientProvider>));
 }
 
 async function settle() {
@@ -49,7 +49,7 @@ describe("CouncilEstimate", () => {
   it("formats cost and time estimates", async () => {
     await render();
     await settle();
-    expect(container.textContent).toContain("Estimate: about 4 calls, roughly $0.02-$0.08, 5-45 s");
+    expect(container.textContent).toContain("Estimate: about 4 calls, roughly $0.02-$0.08, about 5 s to 45 s");
     expect(container.querySelector("span")?.title).toContain("Ada: 4 calls");
   });
 

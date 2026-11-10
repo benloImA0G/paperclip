@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateCalls, type CallEstimateOptions } from "./council-call-estimate";
+import { estimateCalls, estimateTime, type CallEstimateOptions } from "./council-call-estimate";
 
 const base: CallEstimateOptions = {
   answeringSeats: 3, hasModerator: false, rounds: 1, untilAgreement: false,
@@ -53,5 +53,20 @@ describe("estimateCalls", () => {
   });
   it("explains enabled costs", () => {
     expect(estimateCalls({ ...base, peerRanking: true, jury: true }).lines).toEqual(expect.arrayContaining(["3 seats answer", "Ranking adds 3", "Jury adds 2"]));
+  });
+});
+
+describe("estimateTime", () => {
+  const seats = [{ id: "a", local: false }, { id: "b", local: true }];
+  const replies = [10, 20, 30, 40, 50, 60].map((seconds) => ({ seatId: "a", durationMs: seconds * 1000 }));
+  it("uses recent medians for parallel and sequential answers and debate", () => {
+    expect(estimateTime({ seats, replies, answerStyle: "side-by-side", debateRounds: 1 })).toEqual({ low: 56, high: 128 });
+    expect(estimateTime({ seats, replies, answerStyle: "chain", debateRounds: 1 })).toEqual({ low: 77, high: 176 });
+  });
+  it("limits targeted messages to their seats and skips debate", () => {
+    expect(estimateTime({ seats, replies, targetedSeatIds: ["b"], answerStyle: "chain", debateRounds: 2 })).toEqual({ low: 21, high: 48 });
+  });
+  it("uses cloud and local defaults without history", () => {
+    expect(estimateTime({ seats, replies: [], answerStyle: "chain", debateRounds: 0 })).toEqual({ low: 26.599999999999998, high: 60.800000000000004 });
   });
 });

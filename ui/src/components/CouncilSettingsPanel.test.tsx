@@ -36,6 +36,8 @@ it("keeps advanced controls closed by default and remembers opening them", async
   const details = container.querySelector("details")!;
   expect(details.open).toBe(false);
   expect(details.textContent).toContain("Jury checks");
+  expect(details.textContent).toContain("Most people never need these. The defaults work.");
+  expect(details.querySelector("h4")?.textContent).toBe("Check the work");
   expect(container.textContent).toContain("Answer style is set above the message box.");
   const combined = container.querySelector<HTMLSelectElement>('select[aria-label="How seats answer"]')!;
   await act(async () => { combined.value = "challenge"; combined.dispatchEvent(new Event("change", { bubbles: true })); });

@@ -14,7 +14,7 @@ import { EmptyState } from "../components/EmptyState";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useCompany } from "../context/CompanyContext";
 import { parseCouncilDecisionRecord } from "./council-decision-record";
-import { estimateCalls } from "./council-call-estimate";
+import { estimateCalls, estimateTime } from "./council-call-estimate";
 import { CouncilAgreementMeter } from "../components/CouncilAgreement";
 import { CouncilWorkPanel } from "./council-work-step";
 import type { CouncilAgreement } from "../api/council";
@@ -764,6 +764,19 @@ export function Council() {
     autoSummary, clarify, peerRanking, jury, panelSize,
     work: { planFirst: planFirst && workStatus !== "running", askFirst, juryChecks, finalReview },
   });
+  const timeEstimate = estimateTime({
+    seats: activeSeats.map((seat) => {
+      const latest = [...(comments.data ?? [])].reverse().find((comment) => comment.authorUserId === `${SEAT_AUTHOR_PREFIX}${seat.id}`);
+      const reliability = (latest?.metadata as { councilReliability?: CouncilReplyReliability } | null | undefined)?.councilReliability;
+      const connection = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
+      return { id: seat.id, local: !councilSeatMayUseCloud({ local: reliability?.local, routingKind: connection?.routing?.kind, provider: connection?.provider ?? reliability?.provider }) };
+    }),
+    replies: (comments.data ?? []).filter((comment) => comment.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((comment) => ({
+      seatId: comment.authorUserId!.slice(SEAT_AUTHOR_PREFIX.length),
+      durationMs: (comment.metadata as { councilReliability?: CouncilReplyReliability } | null)?.councilReliability?.durationMs,
+    })),
+    targetedSeatIds, answerStyle, debateRounds: discussion && activeSeats.length > 1 ? DEPTHS[depth].rounds : 0,
+  });
   const canSend = !ask.isPending && !!message.trim() && activeSeats.length > 0;
   const room = rooms.data?.find((r) => r.id === roomId);
   const trackedProgress = running && roundTracking?.roomId === roomId ? seatProgress({ activeSeats, targetedSeatIds: roundTracking.targetIds, comments: comments.data ?? [], roundStartedAt: roundTracking.startedAt, now: roundNow }) : null;
@@ -1313,6 +1326,7 @@ export function Council() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!canSend) return;
+              setOptionsOpen(false);
               if (planFirst && workStatus !== "running" && targetedSeatIds === undefined) {
                 startWork.mutate({ companyId, roomId: roomId!, vars: { goal: message.trim(), postGoal: true, ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } });
                 setMessage("");
@@ -1350,7 +1364,7 @@ export function Council() {
               }}
             />
             <span className="hidden text-xs text-muted-foreground lg:inline">Enter or Ctrl+Enter sends, Shift+Enter adds a line. Type @ to ask one seat, or @all for everyone.</span>
-            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; const typedGoal = message.trim().length > 0; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(typedGoal ? { postGoal: true } : {}), ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }); if (typedGoal) setMessage(""); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
+            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; setOptionsOpen(false); const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; const typedGoal = message.trim().length > 0; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(typedGoal ? { postGoal: true } : {}), ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }); if (typedGoal) setMessage(""); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
             <ImageSeatNotice imageCount={images.length} seats={activeSeats} />
@@ -1407,7 +1421,7 @@ export function Council() {
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Response options</span>
-                  {roomId ? <CouncilEstimate roomId={roomId} mode="ask" /> : null}
+                  {roomId ? <CouncilEstimate roomId={roomId} mode="ask" time={timeEstimate} /> : null}
                   <Button type="button" variant="outline" size="sm" disabled={ask.isPending || !hasAnswers} onClick={() => ask.mutate("summarize")}>Summary</Button>
                   <Button type="button" variant="outline" size="sm" disabled={ask.isPending || activeSeats.length < 2 || !hasAnswers} onClick={() => ask.mutate("discuss")}>Discuss now</Button>
                 </div>

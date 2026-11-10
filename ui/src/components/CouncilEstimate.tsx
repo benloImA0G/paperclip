@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { councilApi, type CouncilEstimateMode, type CouncilSeat } from "../api/council";
+import { formatEstimateTime } from "../pages/council-call-estimate";
 import { useCompany } from "../context/CompanyContext";
 
 function dollars(cents: number): string {
@@ -11,7 +12,7 @@ function costRange(cost: { low: number; high: number } | null): string {
   return cost ? `roughly ${dollars(cost.low)}-${dollars(cost.high)}` : "cost unknown (no price history)";
 }
 
-export function CouncilEstimate({ roomId, mode }: { roomId: string; mode: CouncilEstimateMode }) {
+export function CouncilEstimate({ roomId, mode, time }: { roomId: string; mode: CouncilEstimateMode; time: { low: number; high: number } }) {
   const { selectedCompanyId } = useCompany();
   const companyId = selectedCompanyId ?? "";
   const seats = useQuery({
@@ -27,11 +28,11 @@ export function CouncilEstimate({ roomId, mode }: { roomId: string; mode: Counci
   });
 
   if (!estimate.data || estimate.isError) return null;
-  const { calls, estimatedSeconds: seconds, unpricedSeats } = estimate.data;
+  const { calls, unpricedSeats } = estimate.data;
   const seatDetails = estimate.data.seats.map((seat) => `${seat.label}: ${seat.calls} call${seat.calls === 1 ? "" : "s"}`).join("; ");
   return (
     <span className="min-w-0 text-xs text-muted-foreground" title={seatDetails || "No seat details available"}>
-      Estimate: about {calls} call{calls === 1 ? "" : "s"}, {costRange(estimate.data.estimatedCostCents)}, {seconds.low}-{seconds.high} s{unpricedSeats > 0 ? ` (${unpricedSeats} seat${unpricedSeats === 1 ? "" : "s"} unpriced)` : ""}
+      Estimate: about {calls} call{calls === 1 ? "" : "s"}, {costRange(estimate.data.estimatedCostCents)}, about {formatEstimateTime(time.low)} to {formatEstimateTime(time.high)}{unpricedSeats > 0 ? ` (${unpricedSeats} seat${unpricedSeats === 1 ? "" : "s"} unpriced)` : ""}
     </span>
   );
 }
