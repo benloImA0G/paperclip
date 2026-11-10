@@ -119,7 +119,7 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, room
   }
 
   const linkedTask = (item: CouncilActionItem) => existingTasks.find((issue) => issue.title === item.text);
-  const needsYou = (item: CouncilActionItem) => /ben/i.test(item.owner ?? "") || /^(you|user|me)$/i.test(item.owner?.trim() ?? "");
+  const needsYou = (item: CouncilActionItem) => /\bben\b/i.test(item.owner ?? "") || /^(you|user|me)$/i.test(item.owner?.trim() ?? "");
   const pending = items
     .map((_, index) => index)
     .filter((index) => selected[index] && rows[index]?.status !== "done" && rows[index]?.status !== "creating" && !linkedTask(items[index]!) && !needsYou(items[index]!));
