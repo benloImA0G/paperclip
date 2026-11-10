@@ -17,6 +17,10 @@ describe("planFreeTeam", () => {
     expect(plans.every((plan) => plan.model && plan.persona)).toBe(true);
   });
 
+  it("puts the quick cloud vendors first and the slow local model last", () => {
+    expect(planFreeTeam(connections, []).map((plan) => plan.connectionId)).toEqual(["q", "g", "n", "o"]);
+  });
+
   it("does not duplicate existing names, ignoring case and whitespace", () => {
     const plans = planFreeTeam(connections, [" chairman ", "REVIEWER"]);
     expect(plans.map((plan) => plan.name)).toEqual(["Builder", "Contrarian"]);
