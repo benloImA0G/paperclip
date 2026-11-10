@@ -55,6 +55,15 @@ Checked with **Check seats** on the free connections:
 
 A vendor's model list is not proof that a model is available: always press **Check seats** after adding a seat. Local models are slower and vary a lot between runs. `python3 scripts/council-model-matrix.py` repeats this test.
 
+## Hermes as a seat
+
+A Hermes agent (`hermes_gateway` adapter) can sit in a room as an orchestrator seat. Status on the dev machine (2026-11-11):
+
+- The Council side works: the seat calls the adapter, **Check seats** reads the agent's status without starting a run, and plain-word errors appear when the gateway is down.
+- The real Hermes is not running here: the `hermes` CLI is not installed in WSL and nothing listens on port 18642. The agent was pointed at the fake gateway for testing, so its saved `apiKey` is now a test value.
+- To make it real: either run the repository's own container smoke (`scripts/smoke/hermes-gateway-e2e.sh`, it builds `docker/hermes-gateway-smoke`; it needs a model provider set through `HERMES_SMOKE_MODEL_PROVIDER`, `HERMES_SMOKE_MODEL_DEFAULT`, `HERMES_SMOKE_MODEL_BASE_URL` and the provider key in the environment), or install Hermes and start `hermes gateway run` with `API_SERVER_ENABLED=true` and an `API_SERVER_KEY`. Then set the agent's `apiBaseUrl` (the docs use port 8642; this agent used 18642) and put the same key in `apiKey`.
+- `hermes-chief` is a placeholder (HTTP adapter to an unused address); fix or delete it.
+
 ## Testing it yourself
 
 Scripts that exercise a running dev server using free vendors only:
