@@ -514,7 +514,8 @@ export function Council() {
     if (!saveExportSetting.isPending && template.requireApproval !== (exportSettingQuery.data?.requireApproval ?? false)) {
       saveExportSetting.mutate({ targetRoomId: pendingTemplate.roomId, value: template.requireApproval });
     }
-    if (addDefaults.isPending || !seats.isSuccess || defaultsReadyRoomId !== roomId) return;
+    // Wait until the new room's seats have actually loaded; otherwise the template finds nothing to apply to and gives up.
+    if (addDefaults.isPending || !seats.isSuccess || defaultsReadyRoomId !== roomId || allSeats.length === 0) return;
     const rolesBySeatId = template.id === "research-build-review"
       ? new Map(allSeats.filter((seat) => seat.active).slice(0, 3).map((seat, index) => [seat.id, (["researcher", "builder", "critic"] as const)[index]]))
       : new Map(allSeats.map((seat) => [seat.id, template.roles[seat.name]]));
