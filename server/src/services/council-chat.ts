@@ -214,6 +214,16 @@ export function finalizeCouncilSeatTurn(
 }
 
 /** Chain mode: the previous seats' answers handed to the next seat are capped so long chains stay cheap. */
+/** Seats an @mention points at: full-name matches win; a first-word match counts only when that word is unique. */
+export function matchMentionedSeats<T extends { name: string }>(lowerMessage: string, seats: T[]): T[] {
+  const escape = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hit = (token: string) => new RegExp(`@${escape(token)}(?![\\p{L}\\p{N}_])`, "u").test(lowerMessage);
+  const full = seats.filter((s) => hit(s.name.toLowerCase()));
+  if (full.length) return full;
+  const firstWord = (s: T) => s.name.toLowerCase().split(/\s+/)[0] ?? "";
+  return seats.filter((s) => seats.filter((o) => firstWord(o) === firstWord(s)).length === 1 && hit(firstWord(s)));
+}
+
 export const CHAIN_HANDOFF_CHARS = 6000;
 const CHAIN_INSTRUCTION =
   "Chain round: you are the next step after the seats above (Ben is the user, not a seat). Build on, review or fix the latest earlier answer " +
@@ -1347,13 +1357,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       seats = [writer];
     } else {
       const lower = message.toLowerCase();
-      const mentioned = lower.includes("@all")
-        ? []
-        : seats.filter(
-            (s) =>
-              lower.includes(`@${s.name.toLowerCase()}`) ||
-              lower.includes(`@${s.name.toLowerCase().split(/\s+/)[0]}`),
-          );
+      const mentioned = lower.includes("@all") ? [] : matchMentionedSeats(lower, seats);
       if (mentioned.length) seats = mentioned;
       directOrchestratorMention = mentioned.length === 1 && mentioned[0]?.role === "moderator";
     }
