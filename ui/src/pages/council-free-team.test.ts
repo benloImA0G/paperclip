@@ -18,7 +18,7 @@ describe("planFreeTeam", () => {
   });
 
   it("puts the quick cloud vendors first and the slow local model last", () => {
-    expect(planFreeTeam(connections, []).map((plan) => plan.connectionId)).toEqual(["q", "g", "n", "o"]);
+    expect(planFreeTeam(connections, []).map((plan) => plan.connectionId)).toEqual(["q", "g", "n", "extra"]);
   });
 
   it("does not duplicate existing names, ignoring case and whitespace", () => {
