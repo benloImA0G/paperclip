@@ -215,6 +215,9 @@ export function finalizeCouncilSeatTurn(
 
 /** Chain mode: the previous seats' answers handed to the next seat are capped so long chains stay cheap. */
 /** Seats an @mention points at: full-name matches win; a first-word match counts only when that word is unique. */
+/** Model ids that are not chat models (embeddings, speech, images, music, safety filters, translation, parsers). */
+export const NON_CHAT_MODEL_ID = /embed|whisper|tts|guard|moderation|rerank|dall|image|audio|transcribe|aqa|orpheus|deplot|nvclip|parse|reward|safety|riva|translate|lyria|banana|robotics|imagen|veo|music|ocr|clip|fuyu|vila|neva|paligemma|computer-use|deep-research|antigravity/i;
+
 export function matchMentionedSeats<T extends { name: string }>(lowerMessage: string, seats: T[]): T[] {
   const escape = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const hit = (token: string) => new RegExp(`@${escape(token)}(?![\\p{L}\\p{N}_])`, "u").test(lowerMessage);
@@ -2043,7 +2046,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     ]
       .filter((id): id is string => typeof id === "string" && id.length > 0)
       .map((id) => id.replace(/^models\//, ""))
-      .filter((id) => !/embed|whisper|tts|guard|moderation|rerank|dall|image|audio|transcribe|aqa|orpheus/i.test(id));
+      .filter((id) => !NON_CHAT_MODEL_ID.test(id));
     return [...new Set(ids)].sort();
   }
 
