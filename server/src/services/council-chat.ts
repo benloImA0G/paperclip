@@ -1195,7 +1195,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const failed: NonNullable<CouncilSeatTurnResult["failedAttempts"]> = [];
     let last: CouncilSeatTurnResult | null = null;
     const turnStartedAt = Date.now();
+    let answerCap = input.maxOutputTokens;
     for (const [attempt, target] of targets.entries()) {
+      answerCap = input.maxOutputTokens;
       for (let retry = 0; retry < 2; retry++) {
         const remaining = SEAT_TIMEOUT_MS - (Date.now() - turnStartedAt);
         if (remaining <= 0) break;
@@ -1209,7 +1211,13 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout,
           persistComment: input.persistComment,
           generation: input.generation,
+          maxOutputTokens: answerCap,
         });
+        // Thinking models can spend a small cap on reasoning and return nothing: try once more with a bigger cap.
+        if (!retry && last.status === "error" && /^Empty answer/i.test(last.error ?? "") && (last.outputTokens ?? 0) > 0 && answerCap < 4096 && !input.signal?.aborted) {
+          answerCap = Math.min(answerCap * 4, 4096);
+          continue;
+        }
         if (retry || last.status !== "error" || !last.error || !isCouncilRateLimit(last.error)) break;
         const delay = councilRateLimitDelayMs(last.error);
         if (Date.now() - turnStartedAt + delay >= SEAT_TIMEOUT_MS || input.signal?.aborted) break;

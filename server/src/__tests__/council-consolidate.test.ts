@@ -84,7 +84,8 @@ describe("Council PPTX consolidation", () => {
     const success = await service.consolidateForExport({ companyId, issueId, userId, markdown: source });
     expect(success).toEqual({ markdown: expect.not.stringContaining("https://example.com"), consolidated: true });
     expect(mocks.addComment).not.toHaveBeenCalled();
-    mocks.generateText.mockResolvedValueOnce({ text: "" });
+    // An empty answer that used tokens is retried once with a larger cap, so queue two empties.
+    mocks.generateText.mockResolvedValueOnce({ text: "" }).mockResolvedValueOnce({ text: "" });
     expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false, reason: "empty_output" });
     mocks.generateText.mockRejectedValueOnce(new Error("timeout"));
     expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false, reason: "model_error:timeout" });
