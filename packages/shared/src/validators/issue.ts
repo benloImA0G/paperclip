@@ -1106,6 +1106,11 @@ export const issueCommentMetadataSchema = z
       durationMs: z.number().nonnegative().optional(),
       fallbackUsed: z.boolean().optional(),
       usage: z.object({ inputTokens: z.number().nonnegative(), outputTokens: z.number().nonnegative(), totalTokens: z.number().nonnegative() }).strict().optional(),
+      costCents: z.string().max(40).optional(),
+      costStatus: z.string().max(40).optional(),
+      provider: z.string().max(80).optional(),
+      model: z.string().max(200).optional(),
+      local: z.boolean().optional(),
     }).strict().optional(),
     chatMessage: z.object({
       sourceTaskId: z.uuid(),

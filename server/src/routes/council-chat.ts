@@ -13,6 +13,7 @@ import { logActivity } from "../services/activity-log.js";
 import { getCouncilEstimate } from "../services/council-estimate.js";
 import { suggestCouncilSeats } from "../services/council-autofill.js";
 import { classifyCouncilQuestion } from "../services/council-modes.js";
+import { friendlySeatError } from "../services/council-seat-errors.js";
 
 const createRoomSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict();
 const kindSchema = z.object({ kind: z.enum(["quick-fact", "decision", "brainstorm", "review", "plan-and-do"]).nullable() }).strict();
@@ -309,6 +310,14 @@ export function councilChatRoutes(db: Db) {
     res.status(204).end();
   });
 
+  // Fork: copy the room's seats and brief plus the thread up to one message into a new room.
+  router.post("/companies/:companyId/council/rooms/:issueId/fork", validate(z.object({ upToCommentId: z.string().uuid() }).strict()), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const result = await council.forkRoom(companyId, boardUserId(req), req.params.issueId as string, req.body);
+    res.status(201).json(result);
+  });
+
   router.delete("/companies/:companyId/council/rooms/:issueId/seats/:seatId", async (req, res) => {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
@@ -332,29 +341,32 @@ export function councilChatRoutes(db: Db) {
     res.on("close", () => {
       if (!res.writableFinished) abort.abort();
     });
-    res.json(
-      await council.runRound({
-        companyId,
-        issueId: req.params.issueId as string,
-        userId,
-        message: req.body.message,
-        mode: req.body.mode,
-        order: req.body.order,
-        style: req.body.style,
-        seatId: req.body.seatId,
-        images: req.body.images,
-        maxOutputTokens: req.body.maxOutputTokens,
-        clarify: req.body.clarify,
-        stance: req.body.stance,
-        dissent: req.body.dissent,
-        ranking: req.body.ranking,
-        jury: req.body.jury,
-        panel: req.body.panel,
-        roundNumber: req.body.roundNumber,
-        maxRounds: req.body.maxRounds,
-        signal: abort.signal,
-      }),
-    );
+    const round = await council.runRound({
+      companyId,
+      issueId: req.params.issueId as string,
+      userId,
+      message: req.body.message,
+      mode: req.body.mode,
+      order: req.body.order,
+      style: req.body.style,
+      seatId: req.body.seatId,
+      images: req.body.images,
+      maxOutputTokens: req.body.maxOutputTokens,
+      clarify: req.body.clarify,
+      stance: req.body.stance,
+      dissent: req.body.dissent,
+      ranking: req.body.ranking,
+      jury: req.body.jury,
+      panel: req.body.panel,
+      roundNumber: req.body.roundNumber,
+      maxRounds: req.body.maxRounds,
+      signal: abort.signal,
+    });
+    // Seat failures are shown to a beginner: plain wording, no URLs or keys (the raw text stays out of the response).
+    res.json({
+      ...round,
+      results: round.results.map((result) => (result.status === "error" && result.error ? { ...result, error: friendlySeatError(result.error) } : result)),
+    });
   });
 
   router.post("/companies/:companyId/council/rooms/:issueId/rounds/stop", async (req, res) => {

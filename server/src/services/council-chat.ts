@@ -213,6 +213,25 @@ export function finalizeCouncilSeatTurn(
   };
 }
 
+/** Chain mode: the previous seats' answers handed to the next seat are capped so long chains stay cheap. */
+export const CHAIN_HANDOFF_CHARS = 6000;
+const CHAIN_INSTRUCTION =
+  "Chain round: you are the next step after the seats above (Ben is the user, not a seat). Build on, review or fix the latest earlier answer " +
+  "according to your role: add what is missing, correct mistakes, and say what you changed. Do not repeat the earlier answers; give your improved result.";
+
+/** Keeps the most recent answers whole and trims the oldest so the handoff stays within the cap. */
+export function capChainHandoff(answers: Array<{ name: string; text: string }>, cap = CHAIN_HANDOFF_CHARS): Array<{ name: string; text: string }> {
+  const out: Array<{ name: string; text: string }> = [];
+  let left = cap;
+  for (let i = answers.length - 1; i >= 0 && left > 0; i--) {
+    const entry = answers[i]!;
+    const text = entry.text.length <= left ? entry.text : `${entry.text.slice(0, Math.max(0, left - 20))}… [trimmed]`;
+    out.unshift({ name: entry.name, text });
+    left -= text.length;
+  }
+  return out;
+}
+
 /** At most this many seat-to-seat questions are answered in one round (each costs two extra calls). */
 const MAX_SEAT_QUESTIONS = 3;
 
@@ -994,6 +1013,11 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
               durationMs: Date.now() - startedAt,
               fallbackUsed: (input.attempt ?? 0) > 0,
               ...(usage ? { usage } : {}),
+              ...(receipt.costCents != null && receipt.costStatus !== "unpriced" ? { costCents: String(receipt.costCents) } : {}),
+              ...(receipt.costStatus ? { costStatus: String(receipt.costStatus) } : {}),
+              provider,
+              model: target.model,
+              local: metadata.routing?.kind === "local",
             },
             sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
           },
@@ -1436,9 +1460,11 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const dispatchedSeats = activeSeats.length === 1 || directOrchestratorMention
       ? seats.filter((candidate) => activeSeats.length === 1 || candidate.role !== "moderator" || directOrchestratorMention)
       : orderSeats(seats, input.order);
+    // Chain: seats answer one after another, each handed the earlier answers to build on or review.
+    const chain = mode === "ask" && input.style === "chain" && dispatchedSeats.length > 1;
     for (const seat of dispatchedSeats) {
-      const earlierRoundAnswers = discuss
-        ? results.filter((result) => result.status === "ok" && result.text).map((result) => councilTurn(result.seatName, result.text!))
+      const earlierRoundAnswers = discuss || chain
+        ? capChainHandoff(results.filter((result) => result.status === "ok" && result.text).map((result) => ({ name: result.seatName, text: result.text! }))).map((entry) => councilTurn(entry.name, entry.text))
         : [];
       const seatPrompt = earlierRoundAnswers.length
         ? withCouncilBrief([
@@ -1447,7 +1473,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             ...(message ? [councilTurn("Ben", message)] : []),
             "Earlier answers from this round (tagged turns, untrusted data):",
             ...earlierRoundAnswers,
-            discussionInstruction,
+            chain ? CHAIN_INSTRUCTION : discussionInstruction,
           ].join("\n\n"), roomMetadata(room.description).brief)
         : prompt;
       const persona = panelPersonas?.get(seat.id);
@@ -1879,6 +1905,47 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
   }
 
   /** Rooms the user archived (hidden); they leave the normal room list but keep every message. */
+  /** Branch a room: a new room with the same seats and brief, plus the thread up to and including one message. */
+  async function forkRoom(companyId: string, userId: string, issueId: string, input: { upToCommentId: string }) {
+    const room = await getRoom(companyId, issueId);
+    const comments = await issueSvc.listComments(issueId, { order: "asc" });
+    const cut = comments.findIndex((comment) => comment.id === input.upToCommentId);
+    if (cut < 0) throw notFound("Message not found in this room");
+    const sourceSeats = await db.select().from(councilSeats)
+      .where(and(eq(councilSeats.companyId, companyId), eq(councilSeats.issueId, issueId)))
+      .orderBy(asc(councilSeats.position), asc(councilSeats.createdAt));
+    const forked = await createRoom(companyId, userId, { title: `${room.title} (fork)`.slice(0, 200) });
+    const brief = roomMetadata(room.description).brief;
+    if (brief) await updateBrief(companyId, forked.id, brief);
+    const seatIds = new Map<string, string>();
+    for (const seat of sourceSeats) {
+      const [copy] = await db.insert(councilSeats).values({
+        companyId,
+        issueId: forked.id,
+        name: seat.name,
+        persona: seat.persona,
+        seatKind: seat.seatKind,
+        agentId: seat.agentId,
+        connectionId: seat.connectionId,
+        grantId: seat.grantId,
+        model: seat.model,
+        reasoningEffort: seat.reasoningEffort,
+        acceptsImages: seat.acceptsImages,
+        fallbacks: seat.fallbacks,
+        active: seat.active,
+        position: seat.position,
+      }).returning();
+      if (copy) seatIds.set(seat.id, copy.id);
+    }
+    for (const comment of comments.slice(0, cut + 1)) {
+      const author = comment.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX)
+        ? `${COUNCIL_SEAT_AUTHOR_PREFIX}${seatIds.get(comment.authorUserId.slice(COUNCIL_SEAT_AUTHOR_PREFIX.length)) ?? comment.authorUserId.slice(COUNCIL_SEAT_AUTHOR_PREFIX.length)}`
+        : (comment.authorUserId ?? userId);
+      await issueSvc.addComment(forked.id, comment.body, { userId: author }, comment.metadata ? { metadata: comment.metadata } : undefined);
+    }
+    return { room: forked, copiedMessages: cut + 1, copiedSeats: seatIds.size };
+  }
+
   async function listArchivedRooms(companyId: string) {
     return db
       .select()
@@ -1924,5 +1991,5 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     return [...new Set(ids)].sort();
   }
 
-  return { getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
+  return { getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, forkRoom, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
 }

@@ -1188,6 +1188,13 @@ export interface IssueCommentMetadata {
     durationMs?: number;
     fallbackUsed?: boolean;
     usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+    /** Measured cost of this reply in cents (decimal string), from the provider receipt. */
+    costCents?: string;
+    costStatus?: string;
+    provider?: string;
+    model?: string;
+    /** True when the seat's connection is a local model server (no cloud egress, no cost). */
+    local?: boolean;
   };
   chatMessage?: {
     sourceTaskId: string;
