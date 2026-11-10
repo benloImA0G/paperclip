@@ -22,9 +22,10 @@ import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } 
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilSeatProgress } from "../components/CouncilSeatProgress";
 import { mentionedSeatIds, seatProgress } from "./council-seat-progress";
+import { lastCheck, rememberCheck, isStale, type LastCheck } from "./council-check-memory";
 import { CouncilSeatCheck } from "../components/CouncilSeatCheck";
 import { CouncilSavedTeams } from "../components/CouncilSavedTeams";
-import { CouncilSeatPill, councilSeatMayUseCloud } from "../components/CouncilSeatPill";
+import { CouncilSeatPill, CouncilSeatStatusDot, councilSeatMayUseCloud } from "../components/CouncilSeatPill";
 import { CouncilEstimate } from "../components/CouncilEstimate";
 import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../components/CouncilMentionPicker";
 import { useOptionalToastActions } from "../context/ToastContext";
@@ -207,6 +208,9 @@ export function Council() {
   const [selectedRevision, setSelectedRevision] = useState<number | null>(null);
   const [artifactDraft, setArtifactDraft] = useState<{ markdown: string; title: string } | null>(null);
   const [requireApproval, setRequireApproval] = useState(false);
+  const [checkMemory, setCheckMemory] = useState<Record<string, LastCheck>>({});
+  const [checkNow, setCheckNow] = useState(Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setCheckNow(Date.now()), 30_000); return () => window.clearInterval(timer); }, []);
   const [lastResults, setLastResults] = useState<Record<string, Record<string, CouncilSeatResult>>>({});
   const [roundDetails, setRoundDetails] = useState<Record<string, CouncilSeatResult[][]>>({});
   const [agreements, setAgreements] = useState<Record<string, { agreement: CouncilAgreement; round: number }>>({});
@@ -361,6 +365,8 @@ export function Council() {
     })),
   });
   const allSeats = seats.data ?? [];
+  const remembered = roomId ? checkMemory[roomId] ?? lastCheck(roomId, allSeats.map((seat) => seat.id)) : null;
+  const visibleCheck = remembered && !isStale(remembered, checkNow) ? remembered : null;
   // Keep every persisted seat visible. A connection can have multiple seats; display is not mutation authority.
   const seatOf = (connectionId: string) => allSeats.find((s) => s.connectionId === connectionId);
   const activeSeats = allSeats.filter((s) => s.active);
@@ -688,6 +694,14 @@ export function Council() {
     },
     onSuccess: ({ roomId: runRoomId, results, repeatLast }) => {
       if (runRoomId !== roomId) return;
+      const updates = results.filter((r) => r.status !== "cancelled" && allSeats.some((seat) => seat.id === r.seatId));
+      if (updates.length) {
+        const previous = checkMemory[runRoomId] ?? lastCheck(runRoomId, allSeats.map((seat) => seat.id));
+        const existing = previous && !isStale(previous, Date.now()) ? previous.seats : {};
+        const check = rememberCheck(runRoomId, { ...existing, ...Object.fromEntries(updates.map((r) => [r.seatId, { ok: r.status === "ok", error: r.error, seconds: r.durationMs == null ? undefined : r.durationMs / 1000 }])) });
+        setCheckMemory((current) => ({ ...current, [runRoomId]: check }));
+        setCheckNow(Date.now());
+      }
       setLastResults((current) => ({ ...current, [runRoomId]: Object.fromEntries(results.map((r) => [r.seatId, r])) }));
       if (repeatLast) return;
       // keep the draft when no vendor answered, so the question can be retried
@@ -930,6 +944,7 @@ export function Council() {
                     title="Click to switch this vendor on or off"
                   >
                     <b>{seat?.name ?? conn!.name}</b>
+                    {seat ? <CouncilSeatStatusDot status={visibleCheck?.seats[seat.id]} /> : null}
                     {seat ? <CouncilSeatPill local={reliability?.local} routingKind={conn?.routing?.kind} provider={conn?.provider ?? reliability?.provider} /> : null}
                     {label ? <span className="rounded-full bg-accent px-1.5 py-0.5 text-(length:--text-nano) text-muted-foreground">{label}</span> : null}
                     {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-(length:--text-nano) text-primary">Orchestrator</span> : null}
@@ -939,7 +954,7 @@ export function Council() {
               })}
             </div>
           ) : null}
-          <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} showCheck={activeSeats.length > 0} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }}>
+          <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} onRemember={(check) => { setCheckMemory((current) => ({ ...current, [roomId]: check })); setCheckNow(Date.now()); }} showCheck={activeSeats.length > 0} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }}>
           <CouncilSavedTeams seats={allSeats} onCreate={async (seat) => {
             const conn = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
             const grantId = seat.grantId ?? conn?.grantId;

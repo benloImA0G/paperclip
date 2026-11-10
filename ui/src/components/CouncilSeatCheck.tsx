@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { councilApi, type CouncilSeatCheckResult } from "../api/council";
+import { rememberCheck, type LastCheck } from "../pages/council-check-memory";
 import { Button } from "./ui/button";
 
-export function CouncilSeatCheck({ companyId, roomId, onError, showCheck = true, children }: { companyId: string; roomId: string; onError: (error: unknown) => void; showCheck?: boolean; children?: ReactNode }) {
+export function CouncilSeatCheck({ companyId, roomId, onError, showCheck = true, children, onRemember }: { companyId: string; roomId: string; onError: (error: unknown) => void; showCheck?: boolean; children?: ReactNode; onRemember?: (check: LastCheck) => void }) {
   const [checking, setChecking] = useState(false);
   const [results, setResults] = useState<CouncilSeatCheckResult[] | null>(null);
 
@@ -10,7 +11,10 @@ export function CouncilSeatCheck({ companyId, roomId, onError, showCheck = true,
     setChecking(true);
     setResults(null);
     try {
-      setResults((await councilApi.checkSeats(companyId, roomId)).results);
+      const checked = (await councilApi.checkSeats(companyId, roomId)).results;
+      setResults(checked);
+      const remembered = rememberCheck(roomId, Object.fromEntries(checked.map((result) => [result.seatId, { ok: result.ok, error: result.error, seconds: result.durationMs / 1000 }])));
+      onRemember?.(remembered);
     } catch (error) {
       onError(error);
     } finally {

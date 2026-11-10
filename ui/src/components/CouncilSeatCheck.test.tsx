@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import { councilApi } from "../api/council";
+import { lastCheck } from "../pages/council-check-memory";
 import { CouncilSeatCheck } from "./CouncilSeatCheck";
 
 it("disables during a check and displays and dismisses seat results", async () => {
@@ -25,6 +26,7 @@ it("disables during a check and displays and dismisses seat results", async () =
   expect(container.textContent).toContain("Beta: Needs attention: Check the connection.");
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Dismiss seat check results"]')!.click());
   expect(container.textContent).not.toContain("Alpha");
+  expect(lastCheck("room")?.seats).toEqual({ "1": { ok: true, seconds: 1.3 }, "2": { ok: false, error: "Check the connection.", seconds: 0.2 } });
   await act(async () => root.unmount());
   container.remove();
   check.mockRestore();
