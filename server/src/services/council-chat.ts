@@ -887,6 +887,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     seat: typeof councilSeats.$inferSelect;
     target: CouncilSeatFallback;
     attempt: number;
+    /** Set on a repeat call to the same model so its cost receipt gets its own idempotency key. */
+    retryIndex?: number;
     prompt: string;
     images?: CouncilImage[];
     maxOutputTokens: number;
@@ -973,7 +975,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             issueId,
             projectId: null,
             heartbeatRunId: null,
-            idempotencyKey: `council:${input.roundId}:${seat.id}${input.attempt ? `:${input.attempt}` : ""}`,
+            idempotencyKey: `council:${input.roundId}:${seat.id}${input.attempt ? `:${input.attempt}` : ""}${input.retryIndex ? `:r${input.retryIndex}` : ""}`,
             billingCode: `council:${issueId}`,
             provider,
             biller: provider,
@@ -1208,6 +1210,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           ...input,
           target,
           attempt,
+          retryIndex: retry,
           signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout,
           persistComment: input.persistComment,
           generation: input.generation,
