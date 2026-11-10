@@ -14,7 +14,7 @@ export function friendlySeatError(raw: string, ctx?: { model?: string; local?: b
     ? "Could not reach the local model server. Is Ollama running?"
     : "Could not reach the provider. Check the connection.";
   if (/context length|too many tokens|maximum context/i.test(raw)) return "The conversation is too long for this model. Clear the chat or use a larger-context model.";
-  if (/\b5\d\d\b|overloaded|bad gateway|service unavailable/i.test(raw)) return "The provider had a temporary problem. Try again.";
+  if (/\b5\d\d\b|overloaded|high demand|bad gateway|service unavailable|unavailable|try again later/i.test(raw)) return "The provider had a temporary problem. Try again.";
 
   const cleaned = raw
     .split(/\r?\n/)[0]!
@@ -27,5 +27,7 @@ export function friendlySeatError(raw: string, ctx?: { model?: string; local?: b
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 160);
+  // A bare "[" or "{" is the first line of a JSON error body: say so instead of showing punctuation.
+  if (cleaned.replace(/[^A-Za-z]/g, "").length < 4) return "The provider sent an error that could not be read. Try again in a moment.";
   return `The model call failed: ${cleaned}. Try again.`.slice(0, 200);
 }

@@ -28,6 +28,11 @@ describe("friendlySeatError", () => {
     expect(friendlySeatError("Incorrect API key provided: abc123")).toContain("refused");
   });
 
+  it("handles provider overload and unreadable JSON bodies", () => {
+    expect(friendlySeatError("This model is currently experiencing high demand.")).toBe("The provider had a temporary problem. Try again.");
+    expect(friendlySeatError("[\n  {\n    \"error\": {}")).toBe("The provider sent an error that could not be read. Try again in a moment.");
+  });
+
   it("identifies an unreachable local server", () => {
     expect(friendlySeatError("ECONNREFUSED", { local: true })).toBe("Could not reach the local model server. Is Ollama running?");
   });

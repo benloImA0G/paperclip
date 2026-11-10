@@ -713,7 +713,16 @@ export function Council() {
         setCheckNow(Date.now());
       }
       setLastResults((current) => ({ ...current, [runRoomId]: Object.fromEntries(results.map((r) => [r.seatId, r])) }));
-      if (repeatLast) return;
+      if (repeatLast) {
+        // "Ask again" posts no new message, so a failure must be shown here or it looks like nothing happened.
+        const failed = results.filter((r) => r.status !== "ok");
+        if (results.length && failed.length === results.length) {
+          const why = failed.map((r) => `${r.seatName ?? "The seat"}: ${r.error ?? "no reply"}`).join(" ");
+          if (toast) toast.pushToast({ tone: "error", title: "That seat could not answer again", body: why });
+          else setError(`That seat could not answer again. ${why}`);
+        }
+        return;
+      }
       // keep the draft when no vendor answered, so the question can be retried
       if (results.length && results.every((r) => r.status !== "ok")) {
         const why = results
@@ -1187,7 +1196,7 @@ export function Council() {
                         saveArtifact.mutate(
                           { companyId, roomId, artifact: { key: `council-output-${slug}`, title, markdown: c.body } },
                           {
-                            onSuccess: () => toast?.pushToast({ tone: "success", title: "Saved to Artifacts", body: title }),
+                            onSuccess: () => toast?.pushToast({ tone: "success", title: "Saved to this room's Artifacts", body: title }),
                             onError: (error) => toast?.pushToast({ tone: "error", title: "Could not save the artifact", body: errorText(error) }),
                           },
                         );
