@@ -3,7 +3,7 @@ import { friendlySeatError } from "../services/council-seat-errors.js";
 
 describe("friendlySeatError", () => {
   it.each([
-    ["Empty answer", "The model returned an empty response. Try another installed model."],
+    ["Empty answer", "The model returned an empty response. Thinking models can use up the answer limit; raise it in Settings or try another model."],
     ["401 unauthorized", "The connection was refused (wrong or expired key). Check the connection's credentials."],
     ["404 model not found", "That model is not available on this connection. Pick another model."],
     ["429 quota", "The provider is rate limiting this connection. Wait a minute or switch seat to another model."],

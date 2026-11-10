@@ -1,7 +1,7 @@
 /** Turn provider errors into a short, safe message suitable for a Council seat. */
 export function friendlySeatError(raw: string, ctx?: { model?: string; local?: boolean }): string {
   if (/budget limit reached/i.test(raw)) return "Budget limit reached";
-  if (!raw.trim() || /empty answer|no reply/i.test(raw)) return "The model returned an empty response. Try another installed model.";
+  if (!raw.trim() || /empty answer|no reply/i.test(raw)) return "The model returned an empty response. Thinking models can use up the answer limit; raise it in Settings or try another model.";
   if (/\b(?:401|403)\b|unauthorized|invalid api key|forbidden/i.test(raw)) return "The connection was refused (wrong or expired key). Check the connection's credentials.";
   if (/\b404\b|model not found|not found/i.test(raw)) return "That model is not available on this connection. Pick another model.";
   if (/\b429\b|rate limit|quota|too many requests/i.test(raw)) return "The provider is rate limiting this connection. Wait a minute or switch seat to another model.";
