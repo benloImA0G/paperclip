@@ -1111,6 +1111,8 @@ export const issueCommentMetadataSchema = z
       provider: z.string().max(80).optional(),
       model: z.string().max(200).optional(),
       local: z.boolean().optional(),
+      /** The question an "Ask again" reply answers (no new user message is posted). */
+      askedAgain: z.string().max(300).optional(),
     }).strict().optional(),
     chatMessage: z.object({
       sourceTaskId: z.uuid(),

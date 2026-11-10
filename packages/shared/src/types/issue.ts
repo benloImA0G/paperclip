@@ -1195,6 +1195,8 @@ export interface IssueCommentMetadata {
     model?: string;
     /** True when the seat's connection is a local model server (no cloud egress, no cost). */
     local?: boolean;
+    /** The question an "Ask again" reply answers (no new user message is posted). */
+    askedAgain?: string;
   };
   chatMessage?: {
     sourceTaskId: string;
