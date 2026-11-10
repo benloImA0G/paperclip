@@ -5,17 +5,18 @@ Council is a chat room where several AI models (and agents) answer the same ques
 ## 1. Get a team in one click
 
 1. Pick a room (or press **+ New**).
-2. Press **Add a free team**. It creates up to four seats from your free connections (Groq, NVIDIA, Gemini, local Ollama): a Chairman, a Builder, a Reviewer and a Contrarian.
-3. Press **Check seats** to see which seats answer right now. A red line tells you in plain words what to fix (wrong key, model not available, local server not running).
+2. A new room already gets one seat per connection. If a room has fewer than three seats, press **Add a free team**: it creates up to four seats from your free connections (quick vendors first, the slow local model last): a Chairman, a Builder, a Reviewer and a Contrarian. **Teams** saves the current seats under a name so you can reuse them in another room.
+3. Press **Check seats**. Each seat shows green (works), amber (works only through a backup model, with the main model's problem in plain words), or red (needs attention). An agent seat is checked by reading its status; nothing is started. The dots on the seat chips remember the last check.
 
 Want something else? Add a seat yourself and use **Start from a role** to fill in the role and persona. Presets: Chairman, Builder, Reviewer, Researcher, Context optimizer, Deep benchmark researcher, Contrarian, Architect, First-principles thinker, Executor, Outsider, Security reviewer.
 
-Templates (Settings) set up a whole room at once, for example *Balanced debate*, *Decision*, *Red-team*, *Blind best-of-N* and *Research, build, review*.
+Templates (the cards under **+ New**) set up a whole room at once: *Quick check*, *Balanced debate*, *Decision*, *Red-team*, *Blind best-of-N*, *Builder then reviewer* and *Research, build, review* (the last two rename seats to Researcher / Builder / Reviewer and switch the unused default seat off). Each template also sets the room's kind and remembers its answer style.
 
 ## 2. Ask
 
 - Type a question and press **Send** (or Ctrl+Enter).
-- **@Name** asks just that seat. **@all** asks everyone.
+- **@Name** (or type @ and pick) asks just that seat: no debate or summary follows. **@all** asks everyone.
+- While seats answer, the chips show who is still working and a status line counts the seats done; in "One after another" it names the seat answering now.
 - The switch above the composer sets how seats answer: **Work together**, **Challenge each other**, or **One after another** (each seat sees the previous seat's answer and improves it).
 
 ## 3. Read the answers
@@ -29,6 +30,8 @@ If a seat fails, the message is plain words, never a URL or key. A thinking mode
 ## 4. Branch, copy, export
 
 - **Fork from here** on a reply copies the thread up to that point into a new room.
+- **Ask again** re-asks that one seat the question that came before that reply (no duplicate message; the new reply says which question it answers). If the seat fails, a message says why.
+- **Save as artifact** saves the reply in one click to this room's Artifacts.
 - **More → Copy as Markdown** copies the whole conversation.
 - Decisions can be saved as artifacts and exported.
 
@@ -36,11 +39,12 @@ If a seat fails, the message is plain words, never a URL or key. A thinking mode
 
 - A decision lists **Action items**. Pick an agent in the dropdown and press **Create task**: the task is created as *todo* for that agent, who starts on it. With no agent it goes to the backlog.
 - **Start the work** runs a plan: seats do the steps, an optional jury checks each step, and tasks can be created from the steps.
-- **Linked tasks** shows the tasks created from the room, with **Ask in room** to follow up.
+- **Tasks from this room** appears above the message box once tasks exist: id, status, agent, and **Ask in room** to follow up. Items owned by you ("Needs you") are questions for you, not agent work. Agents marked error or paused cannot be assigned. Note: on this dev machine the idle `edge-*` agents need a gateway that is not reachable from the PC, so their runs fail; the Hermes test agent works through the fake gateway only.
+- The work run says how it ended ("Finished: all 3 steps passed the check" or "Finished with problems ...") and its chat summary leads with the deliverable.
 
 ## 6. Settings (per room)
 
-Three groups, each control with a one-line description: **Who answers**, **How they talk**, **More**. **Manage AI connections** opens the connections page.
+Three plain groups (**Who answers**, **How they talk**, **Safety and extras**) and a collapsed **Advanced options** section for the expert controls (jury, peer ranking, clarify, plan first, draft tasks, rounds, summary). The answer style is set by the three buttons above the message box. **Manage AI connections** opens the connections page. A seat's **Can see images** switch lets it receive attached pictures (tested with Gemini).
 
 ## Free models that worked (tested 2026-11-11)
 
