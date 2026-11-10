@@ -191,6 +191,23 @@ export function ImageSeatNotice({ imageCount, seats }: { imageCount: number; sea
     : null;
 }
 
+const ROOM_STYLE_KEY = "council.roomStyle.v1";
+type RoomStyle = { answerStyle: "side-by-side" | "chain"; discussionStyle: CouncilRoundStyle };
+function readRoomStyle(roomId: string): RoomStyle {
+  const fallback: RoomStyle = { answerStyle: "side-by-side", discussionStyle: "collaborate" };
+  try {
+    const value = JSON.parse(window.localStorage.getItem(ROOM_STYLE_KEY) || "{}")[roomId];
+    return value && (value.answerStyle === "side-by-side" || value.answerStyle === "chain") && ["collaborate", "challenge", "chain"].includes(value.discussionStyle) ? value : fallback;
+  } catch { return fallback; }
+}
+function saveRoomStyle(roomId: string, answerStyle: RoomStyle["answerStyle"], discussionStyle: CouncilRoundStyle) {
+  try {
+    const styles = JSON.parse(window.localStorage.getItem(ROOM_STYLE_KEY) || "{}");
+    styles[roomId] = { answerStyle, discussionStyle };
+    window.localStorage.setItem(ROOM_STYLE_KEY, JSON.stringify(styles));
+  } catch { /* unavailable storage is fine */ }
+}
+
 export function Council() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -268,6 +285,7 @@ export function Council() {
   }, [running]);
   const [stoppedNote, setStoppedNote] = useState(false);
   const [pendingDefaultRoomId, setPendingDefaultRoomId] = useState<string | null>(null);
+  const [templateOffByRoom, setTemplateOffByRoom] = useState<Record<string, string[]>>({});
   const [pendingTemplate, setPendingTemplate] = useState<{ roomId: string; templateId: CouncilTemplateId } | null>(null);
   const [defaultsReadyRoomId, setDefaultsReadyRoomId] = useState<string | null>(null);
   const [steps, setSteps] = useState<string[]>([]);
@@ -484,7 +502,13 @@ export function Council() {
   };
 
   const createRoom = useMutation({
-    mutationFn: () => councilApi.createRoom(companyId, newTitle.trim()),
+    mutationFn: async () => {
+      const room = await councilApi.createRoom(companyId, newTitle.trim());
+      const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === selectedTemplate)!;
+      await councilApi.updateKind(companyId, room.id, template.kind);
+      saveRoomStyle(room.id, template.answerStyle ?? "side-by-side", "collaborate");
+      return room;
+    },
     onSuccess: (room) => {
       setNewTitle("");
       setCreating(false);
@@ -523,9 +547,11 @@ export function Council() {
     const roleUpdates = allSeats.filter((seat) => rolesBySeatId.get(seat.id) && (seat.role !== rolesBySeatId.get(seat.id) || (isChainTemplate && (GENERIC_TEMPLATE_SEAT_NAMES as readonly string[]).includes(seat.name))));
     const missing = template.id === "research-build-review" ? [] : Object.keys(template.roles).filter((name) => !allSeats.some((seat) => seat.name === name));
     if (missing.length) setError(`Template note: missing seats — ${missing.join(", ")}. Existing seats were applied.`);
-    if (roleUpdates.length) {
+    const inactiveUpdates = isChainTemplate ? allSeats.filter((seat) => seat.active && !rolesBySeatId.get(seat.id)) : [];
+    if (inactiveUpdates.length) setTemplateOffByRoom((current) => ({ ...current, [pendingTemplate.roomId]: inactiveUpdates.map((seat) => seat.name) }));
+    if (roleUpdates.length || inactiveUpdates.length) {
       setPendingTemplate(null);
-      void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, (() => { const role = rolesBySeatId.get(seat.id)!; const presetId = CHAIN_TEMPLATE_PRESETS[role as keyof typeof CHAIN_TEMPLATE_PRESETS]; const preset = isChainTemplate && (GENERIC_TEMPLATE_SEAT_NAMES as readonly string[]).includes(seat.name) ? COUNCIL_ROLE_PRESETS.find((item) => item.id === presetId) : undefined; return { name: preset?.label ?? seat.name, role, ...(preset ? { persona: preset.persona } : {}) }; })())))
+      void Promise.all([...inactiveUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, { active: false })), ...roleUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, (() => { const role = rolesBySeatId.get(seat.id)!; const presetId = CHAIN_TEMPLATE_PRESETS[role as keyof typeof CHAIN_TEMPLATE_PRESETS]; const preset = isChainTemplate && (GENERIC_TEMPLATE_SEAT_NAMES as readonly string[]).includes(seat.name) ? COUNCIL_ROLE_PRESETS.find((item) => item.id === presetId) : undefined; return { name: preset?.label ?? seat.name, role, ...(preset ? { persona: preset.persona } : {}) }; })()))])
         .then(() => refreshSeatsFor(pendingTemplate.roomId))
         .catch(() => setError("Couldn’t update the template seats. Try again."));
     } else {
@@ -588,7 +614,14 @@ export function Council() {
   const [speakingOrder, setSpeakingOrder] = useState<CouncilRoundOrder>("seat");
   const [discussionStyle, setDiscussionStyle] = useState<CouncilRoundStyle>("collaborate");
   const [answerStyle, setAnswerStyle] = useState<"side-by-side" | "chain">("side-by-side");
+  useEffect(() => {
+    if (!roomId) return;
+    const saved = readRoomStyle(roomId);
+    setAnswerStyle(saved.answerStyle);
+    setDiscussionStyle(saved.discussionStyle);
+  }, [roomId]);
   const setQuickStyle = (style: CouncilQuickStyle) => {
+    if (roomId) saveRoomStyle(roomId, style === "chain" ? "chain" : "side-by-side", style);
     setAnswerStyle(style === "chain" ? "chain" : "side-by-side");
     setDiscussionStyle(style);
     if (style === "challenge" && !discussion) { setDiscussion(true); setDepth("low"); }
@@ -1085,7 +1118,7 @@ export function Council() {
                 </span>
               ))}
               <span className="flex items-center gap-1 text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> {roundTracking?.chain && trackedProgress?.current && progress.startsWith("Round 1:") ? `Seat ${answeredCount + 1} of ${trackedProgress.seats.length} is answering: ${trackedProgress.current.name}…` : progress}
+                <Loader2 className="h-3 w-3 animate-spin" /> {roundTracking?.chain && trackedProgress?.current && progress.startsWith("Round 1:") ? `Seat ${answeredCount + 1} of ${trackedProgress.seats.length} is answering: ${trackedProgress.current.name}… (${answeredCount} of ${trackedProgress.seats.length} done, ${trackedProgress.elapsedSeconds}s)` : progress}
               </span>
             </div>
           ) : null}
@@ -1310,13 +1343,14 @@ export function Council() {
                 </div>
               </details>
             ))}
+            {roomId && templateOffByRoom[roomId]?.length ? <p className="text-xs text-muted-foreground">{templateOffByRoom[roomId].join(", ")} {templateOffByRoom[roomId].length === 1 ? "is" : "are"} switched off for this template. Switch {templateOffByRoom[roomId].length === 1 ? "it" : "them"} on from {templateOffByRoom[roomId].length === 1 ? "its" : "their"} chip.</p> : null}
             {!comments.isLoading && !comments.isError && comments.data && !comments.data.length ? (
               <CouncilEmptyState activeSeatNames={activeSeats.map((seat) => seat.name)} hasFreeConnection={hasFreeConnection} addDisabled={hasFreeConnection && (!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending)} onAdd={() => { if (hasFreeConnection) addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam }); else { setAdvancedMode(true); setCardsOpen(true); } }} onPrompt={(prompt) => { setMessage(prompt); messageRef.current?.focus(); }} />
             ) : null}
             <div ref={threadEndRef} />
           </div>
 
-          {trackedProgress ? <p className="text-xs text-muted-foreground">{roundTracking?.chain && trackedProgress.current ? `${trackedProgress.current.name} is answering next (${answeredCount} of ${trackedProgress.seats.length} done)` : waitingSeats.length ? `Waiting for ${waitingSeats.map((seat) => seat.name).join(", ")}… (${answeredCount} of ${trackedProgress.seats.length} answered, ${trackedProgress.elapsedSeconds}s)` : `All ${answeredCount} seats answered (${trackedProgress.elapsedSeconds}s)`}</p> : null}
+          {trackedProgress && !(roundTracking?.chain && trackedProgress.current && progress.startsWith("Round 1:")) ? <p className="text-xs text-muted-foreground">{waitingSeats.length ? `Waiting for ${waitingSeats.map((seat) => seat.name).join(", ")}… (${answeredCount} of ${trackedProgress.seats.length} answered, ${trackedProgress.elapsedSeconds}s)` : `All ${answeredCount} seats answered (${trackedProgress.elapsedSeconds}s)`}</p> : null}
           {reviewNotice ? <p role="status" className="text-sm text-emerald-600">{reviewNotice}</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {stoppedNote ? <p className="text-sm text-muted-foreground">Stopped. Replies that already arrived are kept.</p> : null}
@@ -1359,7 +1393,7 @@ export function Council() {
               ask.mutate("ask");
             }}
           >
-            {suggestion ? <p className="px-1 text-xs text-muted-foreground" data-testid="council-mode-hint">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
+            {suggestion && !startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground" data-testid="council-mode-hint">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
             {message.trim() ? <p className="px-1 text-xs text-muted-foreground" title={callEstimate.lines.join("; ")}>About {callEstimate.low}{callEstimate.low !== callEstimate.high ? `–${callEstimate.high}` : ""} model call{callEstimate.high === 1 ? "" : "s"}</p> : null}
             {startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground">Only this seat will answer</p> : null}
             {token && mentionSeats.length ? <CouncilMentionPicker seats={mentionSeats} selected={selectedMention} onChoose={chooseMention} /> : null}
@@ -1387,7 +1421,6 @@ export function Council() {
                 }
               }}
             />
-            <span className="hidden text-xs text-muted-foreground lg:inline">Enter or Ctrl+Enter sends, Shift+Enter adds a line. Type @ to ask one seat, or @all for everyone.</span>
             {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; setOptionsOpen(false); const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; const typedGoal = message.trim().length > 0; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(typedGoal ? { postGoal: true } : {}), ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }); if (typedGoal) setMessage(""); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}

@@ -1,9 +1,10 @@
-import type { CouncilSeatRole } from "../api/council";
+import type { CouncilKind, CouncilSeatRole } from "../api/council";
 
 export type CouncilTemplateId = "quick-check" | "balanced-debate" | "decision" | "red-team" | "blind-best-of-n" | "debate-to-agreement" | "fresh-angles" | "get-it-done" | "builder-reviewer" | "research-build-review";
 
 export type CouncilTemplate = {
   id: CouncilTemplateId;
+  kind: CouncilKind;
   name: string;
   whatHappens: string;
   title: string;
@@ -25,16 +26,16 @@ export type CouncilTemplate = {
 };
 
 export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
-  { id: "quick-check", name: "Quick check", whatHappens: "Everyone answers once. No debate. A Chairman seat, if you have one, adds a short recommendation.", title: "Quick check", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1 },
-  { id: "balanced-debate", name: "Balanced debate", whatHappens: "Everyone answers, then weighs trade-offs together.", title: "Balanced debate", discussion: true, depth: "medium", autoSummary: false, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator" }, rounds: 3 },
-  { id: "decision", name: "Decision", whatHappens: "The room debates and publishes a decision record for export.", title: "Decision", discussion: true, depth: "medium", autoSummary: true, requireApproval: true, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "researcher" }, rounds: 3 },
-  { id: "red-team", name: "Red-team", whatHappens: "Critics challenge the idea while research fills the gaps.", title: "Red-team", discussion: true, depth: "high", autoSummary: true, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "critic", Friendly: "researcher" }, rounds: 4 },
-  { id: "blind-best-of-n", name: "Blind best-of-N", whatHappens: "Four seats answer, rank each other anonymously, and a jury votes on the winner before a summary.", title: "Blind best-of-N", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 4, peerRanking: true, jury: true },
-  { id: "debate-to-agreement", name: "Debate to agreement", whatHappens: "The seats debate toward agreement, with a dissent check when they agree too quickly.", title: "Debate to agreement", discussion: true, depth: "agree", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 4 },
-  { id: "fresh-angles", name: "Fresh angles", whatHappens: "Three seats with different perspectives answer once and produce a summary.", title: "Fresh angles", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 3 },
-  { id: "get-it-done", name: "Get it done", whatHappens: "The chair can ask questions, plan the work, have a jury check each step, and draft tasks for approval.", title: "Get it done", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, workMode: "plan-first", askFirst: true, juryChecks: true, draftTasks: true },
-  { id: "builder-reviewer", name: "Builder then reviewer (chain)", whatHappens: "A builder drafts an answer, then a critic reviews it.", title: "Builder then reviewer", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "builder", Techie: "critic" }, rounds: 1, answerStyle: "chain" },
-  { id: "research-build-review", name: "Research, build, review", whatHappens: "A researcher gathers facts, a builder drafts an answer, and a reviewer checks it.", title: "Research, build, review", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "researcher", Techie: "builder", CodeBot: "critic" }, rounds: 1, answerStyle: "chain" },
+  { id: "quick-check", kind: "quick-fact", name: "Quick check", whatHappens: "Everyone answers once. No debate. A Chairman seat, if you have one, adds a short recommendation.", title: "Quick check", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1 },
+  { id: "balanced-debate", kind: "brainstorm", name: "Balanced debate", whatHappens: "Everyone answers, then weighs trade-offs together.", title: "Balanced debate", discussion: true, depth: "medium", autoSummary: false, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator" }, rounds: 3 },
+  { id: "decision", kind: "decision", name: "Decision", whatHappens: "The room debates and publishes a decision record for export.", title: "Decision", discussion: true, depth: "medium", autoSummary: true, requireApproval: true, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "researcher" }, rounds: 3 },
+  { id: "red-team", kind: "review", name: "Red-team", whatHappens: "Critics challenge the idea while research fills the gaps.", title: "Red-team", discussion: true, depth: "high", autoSummary: true, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "critic", Friendly: "researcher" }, rounds: 4 },
+  { id: "blind-best-of-n", kind: "brainstorm", name: "Blind best-of-N", whatHappens: "Four seats answer, rank each other anonymously, and a jury votes on the winner before a summary.", title: "Blind best-of-N", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 4, peerRanking: true, jury: true },
+  { id: "debate-to-agreement", kind: "decision", name: "Debate to agreement", whatHappens: "The seats debate toward agreement, with a dissent check when they agree too quickly.", title: "Debate to agreement", discussion: true, depth: "agree", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 4 },
+  { id: "fresh-angles", kind: "brainstorm", name: "Fresh angles", whatHappens: "Three seats with different perspectives answer once and produce a summary.", title: "Fresh angles", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 3 },
+  { id: "get-it-done", kind: "plan-and-do", name: "Get it done", whatHappens: "The chair can ask questions, plan the work, have a jury check each step, and draft tasks for approval.", title: "Get it done", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, workMode: "plan-first", askFirst: true, juryChecks: true, draftTasks: true },
+  { id: "builder-reviewer", kind: "review", name: "Builder then reviewer (chain)", whatHappens: "A builder drafts an answer, then a critic reviews it.", title: "Builder then reviewer", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "builder", Techie: "critic" }, rounds: 1, answerStyle: "chain" },
+  { id: "research-build-review", kind: "plan-and-do", name: "Research, build, review", whatHappens: "A researcher gathers facts, a builder drafts an answer, and a reviewer checks it.", title: "Research, build, review", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "researcher", Techie: "builder", CodeBot: "critic" }, rounds: 1, answerStyle: "chain" },
 ];
 
 export const DEFAULT_COUNCIL_TEMPLATE_ID: CouncilTemplateId = "balanced-debate";

@@ -87,6 +87,22 @@ describe("Council page", () => {
     await click("Second room"); await waitFor(() => expect(container.textContent).toContain("Second room answer")); counts();
     await click("First room"); await waitFor(() => expect(container.textContent).toContain("A useful answer")); counts();
   });
+  it("remembers answer styles independently when switching rooms and remounting", async () => {
+    await renderPage();
+    await click("One after another");
+    await click("Second room");
+    await waitFor(() => expect(container.textContent).toContain("Second room answer"));
+    expect(button("Work together").getAttribute("aria-pressed")).toBe("true");
+    await click("Challenge each other");
+    await click("First room");
+    await waitFor(() => expect(button("One after another").getAttribute("aria-pressed")).toBe("true"));
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await renderPage();
+    expect(button("One after another").getAttribute("aria-pressed")).toBe("true");
+    await click("Second room");
+    await waitFor(() => expect(button("Challenge each other").getAttribute("aria-pressed")).toBe("true"));
+  });
   it("shows first-use steps only while the room has no comments", async () => {
     api.comments["room-1"] = [];
     await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><ThemeProvider><BreadcrumbProvider><Council /></BreadcrumbProvider></ThemeProvider></MemoryRouter></QueryClientProvider>));

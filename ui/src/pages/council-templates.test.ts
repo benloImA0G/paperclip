@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { CHAIN_TEMPLATE_PRESETS, GENERIC_TEMPLATE_SEAT_NAMES, COUNCIL_TEMPLATES, councilCallEstimate } from "./council-templates";
 
 describe("council room templates", () => {
+  it("maps every template to its room kind", () => {
+    expect(Object.fromEntries(COUNCIL_TEMPLATES.map(({ id, kind }) => [id, kind]))).toEqual({
+      "quick-check": "quick-fact", "balanced-debate": "brainstorm", decision: "decision", "red-team": "review",
+      "blind-best-of-n": "brainstorm", "debate-to-agreement": "decision", "fresh-angles": "brainstorm",
+      "get-it-done": "plan-and-do", "builder-reviewer": "review", "research-build-review": "plan-and-do",
+    });
+  });
+
   it("estimates seat rounds plus one orchestrator call", () => {
     expect(councilCallEstimate(COUNCIL_TEMPLATES[0], 4)).toBe(4);
     expect(councilCallEstimate(COUNCIL_TEMPLATES[1], 4)).toBe(13);
@@ -43,10 +51,10 @@ describe("council room templates", () => {
 
   it("keeps the original template settings unchanged", () => {
     expect(COUNCIL_TEMPLATES.slice(0, 4)).toEqual([
-      { id: "quick-check", name: "Quick check", whatHappens: "Everyone answers once. No debate. A Chairman seat, if you have one, adds a short recommendation.", title: "Quick check", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1 },
-      { id: "balanced-debate", name: "Balanced debate", whatHappens: "Everyone answers, then weighs trade-offs together.", title: "Balanced debate", discussion: true, depth: "medium", autoSummary: false, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator" }, rounds: 3 },
-      { id: "decision", name: "Decision", whatHappens: "The room debates and publishes a decision record for export.", title: "Decision", discussion: true, depth: "medium", autoSummary: true, requireApproval: true, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "researcher" }, rounds: 3 },
-      { id: "red-team", name: "Red-team", whatHappens: "Critics challenge the idea while research fills the gaps.", title: "Red-team", discussion: true, depth: "high", autoSummary: true, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "critic", Friendly: "researcher" }, rounds: 4 },
+      { id: "quick-check", kind: "quick-fact", name: "Quick check", whatHappens: "Everyone answers once. No debate. A Chairman seat, if you have one, adds a short recommendation.", title: "Quick check", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1 },
+      { id: "balanced-debate", kind: "brainstorm", name: "Balanced debate", whatHappens: "Everyone answers, then weighs trade-offs together.", title: "Balanced debate", discussion: true, depth: "medium", autoSummary: false, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator" }, rounds: 3 },
+      { id: "decision", kind: "decision", name: "Decision", whatHappens: "The room debates and publishes a decision record for export.", title: "Decision", discussion: true, depth: "medium", autoSummary: true, requireApproval: true, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "researcher" }, rounds: 3 },
+      { id: "red-team", kind: "review", name: "Red-team", whatHappens: "Critics challenge the idea while research fills the gaps.", title: "Red-team", discussion: true, depth: "high", autoSummary: true, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "critic", Friendly: "researcher" }, rounds: 4 },
     ]);
   });
 });
