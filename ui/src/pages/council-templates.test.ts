@@ -13,6 +13,12 @@ describe("council room templates", () => {
     expect(COUNCIL_TEMPLATES[2].roles).toMatchObject({ Techie: "critic", CodeBot: "researcher" });
   });
 
+  it("estimates the chain preset as one call per seat", () => {
+    const template = COUNCIL_TEMPLATES.find((item) => item.id === "builder-reviewer")!;
+    expect(template).toMatchObject({ answerStyle: "chain", roles: { Creative: "builder", Techie: "critic" } });
+    expect(councilCallEstimate(template, 2)).toBe(2);
+  });
+
   it("has unique ids and all required fields", () => {
     expect(new Set(COUNCIL_TEMPLATES.map((template) => template.id)).size).toBe(COUNCIL_TEMPLATES.length);
     for (const template of COUNCIL_TEMPLATES) {

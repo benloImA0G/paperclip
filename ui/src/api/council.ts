@@ -161,7 +161,7 @@ export const councilApi = {
       message?: string;
       mode?: "ask" | "discuss" | "summarize";
       order?: CouncilRoundOrder;
-      style?: CouncilRoundStyle;
+      style?: CouncilRoundStyle | "chain";
       seatId?: string;
       images?: Array<{ mediaType: string; data: string }>;
       maxOutputTokens?: number;
