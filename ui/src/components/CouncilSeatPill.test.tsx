@@ -36,7 +36,15 @@ it("renders checked status dots and leaves unchecked seats without a dot", async
   const root = createRoot(container);
   await act(async () => root.render(<><CouncilSeatStatusDot status={{ ok: true, seconds: 1.3 }} /><CouncilSeatStatusDot status={{ ok: false, error: "Connection failed" }} /><CouncilSeatStatusDot /></>));
   expect(container.querySelectorAll('[role="img"]')).toHaveLength(2);
-  expect(container.querySelector('[title="Worked in the last check, 1.3s"]')?.className).toContain("status-task-icon-done");
-  expect(container.querySelector('[title="Connection failed"]')?.className).toContain("bg-destructive");
+  expect(container.querySelector('[title="Works · 1.3s"]')?.className).toContain("status-task-icon-done");
+  expect(container.querySelector('[title="Needs attention: Connection failed"]')?.className).toContain("bg-destructive");
+  await act(async () => root.unmount());
+});
+
+it("marks backup checks amber with the primary error", async () => {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  await act(async () => root.render(<CouncilSeatStatusDot status={{ ok: true, backupUsed: true, primaryError: "Unavailable" }} />));
+  expect(container.querySelector('[title="Works, but only through a backup model. Main model: Unavailable"]')?.className).toContain("status-task-icon-todo");
   await act(async () => root.unmount());
 });

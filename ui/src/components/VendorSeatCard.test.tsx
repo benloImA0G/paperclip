@@ -76,7 +76,7 @@ it("matches saved presets and offers an explicit rename for generic names", asyn
   const seat = { id: "seat", name: "CodeBot", model: "model", persona: reviewer.persona, role: reviewer.role, active: true, fallbacks: [] } as unknown as CouncilSeat;
   await act(async () => root.render(<VendorSeatCard vendor="Test" color="red" roomId="room" seat={seat} draftDefaults={{ name: "", model: "model", persona: "" }} models={["model"]} onActivate={vi.fn()} onUpdate={onUpdate} />));
   expect(container.querySelectorAll("select")[0].value).toBe("reviewer");
-  expect(container.textContent).toContain("Job in the debate");
+  expect(container.textContent).toContain("Debate role");
   const rename = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Rename seat to Reviewer")!;
   expect(onUpdate).not.toHaveBeenCalled();
   await act(async () => rename.click());

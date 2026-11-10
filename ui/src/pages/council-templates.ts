@@ -42,3 +42,7 @@ export const DEFAULT_COUNCIL_TEMPLATE_ID: CouncilTemplateId = "balanced-debate";
 export function councilCallEstimate(template: CouncilTemplate, seatCount: number): number {
   return Math.max(0, seatCount) * template.rounds + (template.orchestrator ? 1 : 0);
 }
+
+/** Presets for the two chain templates, keyed by their assigned role. */
+export const CHAIN_TEMPLATE_PRESETS = { researcher: "researcher", builder: "builder", critic: "reviewer" } as const;
+export const GENERIC_TEMPLATE_SEAT_NAMES = ["CodeBot", "Creative", "Techie", "Friendly"] as const;

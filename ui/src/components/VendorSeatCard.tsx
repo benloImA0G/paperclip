@@ -155,7 +155,7 @@ export function VendorSeatCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-(length:--text-nano) font-semibold uppercase tracking-wide text-muted-foreground">Vendor</div>
+          <div className="text-(length:--text-nano) font-semibold uppercase tracking-wide text-muted-foreground">Seats</div>
           <div className="truncate font-semibold leading-tight" title={vendor.replace(/\s*\(council\)/i, "")}>{vendorIcon(vendor)} {vendor.replace(/\s*\(council\)/i, "")}</div>
         </div>
         <div className="flex items-center gap-1">
@@ -168,7 +168,7 @@ export function VendorSeatCard({
             disabled={!seat && !model}
             className={`shrink-0 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-500" : "text-muted-foreground"}`}
             style={active ? { borderColor: color } : undefined}
-            title={active ? "Click to leave this vendor out" : "Click to bring this vendor into the council"}
+            title={active ? "Click to leave this seat out" : "Click to bring this seat into the council"}
           >
             {active ? "✓ Active" : "Inactive"}
           </button>
@@ -219,7 +219,7 @@ export function VendorSeatCard({
       </label>
 
       <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
-        <span>Job in the debate</span>
+        <span>Debate role</span>
         <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => { setRolePreset(""); change({ role: e.target.value as CouncilSeatRole }); }}>
           <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option><option value="moderator">Orchestrator</option>
         </select>
@@ -235,7 +235,7 @@ export function VendorSeatCard({
           value={model}
           onChange={(e) => {
             if (e.target.value === "__custom") {
-              const custom = window.prompt("Type the exact model name from your vendor (for example gpt-oss-120b). Press Check seats afterwards to make sure it works.", model)?.trim();
+              const custom = window.prompt("Type the exact model name for your seat (for example gpt-oss-120b). Press Check seats afterwards to make sure it works.", model)?.trim();
               if (custom && custom !== model) change({ model: custom });
             } else if (e.target.value !== model) change({ model: e.target.value });
           }}
@@ -250,7 +250,7 @@ export function VendorSeatCard({
             </optgroup>
           ) : null}
           {rest.length ? (
-            <optgroup label="All models from this vendor">
+            <optgroup label="All models for this seat">
               {rest.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -296,7 +296,7 @@ export function VendorSeatCard({
           value={text}
           rows={2}
           className="min-h-0 text-xs"
-          placeholder="Type your own persona or instructions for this vendor."
+          placeholder="Type your own persona or instructions for this seat."
           onChange={(e) => {
             setRolePreset("");
             setText(e.target.value);

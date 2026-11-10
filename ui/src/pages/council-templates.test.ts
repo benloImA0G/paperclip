@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COUNCIL_TEMPLATES, councilCallEstimate } from "./council-templates";
+import { CHAIN_TEMPLATE_PRESETS, GENERIC_TEMPLATE_SEAT_NAMES, COUNCIL_TEMPLATES, councilCallEstimate } from "./council-templates";
 
 describe("council room templates", () => {
   it("estimates seat rounds plus one orchestrator call", () => {
@@ -49,4 +49,9 @@ describe("council room templates", () => {
       { id: "red-team", name: "Red-team", whatHappens: "Critics challenge the idea while research fills the gaps.", title: "Red-team", discussion: true, depth: "high", autoSummary: true, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "critic", Friendly: "researcher" }, rounds: 4 },
     ]);
   });
+});
+
+it("maps chain roles to presets and restricts generic names", () => {
+  expect(CHAIN_TEMPLATE_PRESETS).toEqual({ researcher: "researcher", builder: "builder", critic: "reviewer" });
+  expect(GENERIC_TEMPLATE_SEAT_NAMES).toEqual(["CodeBot", "Creative", "Techie", "Friendly"]);
 });

@@ -1,4 +1,10 @@
-export type SeatCheck = { ok: boolean; error?: string; seconds?: number };
+export type SeatCheck = { ok: boolean; error?: string; seconds?: number; backupUsed?: boolean; primaryError?: string; agentSeat?: boolean };
+export function seatCheckText(status: SeatCheck): string {
+  if (!status.ok) return `Needs attention: ${status.error || "Check failed"}`;
+  if (status.backupUsed) return `Works, but only through a backup model. Main model: ${status.primaryError || "Check failed"}`;
+  if (status.agentSeat) return "Agent is ready (status checked, not contacted)";
+  return `Works${status.seconds == null ? "" : ` · ${status.seconds.toFixed(1)}s`}`;
+}
 export type LastCheck = { at: number; seats: Record<string, SeatCheck> };
 const KEY = "council.lastCheck.v1";
 

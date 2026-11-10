@@ -1,4 +1,4 @@
-import type { SeatCheck } from "../pages/council-check-memory";
+import { seatCheckText, type SeatCheck } from "../pages/council-check-memory";
 
 export function councilSeatLocation(input: { local?: boolean | null; routingKind?: string | null; provider?: string | null }): "Local" | "Cloud" | null {
   if (typeof input.local === "boolean") return input.local ? "Local" : "Cloud";
@@ -23,6 +23,6 @@ export function CouncilSeatPill(props: Parameters<typeof councilSeatLocation>[0]
 
 export function CouncilSeatStatusDot({ status }: { status?: SeatCheck }) {
   if (!status) return null;
-  const title = status.ok ? `Worked in the last check${status.seconds == null ? "" : `, ${status.seconds.toFixed(1)}s`}` : status.error || "Needs attention";
-  return <span role="img" aria-label={title} title={title} className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.ok ? "bg-(--status-task-icon-done)" : "bg-destructive"}`} />;
+  const title = seatCheckText(status);
+  return <span role="img" aria-label={title} title={title} className={`h-1.5 w-1.5 shrink-0 rounded-full ${!status.ok ? "bg-destructive" : status.backupUsed ? "bg-(--status-task-icon-todo)" : "bg-(--status-task-icon-done)"}`} />;
 }
