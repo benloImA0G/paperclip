@@ -44,4 +44,18 @@ describe("check council seats", () => {
     expect(results.map(({ seatId, ok }) => ({ seatId, ok }))).toEqual([{ seatId: "first", ok: true }, { seatId: "failing", ok: false }, { seatId: "last", ok: true }]);
     expect(results[1]).toMatchObject({ status: "error", error: expect.stringContaining("connection failed") });
   });
+
+  it("allows one check at a time per room and pauses briefly after one finishes", async () => {
+    const service = councilChatService(dbFor([seat("first")], true));
+    let release: () => void = () => undefined;
+    mocks.selectFastResponse.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return { provider: "openai", connection: { config: { ai: { provider: "openai", method: "api_key" } } } };
+    });
+    const running = service.checkSeats(base);
+    await expect(service.checkSeats(base)).rejects.toMatchObject({ status: 409, message: "Seats are already being checked." });
+    release();
+    await running;
+    await expect(service.checkSeats(base)).rejects.toMatchObject({ status: 409, message: "Seats were just checked. Wait a few seconds and try again." });
+  });
 });

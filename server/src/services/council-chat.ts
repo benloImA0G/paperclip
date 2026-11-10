@@ -2048,6 +2048,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
   }
 
   const lastSeatCheck = new Map<string, number>();
+  const seatChecksRunning = new Set<string>();
 
   /**
    * Pings every active seat with a tiny prompt (nothing is saved to the room) so a person can see
@@ -2055,11 +2056,21 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
    */
   async function checkSeats(input: { companyId: string; issueId: string; userId: string; signal?: AbortSignal }) {
     await getRoom(input.companyId, input.issueId);
-    // Every check spends real model calls, so a repeated click or script cannot hammer the vendors.
-    const now = Date.now();
+    // Every check spends real model calls, so a repeated click or script cannot hammer the vendors:
+    // one check at a time per room, and a short pause after each one finishes.
+    if (seatChecksRunning.has(input.issueId)) throw conflict("Seats are already being checked.");
     const previous = lastSeatCheck.get(input.issueId);
-    if (previous !== undefined && now - previous < 8_000) throw conflict("Seats were just checked. Wait a few seconds and try again.");
-    lastSeatCheck.set(input.issueId, now);
+    if (previous !== undefined && Date.now() - previous < 8_000) throw conflict("Seats were just checked. Wait a few seconds and try again.");
+    seatChecksRunning.add(input.issueId);
+    try {
+      return await checkSeatsNow(input);
+    } finally {
+      seatChecksRunning.delete(input.issueId);
+      lastSeatCheck.set(input.issueId, Date.now());
+    }
+  }
+
+  async function checkSeatsNow(input: { companyId: string; issueId: string; userId: string; signal?: AbortSignal }) {
     const rows = await db
       .select()
       .from(councilSeats)
