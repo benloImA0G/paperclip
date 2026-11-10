@@ -1174,8 +1174,16 @@ export function Council() {
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" title="Ask this seat the same question again" disabled={running || ask.isPending || reviewArtifact.isPending || !seat} onClick={() => { if (seat) { toast?.pushToast({ tone: "success", title: `Asking ${seat.name} again…` }); ask.mutate({ seatId: seat.id, commentId: c.id }); } }}>Ask again</Button>
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
-                        setArtifactDraft({ markdown: c.body, title: `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
-                        setArtifactsOpen(true);
+                        // One click: save straight away and say so (the old two-step draft sat out of sight below the thread).
+                        const title = `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+                        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "draft";
+                        saveArtifact.mutate(
+                          { companyId, roomId, artifact: { key: `council-output-${slug}`, title, markdown: c.body } },
+                          {
+                            onSuccess: () => toast?.pushToast({ tone: "success", title: "Saved to Artifacts", body: title }),
+                            onError: (error) => toast?.pushToast({ tone: "error", title: "Could not save the artifact", body: errorText(error) }),
+                          },
+                        );
                       }}>Save as artifact</Button>
                       <select
                         aria-label="Save reply as"
