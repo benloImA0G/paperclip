@@ -66,6 +66,7 @@ const roundSchema = z
     style: z.enum(COUNCIL_ROUND_STYLES).optional(),
     seatId: z.string().uuid().optional(),
     repeatLast: z.boolean().optional(),
+    repeatFromCommentId: z.string().uuid().optional(),
     images: z
       .array(
         z
@@ -353,6 +354,7 @@ export function councilChatRoutes(db: Db) {
       style: req.body.style,
       seatId: req.body.seatId,
       repeatLast: req.body.repeatLast,
+      repeatFromCommentId: req.body.repeatFromCommentId,
       images: req.body.images,
       maxOutputTokens: req.body.maxOutputTokens,
       clarify: req.body.clarify,

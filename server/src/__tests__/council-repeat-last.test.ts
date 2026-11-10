@@ -49,6 +49,23 @@ describe("repeat last council question", () => {
     expect(prompt).toContain("Old reply A");
     expect(prompt).not.toContain("Old reply B");
   });
+  it("asks again the question that preceded the chosen reply, not the latest one", async () => {
+    mocks.listComments.mockResolvedValue([
+      { id: "c1", authorUserId: "alice", body: "First question" },
+      { id: "c2", authorUserId: "council-seat:first", body: "Old reply A" },
+      { id: "c3", authorUserId: "alice", body: "Second question" },
+      { id: "c4", authorUserId: "council-seat:second", body: "Old reply B" },
+    ]);
+    await councilChatService(dbFor([seat("first"), seat("second")])).runRound({ ...base, repeatLast: true, seatId: "first", repeatFromCommentId: "c2" });
+    const prompt = mocks.generateText.mock.calls[0]![0].prompt as string;
+    expect(prompt).toContain("First question");
+    expect(prompt).not.toContain("Second question");
+    expect(prompt).not.toContain("Old reply A");
+  });
+  it("refuses to repeat a question that had a picture attached", async () => {
+    mocks.listComments.mockResolvedValue([{ id: "c1", authorUserId: "alice", body: "What is this?\n\n[1 image(s) attached]" }, { id: "c2", authorUserId: "council-seat:first", body: "No idea" }]);
+    await expect(councilChatService(dbFor([seat("first")])).runRound({ ...base, repeatLast: true, seatId: "first" })).rejects.toThrow("picture attached");
+  });
   it("requires a selected seat", async () => {
     await expect(councilChatService(dbFor([seat("first")])).runRound({ ...base, repeatLast: true })).rejects.toMatchObject({ status: 422, message: "Choose one seat to ask again" });
   });

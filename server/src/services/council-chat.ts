@@ -1332,6 +1332,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     seatId?: string;
     /** Re-ask the chosen seat the latest question without posting it again. */
     repeatLast?: boolean;
+    /** With repeatLast: ask again the question that preceded this reply (default: the latest question). */
+    repeatFromCommentId?: string;
     images?: CouncilImage[];
     maxOutputTokens?: number;
     clarify?: boolean;
@@ -1364,12 +1366,20 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     if (input.repeatLast) {
       if (mode !== "ask" || !input.seatId) throw unprocessable("Choose one seat to ask again");
       const all = await issueSvc.listComments(issueId, { order: "asc" });
+      // Ask again from a specific reply: use the question that came right before it; otherwise the latest question.
+      let from = all.length;
+      if (input.repeatFromCommentId) {
+        const at = all.findIndex((comment) => comment.id === input.repeatFromCommentId);
+        if (at < 0) throw unprocessable("That reply is no longer in the thread");
+        from = at;
+      }
       let cut = -1;
-      for (let i = all.length - 1; i >= 0; i--) {
+      for (let i = from - 1; i >= 0; i--) {
         if (!all[i]!.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX)) { cut = i; break; }
       }
       if (cut < 0) throw unprocessable("There is no question to ask again");
       message = (all[cut]!.body ?? "").trim();
+      if (/\[\d+ image\(s\) attached\]\s*$/.test(message)) throw unprocessable("That question had a picture attached. Ask it again with the picture attached.");
       repeatHistory = all.slice(0, cut);
     }
     if (mode === "ask" && !message) throw unprocessable("A message is required");
