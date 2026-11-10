@@ -71,7 +71,8 @@ export function CouncilWorkPanel({ steps, running, summary, status }: { steps: W
   }, [running]);
   const automaticSummary = summary?.startsWith("## Work summary (automatic)");
   if (!steps.length && !summary) return null;
-  const passed = steps.filter((step) => step.status === "done" && step.grade === "pass").length;
+  // A finished step without a checker verdict (checks switched off) counts as passed; only an explicit fail does not.
+  const passed = steps.filter((step) => step.status === "done" && step.grade !== "fail").length;
   const problems = status === "partial" || status === "failed" || status === "cancelled" || steps.some((step) => step.status === "failed" || step.grade === "fail") || (!running && passed < steps.length);
   const current = steps.find((step) => step.status === "running")?.n ?? Math.min(passed + 1, steps.length);
   const duration = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
