@@ -177,6 +177,7 @@ export const councilApi = {
       order?: CouncilRoundOrder;
       style?: CouncilRoundStyle | "chain";
       seatId?: string;
+      repeatLast?: boolean;
       images?: Array<{ mediaType: string; data: string }>;
       maxOutputTokens?: number;
       clarify?: boolean;
@@ -203,6 +204,7 @@ export const councilApi = {
         ...(input.order ? { order: input.order } : {}),
         ...(input.style ? { style: input.style } : {}),
         ...(input.seatId ? { seatId: input.seatId } : {}),
+        ...(input.repeatLast ? { repeatLast: true } : {}),
         ...(input.images?.length ? { images: input.images } : {}),
         ...(input.maxOutputTokens ? { maxOutputTokens: input.maxOutputTokens } : {}),
         ...(input.clarify ? { clarify: true } : {}),

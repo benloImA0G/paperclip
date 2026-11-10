@@ -21,6 +21,7 @@ import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilSeatCheck } from "../components/CouncilSeatCheck";
+import { CouncilSeatPill } from "../components/CouncilSeatPill";
 import { CouncilEstimate } from "../components/CouncilEstimate";
 import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../components/CouncilMentionPicker";
 import { useOptionalToastActions } from "../context/ToastContext";
@@ -563,7 +564,8 @@ export function Council() {
 
   /** "ask" = answers, then the chosen discussion rounds and summary; the others are one-off rounds. */
   const ask = useMutation({
-    mutationFn: async (mode: RoundMode) => {
+    mutationFn: async (request: RoundMode | { seatId: string }) => {
+      const mode = typeof request === "string" ? request : "ask";
       const runRoomId = roomId!;
       const controller = new AbortController();
       abortRef.current = controller;
@@ -585,6 +587,12 @@ export function Council() {
           },
           controller.signal,
         );
+      if (typeof request !== "string") {
+        setSteps(["Ask again"]);
+        setProgress("Asking this seat again…");
+        const result = await councilApi.runRound(companyId, runRoomId, { mode: "ask", seatId: request.seatId, repeatLast: true }, controller.signal);
+        return { roomId: runRoomId, results: result.results, repeatLast: true };
+      }
       const merged: CouncilSeatResult[] = [];
       const details: CouncilSeatResult[][] = [];
       let compacted = 0;
@@ -653,9 +661,10 @@ export function Council() {
       // fold the vendor cards so the live conversation gets the screen
       setCardsOpen(false);
     },
-    onSuccess: ({ roomId: runRoomId, results }) => {
+    onSuccess: ({ roomId: runRoomId, results, repeatLast }) => {
       if (runRoomId !== roomId) return;
       setLastResults((current) => ({ ...current, [runRoomId]: Object.fromEntries(results.map((r) => [r.seatId, r])) }));
+      if (repeatLast) return;
       // keep the draft when no vendor answered, so the question can be retried
       if (results.length && results.every((r) => r.status !== "ok")) {
         setError("No vendor answered. Your message is kept; check the vendor cards, then send again.");
@@ -665,8 +674,12 @@ export function Council() {
       setMessage("");
       setImages([]);
     },
-    onError: (e) => {
-      if (!abortRef.current?.signal.aborted) setError(errorText(e));
+    onError: (e, request) => {
+      if (abortRef.current?.signal.aborted) return;
+      if (typeof request !== "string") {
+        if (toast) toast.pushToast({ tone: "error", title: "Could not ask again", body: errorText(e) });
+        else setError(`Could not ask again: ${errorText(e)}`);
+      } else setError(errorText(e));
     },
     onSettled: () => {
       setProgress("");
@@ -869,10 +882,12 @@ export function Council() {
           </div>
           {!cardsOpen ? (
           <div className="flex shrink-0 flex-wrap gap-2 overflow-x-auto md:flex-wrap">
-              {[...connectionOptions.map((conn) => ({ connection: conn, seat: seatOf(conn.id) })), ...allSeats.filter((seat) => seat.kind === "agent").map((seat) => ({ connection: undefined, seat }))].map(({ connection: conn, seat }) => {
+              {[...allSeats.map((seat) => ({ connection: connectionOptions.find((conn) => conn.id === seat.connectionId), seat })), ...connectionOptions.filter((conn) => !seatOf(conn.id)).map((conn) => ({ connection: conn, seat: undefined }))].map(({ connection: conn, seat }) => {
                 const isAgent = seat?.kind === "agent";
                 const color = seat ? seatColor(seat.id) : colorOfConnection(conn!.id);
                 const label = isAgent ? agentSeatLabel(seat!) : undefined;
+                const latest = seat && [...(comments.data ?? [])].reverse().find((comment) => comment.authorUserId === `${SEAT_AUTHOR_PREFIX}${seat.id}`);
+                const reliability = (latest?.metadata as { councilReliability?: CouncilReplyReliability } | null | undefined)?.councilReliability;
                 if (!conn && !seat) return null;
                 return (
                   <button
@@ -885,6 +900,7 @@ export function Council() {
                     title="Click to switch this vendor on or off"
                   >
                     <b>{seat?.name ?? conn!.name}</b>
+                    {seat ? <CouncilSeatPill local={reliability?.local} routingKind={conn?.routing?.kind} provider={conn?.provider ?? reliability?.provider} /> : null}
                     {label ? <span className="rounded-full bg-accent px-1.5 py-0.5 text-(length:--text-nano) text-muted-foreground">{label}</span> : null}
                     {seat?.role === "moderator" ? <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-(length:--text-nano) text-primary">Orchestrator</span> : null}
                     {advancedMode ? <span className={`h-2 w-2 rounded-full ${running && seat?.active ? "animate-pulse bg-primary" : seat?.active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} title={running && seat?.active ? "Working" : seat?.active ? "Ready" : "Inactive"} /> : null}
@@ -1076,6 +1092,7 @@ export function Council() {
                           if (!toast) setError(`Could not fork this room: ${errorText(err)}`);
                         }
                       }}>Fork from here</Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" title="Ask this seat the same question again" disabled={running || ask.isPending || reviewArtifact.isPending || !seat} onClick={() => { if (seat) ask.mutate({ seatId: seat.id }); }}>Ask again</Button>
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" disabled={saveArtifact.isPending} onClick={() => {
                         if (!roomId) return;
                         setArtifactDraft({ markdown: c.body, title: `${name} output ${new Date(c.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` });
