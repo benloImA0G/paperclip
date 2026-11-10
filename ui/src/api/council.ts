@@ -159,7 +159,7 @@ export const councilApi = {
     companyId: string,
     issueId: string,
     seatId: string,
-    patch: { kind?: "model" | "agent"; agentId?: string; name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole },
+    patch: { kind?: "model" | "agent"; agentId?: string; name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole; acceptsImages?: boolean },
   ) => api.patch<CouncilSeat>(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`, patch),
   removeSeat: (companyId: string, issueId: string, seatId: string) =>
     api.delete(`/companies/${companyId}/council/rooms/${issueId}/seats/${seatId}`),

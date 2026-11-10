@@ -51,6 +51,7 @@ export interface VendorDraft {
   model: string;
   persona: string;
   role?: CouncilSeatRole;
+  acceptsImages?: boolean;
 }
 
 /**
@@ -85,7 +86,7 @@ export function VendorSeatCard({
   onActivate: (draft: VendorDraft) => void;
   onRemove?: () => void;
   onMention?: () => void;
-  onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole }) => Promise<unknown>;
+  onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole; acceptsImages?: boolean }) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState<VendorDraft>(draftDefaults);
   const [rolePreset, setRolePreset] = useState("");
@@ -254,6 +255,12 @@ export function VendorSeatCard({
         </select>
         <span className="min-h-3 text-(length:--text-nano)"><span style={{ color }}>●</span> {note ?? (seat?.reasoningEffort === "none" ? "thinking off" : "tested model")}{seat?.acceptsImages && !note?.includes("vision") ? " · vision" : ""}{seat?.fallbacks.length ? ` · ${seat.fallbacks.length} fallback` : ""}</span>
       </label>
+
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={seat?.acceptsImages ?? draft.acceptsImages ?? false} onChange={(e) => change({ acceptsImages: e.target.checked })} />
+        Can see images
+      </label>
+      <p className="text-xs text-muted-foreground">Turn on only for models that accept pictures (for example Gemini). Others will say they cannot see the image.</p>
 
       <details className="group rounded-md border border-border/70 px-2">
         <summary className="cursor-pointer list-none py-1 text-(length:--text-micro) font-medium text-muted-foreground">Advanced</summary>

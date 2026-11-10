@@ -178,6 +178,12 @@ function AgentSeatSettings({ seat, onUpdate, onRemove }: {
   );
 }
 
+export function ImageSeatNotice({ imageCount, seats }: { imageCount: number; seats: Array<Pick<CouncilSeat, "active" | "acceptsImages">> }) {
+  return imageCount > 0 && !seats.some((seat) => seat.active && seat.acceptsImages)
+    ? <p className="text-xs text-muted-foreground">No seat can see images yet. Turn on 'Can see images' on a seat, for example Gemini.</p>
+    : null;
+}
+
 export function Council() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -392,7 +398,7 @@ export function Council() {
       model: draft.model.trim(),
       role: draft.role ?? "none",
       ...(d?.thinkingOff && draft.model === d.model ? { reasoningEffort: "none" as const } : {}),
-      ...(d?.vision && draft.model === d.model ? { acceptsImages: true } : {}),
+      acceptsImages: draft.acceptsImages ?? !!(d?.vision && draft.model === d.model),
       ...(d?.fallback && draft.model === d.model
         ? (() => {
             const fb = connectionOptions.find((c) => c.name.startsWith(d.fallbackVendor ?? "Gemini"));
@@ -536,7 +542,7 @@ export function Council() {
   });
 
   const updateSeat = useMutation({
-    mutationFn: ({ seatId, patch }: { seatId: string; patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: import("../api/council").CouncilSeatRole } }) =>
+    mutationFn: ({ seatId, patch }: { seatId: string; patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: import("../api/council").CouncilSeatRole; acceptsImages?: boolean } }) =>
       councilApi.updateSeat(companyId, roomId!, seatId, patch),
     onSuccess: () => void refresh("seats"),
     onError: () => setError("Couldn’t update this seat. Try again."),
@@ -975,7 +981,7 @@ export function Council() {
                   color={colorOfConnection(conn.id)}
                   roomId={roomId!}
                   seat={seat}
-                  draftDefaults={{ name: d?.name ?? conn.name.split(/\s+/)[0], model: d?.model ?? "", persona: d?.persona ?? "", role: "none" }}
+                  draftDefaults={{ name: d?.name ?? conn.name.split(/\s+/)[0], model: d?.model ?? "", persona: d?.persona ?? "", role: "none", acceptsImages: !!d?.vision }}
                   models={modelLists[modelIndex]?.data ?? []}
                   modelsLoading={modelLists[modelIndex]?.isLoading}
                   result={seat ? lastResults[roomId ?? ""]?.[seat.id] : undefined}
@@ -1290,6 +1296,7 @@ export function Council() {
             {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
+            <ImageSeatNotice imageCount={images.length} seats={activeSeats} />
             {images.length ? (
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 {images.map((img, i) => (
