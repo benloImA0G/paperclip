@@ -21,6 +21,7 @@ import type { CouncilAgreement } from "../api/council";
 import { ActionItemsChecklist, CreateTaskFromDecisionButton, LinkedTasksPanel } from "../components/CouncilTaskBridge";
 import { CouncilAgentPanel } from "../components/CouncilAgentPanel";
 import { CouncilSeatCheck } from "../components/CouncilSeatCheck";
+import { CouncilSavedTeams } from "../components/CouncilSavedTeams";
 import { CouncilSeatPill } from "../components/CouncilSeatPill";
 import { CouncilEstimate } from "../components/CouncilEstimate";
 import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../components/CouncilMentionPicker";
@@ -866,6 +867,13 @@ export function Council() {
           <QueryState label="connections" loading={connections.isLoading} error={connections.isError} onRetry={() => void connections.refetch()} />
           <QueryState label="seats" loading={seats.isLoading} error={seats.isError} onRetry={() => void seats.refetch()} />
             {!connections.isLoading && !connections.isError && !connectionOptions.length ? <p className="text-sm text-muted-foreground">No AI connections yet. <button type="button" className="underline" onClick={() => { setSettingsOpen(true); }}>Open seat settings</button> to add one.</p> : null}
+          <CouncilSavedTeams seats={allSeats} onCreate={async (seat) => {
+            const conn = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
+            const grantId = seat.grantId ?? conn?.grantId;
+            if (!grantId) throw new Error("Connection is unavailable");
+            try { return await councilApi.addSeat(companyId, roomId, { ...seat, grantId }); }
+            finally { void refreshSeatsFor(roomId); }
+          }} onAdded={(count) => toast?.pushToast({ tone: "success", title: `Added ${count} seats` })} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not add seats", body: errorText(error) }); else setError(`Could not add seats: ${errorText(error)}`); }} />
           {activeSeats.length < 3 && !connections.isLoading && !connections.isError && !seats.isLoading && !seats.isError ? <div className="flex items-center gap-2">
             <Button type="button" variant="outline" size="sm" disabled={!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending} onClick={() => addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam })}>Add a free team</Button>
             {!hasFreeConnection ? <span className="text-xs text-muted-foreground">Connect a free AI first</span> : null}
