@@ -675,7 +675,12 @@ export function Council() {
       if (repeatLast) return;
       // keep the draft when no vendor answered, so the question can be retried
       if (results.length && results.every((r) => r.status !== "ok")) {
-        setError("No vendor answered. Your message is kept; check the vendor cards, then send again.");
+        const why = results
+          .filter((r) => r.status === "error" && r.error)
+          .slice(0, 2)
+          .map((r) => `${r.seatName ?? "A seat"}: ${r.error}`)
+          .join(" ");
+        setError(`No seat answered. ${why ? `${why} ` : ""}Your message is kept; press Check seats, fix what it shows, then send again.`);
         setCardsOpen(true);
         return;
       }
