@@ -472,12 +472,15 @@ export function Council() {
       saveExportSetting.mutate({ targetRoomId: pendingTemplate.roomId, value: template.requireApproval });
     }
     if (addDefaults.isPending || !seats.isSuccess || defaultsReadyRoomId !== roomId) return;
-    const roleUpdates = allSeats.filter((seat) => template.roles[seat.name] && seat.role !== template.roles[seat.name]);
-    const missing = Object.keys(template.roles).filter((name) => !allSeats.some((seat) => seat.name === name));
+    const rolesBySeatId = template.id === "research-build-review"
+      ? new Map(allSeats.filter((seat) => seat.active).slice(0, 3).map((seat, index) => [seat.id, (["researcher", "builder", "critic"] as const)[index]]))
+      : new Map(allSeats.map((seat) => [seat.id, template.roles[seat.name]]));
+    const roleUpdates = allSeats.filter((seat) => rolesBySeatId.get(seat.id) && seat.role !== rolesBySeatId.get(seat.id));
+    const missing = template.id === "research-build-review" ? [] : Object.keys(template.roles).filter((name) => !allSeats.some((seat) => seat.name === name));
     if (missing.length) setError(`Template note: missing seats — ${missing.join(", ")}. Existing seats were applied.`);
     if (roleUpdates.length) {
       setPendingTemplate(null);
-      void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, { name: seat.name, role: template.roles[seat.name] })))
+      void Promise.all(roleUpdates.map((seat) => councilApi.updateSeat(companyId, pendingTemplate.roomId, seat.id, { name: seat.name, role: rolesBySeatId.get(seat.id) })))
         .then(() => refreshSeatsFor(pendingTemplate.roomId))
         .catch(() => setError("Couldn’t update the template seats. Try again."));
     } else {

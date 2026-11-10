@@ -1,6 +1,6 @@
 import type { CouncilSeatRole } from "../api/council";
 
-export type CouncilTemplateId = "quick-check" | "balanced-debate" | "decision" | "red-team" | "blind-best-of-n" | "debate-to-agreement" | "fresh-angles" | "get-it-done" | "builder-reviewer";
+export type CouncilTemplateId = "quick-check" | "balanced-debate" | "decision" | "red-team" | "blind-best-of-n" | "debate-to-agreement" | "fresh-angles" | "get-it-done" | "builder-reviewer" | "research-build-review";
 
 export type CouncilTemplate = {
   id: CouncilTemplateId;
@@ -34,6 +34,7 @@ export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
   { id: "fresh-angles", name: "Fresh angles", whatHappens: "Three seats with different perspectives answer once and produce a summary.", title: "Fresh angles", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 3 },
   { id: "get-it-done", name: "Get it done", whatHappens: "The chair can ask questions, plan the work, have a jury check each step, and draft tasks for approval.", title: "Get it done", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, workMode: "plan-first", askFirst: true, juryChecks: true, draftTasks: true },
   { id: "builder-reviewer", name: "Builder then reviewer (chain)", whatHappens: "A builder drafts an answer, then a critic reviews it.", title: "Builder then reviewer", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "builder", Techie: "critic" }, rounds: 1, answerStyle: "chain" },
+  { id: "research-build-review", name: "Research, build, review", whatHappens: "A researcher gathers facts, a builder drafts an answer, and a reviewer checks it.", title: "Research, build, review", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "researcher", Techie: "builder", CodeBot: "critic" }, rounds: 1, answerStyle: "chain" },
 ];
 
 export const DEFAULT_COUNCIL_TEMPLATE_ID: CouncilTemplateId = "balanced-debate";

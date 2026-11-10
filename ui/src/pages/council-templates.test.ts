@@ -19,6 +19,12 @@ describe("council room templates", () => {
     expect(councilCallEstimate(template, 2)).toBe(2);
   });
 
+  it("defines the research, build, review chain", () => {
+    const template = COUNCIL_TEMPLATES.find((item) => item.id === "research-build-review")!;
+    expect(template).toMatchObject({ answerStyle: "chain", roles: { Creative: "researcher", Techie: "builder", CodeBot: "critic" } });
+    expect(councilCallEstimate(template, 3)).toBe(3);
+  });
+
   it("has unique ids and all required fields", () => {
     expect(new Set(COUNCIL_TEMPLATES.map((template) => template.id)).size).toBe(COUNCIL_TEMPLATES.length);
     for (const template of COUNCIL_TEMPLATES) {

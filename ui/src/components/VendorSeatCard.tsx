@@ -3,6 +3,7 @@ import { Loader2, X } from "lucide-react";
 import type { CouncilSeat, CouncilSeatResult, CouncilSeatRole } from "../api/council";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { COUNCIL_ROLE_PRESETS } from "../pages/council-role-presets";
 
 /** Models measured in our own benchmark, per vendor (matched by connection name prefix). */
 export const MODEL_CATALOG: Record<string, Array<{ model: string; note: string }>> = {
@@ -87,6 +88,7 @@ export function VendorSeatCard({
   onUpdate: (patch: { name?: string; persona?: string; model?: string; active?: boolean; role?: CouncilSeatRole }) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState<VendorDraft>(draftDefaults);
+  const [rolePreset, setRolePreset] = useState("");
   const active = !!seat?.active;
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const name = seat?.name ?? draft.name;
@@ -110,6 +112,7 @@ export function VendorSeatCard({
   const saveVersion = useRef(0);
   const seatId = seat?.id ?? null;
   useEffect(() => {
+    setRolePreset("");
     saveVersion.current += 1;
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
@@ -189,8 +192,26 @@ export function VendorSeatCard({
       </label>
 
       <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
+        <span>Start from a role</span>
+        <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={rolePreset} onChange={(e) => {
+          const id = e.target.value;
+          setRolePreset(id);
+          const preset = COUNCIL_ROLE_PRESETS.find((item) => item.id === id);
+          if (preset) {
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            saveVersion.current += 1;
+            setText(preset.persona);
+            change({ role: preset.role, persona: preset.persona });
+          }
+        }}>
+          <option value="">Custom</option>
+          {COUNCIL_ROLE_PRESETS.map((preset) => <option key={preset.id} value={preset.id} title={preset.blurb}>{preset.label}</option>)}
+        </select>
+      </label>
+
+      <label className="flex flex-col gap-0.5 text-(length:--text-micro) text-muted-foreground">
         <span>Role</span>
-        <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => change({ role: e.target.value as CouncilSeatRole })}>
+        <select className="h-8 rounded-md border bg-background px-1 text-xs text-foreground" value={seat?.role ?? draft.role ?? "none"} onChange={(e) => { setRolePreset(""); change({ role: e.target.value as CouncilSeatRole }); }}>
           <option value="none">None</option><option value="researcher">Researcher</option><option value="builder">Builder</option><option value="critic">Critic</option><option value="synthesizer">Synthesizer</option><option value="moderator">Orchestrator</option>
         </select>
       </label>
@@ -243,7 +264,7 @@ export function VendorSeatCard({
           value={presetMatch}
           onChange={(e) => {
             const p = PERSONAS.find((x) => x.label === e.target.value);
-            if (p) change({ persona: p.text });
+            if (p) { setRolePreset(""); change({ persona: p.text }); }
           }}
         >
           <option value="">Choose a persona…</option>
@@ -262,6 +283,7 @@ export function VendorSeatCard({
           className="min-h-0 text-xs"
           placeholder="Type your own persona or instructions for this vendor."
           onChange={(e) => {
+            setRolePreset("");
             setText(e.target.value);
             queuePersona(e.target.value);
           }}
