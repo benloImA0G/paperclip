@@ -23,3 +23,27 @@ it("shows the three groups and descriptions, and selects chain", async () => {
   await act(async () => root.unmount());
   container.remove();
 });
+
+it("keeps advanced controls closed by default and remembers opening them", async () => {
+  localStorage.removeItem("council-settings-advanced-open");
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  const changeRounds = vi.fn();
+  const changeStyle = vi.fn();
+  const panel = <CouncilSettingsPanel who={<CouncilSetting description="Choose how many seats answer, or let everyone answer."><label>Random panel<select aria-label="Random panel"><option>Everyone</option></select></label></CouncilSetting>} how={<><CouncilSetting description="Choose how many rounds of discussion follow the first answers."><select aria-label="Rounds" value="off" onChange={changeRounds}><option value="off">No debate</option><option value="low">One round</option></select></CouncilSetting><CouncilSetting description="Choose whether seats cooperate or challenge each other."><select aria-label="Discussion style" value="collaborate" onChange={changeStyle}><option value="collaborate">Collaborate</option></select></CouncilSetting><CouncilSetting description="Other seats grade each work step."><button>Jury checks</button></CouncilSetting></>} extras={<CouncilSetting description="Ask for approval before downloading exports.">Approval</CouncilSetting>} />;
+  await act(async () => root.render(panel));
+  const details = container.querySelector("details")!;
+  expect(details.open).toBe(false);
+  expect(details.textContent).toContain("Jury checks");
+  expect(container.textContent).toContain("Answer style is set above the message box.");
+  const combined = container.querySelector<HTMLSelectElement>('select[aria-label="How seats answer"]')!;
+  await act(async () => { combined.value = "challenge"; combined.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(changeStyle.mock.calls[0][0].target.value).toBe("challenge");
+  expect(changeRounds.mock.calls[0][0].target.value).toBe("low");
+  await act(async () => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+  expect(localStorage.getItem("council-settings-advanced-open")).toBe("true");
+  await act(async () => root.unmount());
+  container.remove();
+  localStorage.removeItem("council-settings-advanced-open");
+});
