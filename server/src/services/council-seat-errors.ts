@@ -1,6 +1,8 @@
 /** Turn provider errors into a short, safe message suitable for a Council seat. */
 export function friendlySeatError(raw: string, ctx?: { model?: string; local?: boolean }): string {
   if (/budget limit reached/i.test(raw)) return "Budget limit reached";
+  if (/agent turn failed/i.test(raw)) return "The agent could not finish its turn. Check that the agent is running (Agents page) and that its gateway is reachable.";
+  if (/agent returned an empty reply/i.test(raw)) return "The agent finished without writing a reply. Try again or check its instructions.";
   if (!raw.trim() || /empty answer|no reply/i.test(raw)) return "The model returned an empty response. Thinking models can use up the answer limit; raise it in Settings or try another model.";
   if (/\b(?:401|403)\b|unauthorized|invalid api key|forbidden/i.test(raw)) return "The connection was refused (wrong or expired key). Check the connection's credentials.";
   if (/\b404\b|model not found|not found/i.test(raw)) return "That model is not available on this connection. Pick another model.";
