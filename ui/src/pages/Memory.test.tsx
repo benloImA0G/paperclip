@@ -77,6 +77,26 @@ describe("Memory", () => {
     await act(async () => change(container.querySelector('input[aria-label="Search memory"]')!, "launch"));
     await waitFor(() => expect(mock.context).toHaveBeenCalledWith("company-1", "launch"));
   });
+  it("filters loaded entries by tags and clears the selection", async () => {
+    mock.entries = [entry({ title: "Alpha", tags: ["shared", "alpha"] }), entry({ id: "2", title: "Beta", tags: ["shared", "beta"] })];
+    await render(); await waitFor(() => expect(button("Alpha")).toBeTruthy());
+    await click("shared"); await click("alpha");
+    expect(button("Alpha")).toBeTruthy(); expect(container.textContent).not.toContain("Beta");
+    expect(button("alpha").getAttribute("aria-pressed")).toBe("true");
+    await click("Clear"); expect(button("Beta")).toBeTruthy();
+    expect(mock.list.mock.calls.every(([, filters]) => !filters.tag)).toBe(true);
+  });
+  it("sorts pinned and updated entries, recently used, and oldest", async () => {
+    mock.entries = [entry({ title: "Older", updatedAt: "2026-01-01T00:00:00Z", lastUsedAt: "2026-03-01T00:00:00Z" }), entry({ id: "2", title: "Newer", updatedAt: "2026-02-01T00:00:00Z" }), entry({ id: "3", title: "Pinned", pinned: true, updatedAt: "2025-01-01T00:00:00Z", lastUsedAt: "2026-02-01T00:00:00Z" })];
+    await render(); await waitFor(() => expect(button("Pinned")).toBeTruthy());
+    const titles = () => [...container.querySelectorAll("article h2")].map((el) => el.textContent);
+    expect(titles()).toEqual(["Pinned", "Newer", "Older"]);
+    const select = container.querySelector("select")!;
+    await act(async () => { select.value = "recently-used"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(titles()).toEqual(["Older", "Pinned", "Newer"]);
+    await act(async () => { select.value = "oldest"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(titles()).toEqual(["Pinned", "Older", "Newer"]);
+  });
   it("shows example ideas when empty", async () => { await render(); await waitFor(() => expect(container.textContent).toContain("Our launch checklist")); expect(container.textContent).toContain("Preferred answer style"); });
   it("adds an entry", async () => { await render(); await click("+ Add to memory"); const title = [...container.querySelectorAll("label")].find((el) => el.textContent?.startsWith("Title"))!.querySelector("input")!; await act(async () => change(title, "Launch checklist")); await click("Save"); await waitFor(() => expect(container.textContent).toContain("Launch checklist")); expect(mock.create).toHaveBeenCalledOnce(); });
   it("searches after a debounce", async () => { mock.entries = [entry()]; await render(); await waitFor(() => expect(container.textContent).toContain("Launch checklist")); await act(async () => change(container.querySelector('input[aria-label="Search memory"]')!, "missing")); await waitFor(() => expect(mock.list).toHaveBeenCalledWith("company-1", expect.objectContaining({ query: "missing" }))); await waitFor(() => expect(container.textContent).not.toContain("Launch checklist")); });
