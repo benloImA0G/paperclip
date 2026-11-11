@@ -26,7 +26,7 @@ export type CouncilTemplate = {
 };
 
 export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
-  { id: "quick-check", kind: "quick-fact", name: "Quick check", whatHappens: "Everyone answers once. No debate. A Chairman seat, if you have one, adds a short recommendation.", title: "Quick check", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1 },
+  { id: "quick-check", kind: "quick-fact", name: "Quick check", whatHappens: "Everyone answers, then one fast round of discussion. A Chairman seat, if you have one, adds a short recommendation.", title: "Quick check", discussion: true, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1 },
   { id: "balanced-debate", kind: "brainstorm", name: "Balanced debate", whatHappens: "Everyone answers, then weighs trade-offs together.", title: "Balanced debate", discussion: true, depth: "medium", autoSummary: false, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator" }, rounds: 3 },
   { id: "decision", kind: "decision", name: "Decision", whatHappens: "The room debates and publishes a decision record for export.", title: "Decision", discussion: true, depth: "medium", autoSummary: true, requireApproval: true, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "researcher" }, rounds: 3 },
   { id: "red-team", kind: "review", name: "Red-team", whatHappens: "Critics challenge the idea while research fills the gaps.", title: "Red-team", discussion: true, depth: "high", autoSummary: true, requireApproval: false, orchestrator: "Creative", roles: { Creative: "moderator", Techie: "critic", CodeBot: "critic", Friendly: "researcher" }, rounds: 4 },
@@ -38,7 +38,7 @@ export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
   { id: "research-build-review", kind: "plan-and-do", name: "Research, build, review", whatHappens: "A researcher gathers facts, a builder drafts an answer, and a reviewer checks it.", title: "Research, build, review", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "researcher", Techie: "builder", CodeBot: "critic" }, rounds: 1, answerStyle: "chain" },
 ];
 
-export const DEFAULT_COUNCIL_TEMPLATE_ID: CouncilTemplateId = "balanced-debate";
+export const DEFAULT_COUNCIL_TEMPLATE_ID: CouncilTemplateId = "quick-check";
 
 export function councilCallEstimate(template: CouncilTemplate, seatCount: number): number {
   return Math.max(0, seatCount) * template.rounds + (template.orchestrator ? 1 : 0);
