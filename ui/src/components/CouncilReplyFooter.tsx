@@ -1,6 +1,14 @@
 import { CouncilMemoryButton, type CouncilMemoryButtonProps } from "./CouncilMemoryButton";
 import { formatTokens, type CouncilReplyReliability } from "../pages/council-reply-labels";
 
+/** Replace known source markers for display only; the original reply remains unchanged. */
+export function displayCouncilCitations(text: string, documents: readonly string[] = []): string {
+  return text.replace(/\[d(\d+)#(\d+)\]/g, (marker, index: string) => {
+    const name = documents[Number(index) - 1];
+    return name ? `\`${name.replace(/`/g, "'")}\`` : marker;
+  });
+}
+
 type Reliability = Omit<CouncilReplyReliability, "costCents"> & { costCents?: number | string; documents?: string[] };
 const measured = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 

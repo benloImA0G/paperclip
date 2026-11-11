@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
-import { CouncilReplyFooter } from "./CouncilReplyFooter";
+import { CouncilReplyFooter, displayCouncilCitations } from "./CouncilReplyFooter";
 
 it("shows measured values and keeps missing details in the title", () => {
   const html = renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { durationMs: 4200, usage: { inputTokens: 1200 }, costCents: 0.2 } }} />);
@@ -38,4 +38,9 @@ it("hides reference documents when absent or empty", () => {
 it("reads documents from persisted reliability metadata", () => {
   const html = renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { documents: ["notes.md"] } }} />);
   expect(html).toContain("Read: notes.md");
+});
+
+it("maps known citation markers without changing unknown markers", () => {
+  expect(displayCouncilCitations("See [d1#1], [d2#3], [d3#1] and [d0#1].", ["brief.md", "notes.csv"]))
+    .toBe("See `brief.md`, `notes.csv`, [d3#1] and [d0#1].");
 });

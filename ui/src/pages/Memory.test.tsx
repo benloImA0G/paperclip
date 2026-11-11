@@ -39,6 +39,19 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 describe("Memory", () => {
+  it("changes import help with the format and fills the selected example", async () => {
+    await render(); await click("Import");
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const help = dialog.querySelector("#memory-import-help")!;
+    expect(help.textContent).toContain("A list of entries: title and body are required");
+    const select = dialog.querySelector("select")!;
+    await act(async () => { select.value = "markdown"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(help.textContent).toContain("Start each memory with a line like");
+    expect(dialog.querySelector("textarea")?.getAttribute("aria-describedby")).toBe("memory-import-help");
+    await act(async () => [...dialog.querySelectorAll("button")].find((el) => el.textContent === "Use this example")!.click());
+    expect(dialog.querySelector<HTMLTextAreaElement>("textarea")?.value).toContain("## Launch checklist");
+    expect(dialog.querySelector<HTMLTextAreaElement>("textarea")?.value).toContain("## Support hours");
+  });
   it("imports text and shows the result", async () => {
     await render(); await click("Import");
     await act(async () => change(document.body.querySelector('[role="dialog"] textarea')!, '[{"title":"Example","body":"Details"}]'));

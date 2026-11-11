@@ -637,6 +637,7 @@
 
 .council-thread-shell { min-height: var(--council-thread-min-height-mobile); }
 .council-options-popover { max-width: 32rem; }
+.council-citation-body code { border-radius: var(--radius); background: var(--muted); padding: var(--spacing) calc(var(--spacing) * 2); font-size: var(--text-xs); }
 @media (width < 48rem) {
   .council-shell {
     height: 100%;

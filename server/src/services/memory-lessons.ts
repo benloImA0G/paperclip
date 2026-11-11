@@ -3,7 +3,7 @@ import { agents, councilSeats, issueComments, issues, memoryEntries, type Db } f
 import { MEMORY_AUTO_APPROVE_THRESHOLD } from "@paperclipai/shared";
 import { notFound } from "../errors.js";
 import { councilChatService } from "./council-chat.js";
-import { memoryService } from "./memory.js";
+import { lessonSimilarity, memoryService } from "./memory.js";
 
 type AskRoomModel = ReturnType<typeof councilChatService>["askRoomModel"];
 const unavailable = "Open this chat as a Council room with a model seat to learn from it";
@@ -62,12 +62,13 @@ export function memoryLessonsService(db: Db, deps: { askRoomModel?: AskRoomModel
       let parsed: unknown;
       try { parsed = JSON.parse(answer.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")); } catch { return { created: [], skipped: 0, autoApproved: 0 }; }
       if (!Array.isArray(parsed)) return { created: [], skipped: 0, autoApproved: 0 };
-      const existing = await db.select({ kind: memoryEntries.kind, title: memoryEntries.title }).from(memoryEntries)
+      const existing = await db.select({ kind: memoryEntries.kind, title: memoryEntries.title, body: memoryEntries.body, createdByLabel: memoryEntries.createdByLabel }).from(memoryEntries)
         .where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.status, ["active", "pending"])));
       const key = (kind: string, title: string) => `${kind}:${title.trim().toLowerCase()}`;
       const seen = new Set(existing.map((entry) => key(entry.kind, entry.title)));
+      const comparable = existing.filter((entry) => entry.kind === "lesson" || entry.createdByLabel.startsWith("Lesson extractor"));
       const created: (typeof memoryEntries.$inferSelect)[] = [];
-      let skipped = 0, autoApproved = 0;
+      let skipped = 0, skippedSimilar = 0, autoApproved = 0;
       const settings = await memory.getSettings(companyId);
       for (const item of parsed) {
         if (created.length >= maxLessons) break;
@@ -75,14 +76,14 @@ export function memoryLessonsService(db: Db, deps: { askRoomModel?: AskRoomModel
         const title = item.title.trim(), body = item.body.trim();
         if (!title || title.length > 120 || !body || body.length > 600 || /ignore\s+previous|you\s+must|system\s+prompt/i.test(title) || item.tags.length > 4 || item.tags.some((tag: unknown) => typeof tag !== "string" || !tag.trim() || tag.trim().length > 32)) continue;
         const id = key(item.kind, title);
-        if (seen.has(id)) { skipped++; continue; }
+        if (seen.has(id) || comparable.some((entry) => lessonSimilarity(entry, { title, body }) >= 0.6)) { skipped++; skippedSimilar++; continue; }
         const confidence = confidenceOf(item.confidence);
         const shouldApprove = settings.autoApprove && confidence >= MEMORY_AUTO_APPROVE_THRESHOLD;
         let entry = await memory.create(companyId, { kind: item.kind as Kind, title, body, tags: item.tags.map((tag: string) => tag.trim().toLowerCase()), originKind: "council", originRef: issueId, createdByLabel: shouldApprove ? `Lesson extractor (auto-approved, ${confidence}%)` : "Lesson extractor", sourceLabel: `Chat: ${issue.title}`.slice(0, 160) });
         if (shouldApprove) { entry = await memory.approve(companyId, entry.id); autoApproved++; }
-        created.push(entry); seen.add(id);
+        created.push(entry); seen.add(id); comparable.push(entry);
       }
-      return { created, skipped, autoApproved };
+      return { created, skipped, skippedSimilar, autoApproved };
     },
   };
 }

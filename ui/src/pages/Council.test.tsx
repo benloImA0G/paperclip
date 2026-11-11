@@ -11,7 +11,7 @@ import { Council } from "./Council";
 
 const api = vi.hoisted(() => ({
   comments: {} as Record<string, unknown[]>,
-  runRound: vi.fn(), forkRoom: vi.fn(), listRooms: vi.fn(), listAttachments: vi.fn(), uploadAttachment: vi.fn(), pushToast: vi.fn(), listArtifacts: vi.fn(), getArtifact: vi.fn(),
+  createRoom: vi.fn(), updateKind: vi.fn(), runRound: vi.fn(), forkRoom: vi.fn(), listRooms: vi.fn(), listAttachments: vi.fn(), uploadAttachment: vi.fn(), pushToast: vi.fn(), listArtifacts: vi.fn(), getArtifact: vi.fn(),
 }));
 vi.mock("../context/ToastContext", () => ({ useOptionalToastActions: () => ({ pushToast: api.pushToast }) }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }), useOptionalCompany: () => null }));
@@ -25,7 +25,7 @@ vi.mock("../api/council", () => ({ councilApi: {
   getBrief: vi.fn(async () => ({ brief: "" })), getWork: vi.fn(async () => ({ status: "idle", steps: [] })),
   getReliability: vi.fn(async () => null), listArtifacts: api.listArtifacts, getArtifact: api.getArtifact,
   getExportSetting: vi.fn(async () => ({ requireApproval: false })), listModels: vi.fn(async () => []),
-  runRound: api.runRound, forkRoom: api.forkRoom,
+  createRoom: api.createRoom, updateKind: api.updateKind, runRound: api.runRound, forkRoom: api.forkRoom,
 } }));
 vi.mock("../api/ai-connections", () => ({ aiConnectionsApi: { list: vi.fn(async () => ({ connections: [
   { id: "conn-1", grantId: "grant-1", name: "Cloud One", provider: "openai", routing: { kind: "cloud" } },
@@ -75,6 +75,8 @@ beforeEach(() => {
   api.pushToast.mockReset();
   api.listArtifacts.mockReset().mockResolvedValue([]);
   api.getArtifact.mockReset();
+  api.createRoom.mockReset().mockResolvedValue({ id: "new-room" });
+  api.updateKind.mockReset().mockResolvedValue({});
   api.runRound.mockReset().mockResolvedValue({ results: [] });
   api.forkRoom.mockReset().mockResolvedValue({ room: { id: "room-2" } });
   localStorage.clear();
@@ -84,6 +86,32 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 
 describe("Council page", () => {
+  it.each([["", "Quick check", "quick-fact"], ["QA room", "QA room", "decision"]])("creates the selected mode with the entered or default name", async (title, expected, kind) => {
+    await renderPage();
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="New war room"]')!.click(); });
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Room title"]')!;
+    expect(input.value).toBe("");
+    expect(input.placeholder).toBe("Quick check");
+    if (title) {
+      const decision = [...container.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find((el) => el.textContent?.startsWith("Decision"))!;
+      await act(async () => { decision.click(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, title); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    }
+    expect(container.textContent).toContain(`Selected: ${title ? "Decision" : "Quick check"}`);
+    await click("Create");
+    await waitFor(() => expect(api.updateKind).toHaveBeenCalledWith("company-1", "new-room", kind));
+    expect(api.createRoom).toHaveBeenCalledWith("company-1", expected);
+  });
+  it("shows separate room kind and a mobile message actions disclosure", async () => {
+    api.listRooms.mockResolvedValue([{ id: "room-1", title: "Named room", kind: "decision" }]);
+    await renderPage();
+    const room = [...container.querySelectorAll<HTMLButtonElement>(".council-rooms button")].find((el) => el.textContent?.includes("Named room"))!;
+    expect(room.querySelector("span.ml-2")?.textContent).toBe("Decision");
+    const menu = container.querySelector<HTMLButtonElement>('button[aria-label="Message actions"]')!;
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => menu.click());
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelectorAll('select[aria-label="Download reply as"]')).toHaveLength(1);
+  });
   it("shows supported document count and opens the documents heading", async () => {
     api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }, { id: "b", originalFilename: "image.png", byteSize: 42 }, { id: "c", originalFilename: "large.md", byteSize: 600000 }]);
     await renderPage();

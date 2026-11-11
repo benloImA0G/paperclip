@@ -19,6 +19,23 @@ const stopWords = new Set("a an and are as at be by for from in is it of on or t
 function words(text: string): Set<string> {
   return new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((word) => !stopWords.has(word)));
 }
+export function lessonSimilarity(a: { title: string; body: string }, b: { title: string; body: string }): number {
+  const x = words(`${a.title} ${a.body}`), y = words(`${b.title} ${b.body}`);
+  const union = new Set([...x, ...y]);
+  return union.size ? overlap(x, y) / union.size : 0;
+}
+export function findSimilarGroups<T extends { title: string; body: string; kind: string; status: string }>(entries: T[], threshold = 0.6): T[][] {
+  const eligible = entries.filter((entry) => entry.status === "active" || entry.status === "pending");
+  const parent = eligible.map((_, i) => i);
+  const root = (i: number): number => parent[i] === i ? i : (parent[i] = root(parent[i]!));
+  for (let i = 0; i < eligible.length; i++) for (let j = i + 1; j < eligible.length; j++) {
+    const a = eligible[i]!, b = eligible[j]!;
+    if (a.kind === b.kind && lessonSimilarity(a, b) >= threshold) parent[root(j)] = root(i);
+  }
+  const groups = new Map<number, T[]>();
+  eligible.forEach((entry, i) => { const key = root(i); groups.set(key, [...(groups.get(key) ?? []), entry]); });
+  return [...groups.values()].filter((group) => group.length > 1);
+}
 function overlap(a: Set<string>, b: Set<string>): number {
   return [...a].filter((word) => b.has(word)).length;
 }
@@ -135,7 +152,7 @@ export function memoryService(db: Db) {
         const rows = await tx.select().from(memoryEntries).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, input.ids))).orderBy(memoryEntries.id).for("update");
         if (rows.length !== input.ids.length) throw notFound("Memory entry not found");
         const ordered = input.ids.map((id) => rows.find((row) => row.id === id)!);
-        if (ordered.some((row) => row.status !== "active" || row.kind !== ordered[0]!.kind)) throw conflict("Memories must be active and of the same kind");
+        if (ordered.some((row) => (row.status !== "active" && row.status !== "pending") || row.kind !== ordered[0]!.kind)) throw conflict("Memories must be active or pending and of the same kind");
         const now = new Date();
         await tx.update(memoryEntries).set({ status: "withdrawn", withdrawnReason: "merged", withdrawnAt: now, updatedAt: now }).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, input.ids)));
         const first = ordered[0]!;
@@ -145,21 +162,10 @@ export function memoryService(db: Db) {
       });
     },
     async tidy(companyId: string, staleDays: number) {
-      const rows = await db.select().from(memoryEntries).where(and(eq(memoryEntries.companyId, companyId), eq(memoryEntries.status, "active")));
-      const normalize = (title: string) => title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim().replace(/\s+/g, " ");
-      const parent = rows.map((_, i) => i);
-      const root = (i: number): number => parent[i] === i ? i : (parent[i] = root(parent[i]!));
-      for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
-        if (rows[i]!.kind !== rows[j]!.kind) continue;
-        const a = normalize(rows[i]!.title), b = normalize(rows[j]!.title);
-        const x = new Set(a.split(" ").filter(Boolean)), y = new Set(b.split(" ").filter(Boolean));
-        const union = new Set([...x, ...y]);
-        if (a === b || (union.size > 0 && [...x].filter((word) => y.has(word)).length / union.size >= 0.7)) parent[root(j)] = root(i);
-      }
-      const groups = new Map<number, Entry[]>(); rows.forEach((row, i) => { const key = root(i); groups.set(key, [...(groups.get(key) ?? []), row]); });
-      const duplicates = [...groups.values()].filter((group) => group.length > 1).map((group) => ({ ids: group.map((row) => row.id), reason: "Similar titles", suggestedTitle: group.reduce((a, b) => a.title.length <= b.title.length ? a : b).title, suggestedBody: [...new Set(group.flatMap((row) => row.body.split("\n")).map((line) => line.trim()).filter(Boolean))].join("\n\n").slice(0, 2000) }));
+      const rows = await db.select().from(memoryEntries).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.status, ["active", "pending"])));
+      const duplicates = findSimilarGroups(rows).map((group) => ({ ids: group.map((row) => row.id), reason: "Similar memories", suggestedTitle: group.reduce((a, b) => a.title.length <= b.title.length ? a : b).title, suggestedBody: [...new Set(group.flatMap((row) => row.body.split("\n")).map((line) => line.trim()).filter(Boolean))].join("\n\n").slice(0, 2000) }));
       const cutoff = Date.now() - staleDays * 86400000;
-      return { duplicates, stale: rows.filter((row) => !row.pinned && (row.lastUsedAt ?? row.createdAt).getTime() < cutoff) };
+      return { duplicates, stale: rows.filter((row) => row.status === "active" && !row.pinned && (row.lastUsedAt ?? row.createdAt).getTime() < cutoff) };
     },
     patch: (companyId: string, id: string, input: UpdateMemoryInput) => update(companyId, id, input),
     async withdraw(companyId: string, id: string, reason?: string) {

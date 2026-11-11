@@ -39,7 +39,7 @@ import { useOptionalToastActions } from "../context/ToastContext";
 import { CouncilEmptyState } from "../components/CouncilEmptyState";
 import { CouncilRoomStats, formatCouncilMarkdown } from "../components/CouncilRoomStats";
 import { CouncilLessonsButton } from "../components/CouncilLessonsButton";
-import { CouncilReplyFooter } from "../components/CouncilReplyFooter";
+import { CouncilReplyFooter, displayCouncilCitations } from "../components/CouncilReplyFooter";
 import { CouncilStyleSwitch, type CouncilQuickStyle } from "../components/CouncilStyleSwitch";
 import { CouncilEgressBanner } from "../components/CouncilEgressBanner";
 import type { CouncilReplyReliability } from "./council-reply-labels";
@@ -218,6 +218,7 @@ export function Council() {
   const queryClient = useQueryClient();
   const [roomId, setRoomId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  const [messageActions, setMessageActions] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<CouncilTemplateId>(DEFAULT_COUNCIL_TEMPLATE_ID);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
@@ -518,8 +519,6 @@ export function Council() {
     const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === id)!;
     setSelectedTemplate(id);
     if (template.prompt) setMessage((current) => current.trim() ? current : template.prompt!);
-    const previousTitle = COUNCIL_TEMPLATES.find((candidate) => candidate.id === selectedTemplate)?.title;
-    setNewTitle((title) => !title.trim() || title === previousTitle ? template.title : title);
     setDiscussion(template.discussion);
     setAnswerStyle(template.answerStyle ?? "side-by-side");
     setDepth(template.depth);
@@ -536,8 +535,8 @@ export function Council() {
 
   const createRoom = useMutation({
     mutationFn: async () => {
-      const room = await councilApi.createRoom(companyId, newTitle.trim());
       const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === selectedTemplate)!;
+      const room = await councilApi.createRoom(companyId, newTitle.trim() || template.title);
       await councilApi.updateKind(companyId, room.id, template.kind);
       saveRoomStyle(room.id, template.answerStyle ?? "side-by-side", "collaborate");
       return room;
@@ -1028,13 +1027,13 @@ export function Council() {
               className={`shrink-0 rounded-full border px-3 py-1 text-sm ${r.id === roomId ? "border-primary bg-accent font-medium" : "text-muted-foreground hover:bg-accent/50"}`}
             >
               <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${r.id === roomId ? "bg-emerald-400" : "bg-muted-foreground/50"}`} />
-              {r.title} {r.kind ? <KindChip kind={r.kind} /> : null}
+              <span>{r.title}</span>{r.kind ? <span className="ml-2"><KindChip kind={r.kind} /></span> : null}
             </button>
           ))}
           <button
             type="button"
             aria-label="New war room"
-            onClick={() => { setCreating(true); applyTemplate(DEFAULT_COUNCIL_TEMPLATE_ID); }}
+            onClick={() => { setNewTitle(""); setCreating(true); applyTemplate(DEFAULT_COUNCIL_TEMPLATE_ID); }}
             className="shrink-0 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50"
           >
             + New
@@ -1047,14 +1046,15 @@ export function Council() {
           className="min-w-0 shrink-0 rounded-lg border p-3 sm:p-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (newTitle.trim()) createRoom.mutate();
+            createRoom.mutate();
           }}
         >
           <div className="flex items-center gap-2">
-            <Input autoFocus value={newTitle} onFocus={(e) => { if (newTitle === COUNCIL_TEMPLATES.find((template) => template.id === selectedTemplate)?.title) e.currentTarget.select(); }} onChange={(e) => setNewTitle(e.target.value)} placeholder="Room title" className="h-8 min-w-0 flex-1" aria-label="Room title" />
-            <Button type="submit" size="sm" disabled={createRoom.isPending || !newTitle.trim()}>{createRoom.isPending ? "Creating…" : "Create"}</Button>
+            <Input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder={COUNCIL_TEMPLATES.find((template) => template.id === selectedTemplate)!.title} className="h-8 min-w-0 flex-1" aria-label="Room title" />
+            <Button type="submit" size="sm" disabled={createRoom.isPending}>{createRoom.isPending ? "Creating…" : "Create"}</Button>
             <Button type="button" size="sm" variant="ghost" aria-label="Cancel new war room" onClick={() => setCreating(false)}><X /></Button>
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">Selected: {COUNCIL_TEMPLATES.find((template) => template.id === selectedTemplate)!.name}</p>
           <div className="mt-3">
             <CouncilTemplates selected={selectedTemplate} seatCount={connectionOptions.filter((conn) => defaultsFor(conn.name)?.auto).length} onSelect={applyTemplate} />
           </div>
@@ -1307,9 +1307,11 @@ export function Council() {
                           ) : null}
                         </div>
                       </section>
-                    ) : <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{cleanMarkdownForDisplay(c.body)}</MarkdownBody>}
+                    ) : <MarkdownBody className="council-citation-body min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{displayCouncilCitations(cleanMarkdownForDisplay(c.body), (c.metadata as { councilReliability?: { documents?: string[] }; documents?: string[] } | null)?.councilReliability?.documents ?? (c.metadata as { documents?: string[] } | null)?.documents)}</MarkdownBody>}
                     <CouncilReplyFooter metadata={c.metadata as { councilReliability?: CouncilReplyReliability } | null} memory={{ companyId, issueId: roomId!, roomTitle: room?.title ?? "Council room", seatName: name, body: c.body, decision: seat?.role === "moderator" }} />
-                    <div className="mt-1 flex justify-end gap-2 text-(length:--text-nano) text-muted-foreground">
+                    <div className="mt-1 text-right text-(length:--text-nano) text-muted-foreground">
+                      <button type="button" className="rounded-md px-2 py-1 sm:hidden" aria-label="Message actions" aria-expanded={messageActions === c.id} onClick={() => setMessageActions(messageActions === c.id ? null : c.id)}>…</button>
+                      <div className={`${messageActions === c.id ? "flex" : "hidden"} flex-wrap justify-end gap-2 sm:flex`}>
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" onClick={async () => {
                         if (!roomId) return;
                         try {
@@ -1337,7 +1339,7 @@ export function Council() {
                         );
                       }}>Save as artifact</Button>
                       <select
-                        aria-label="Save reply as"
+                        aria-label="Download reply as"
                         className="h-6 rounded-md border bg-background px-1 text-(length:--text-nano) text-foreground"
                         value=""
                         disabled={!!exportingReply}
@@ -1362,12 +1364,13 @@ export function Council() {
                           }
                         }}
                       >
-                        <option value="" disabled>Save as</option>
+                        <option value="" disabled>Download</option>
                         <option value="md">Markdown (.md)</option>
                         <option value="txt">Text (.txt)</option>
                         <option value="docx">Word (.docx)</option>
                         <option value="pptx">PowerPoint (.pptx)</option>
                       </select>
+                      </div>
                     </div>
                     {showDocumentExportCta && c.id === finalVendorReply?.id ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
@@ -1528,7 +1531,7 @@ export function Council() {
                 }
               }}
             />
-            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" className="council-start-work" disabled={startWork.isPending} title="The chair plans the steps, the seats carry them out, and a one-page summary lands in the chat" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; setOptionsOpen(false); const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; const typedGoal = message.trim().length > 0; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(typedGoal ? { postGoal: true } : {}), ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }, typedGoal ? { onSuccess: () => setMessage("") } : undefined); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
+            {ask.isPending ? <><Button type="button" variant="destructive" aria-label="Stop the round" onClick={() => void stopRound()}><Square /> Stop</Button><Button type="submit" disabled><Send /> Send</Button></> : <><Button type="submit" disabled={!canSend}><Send /> Send</Button>{hasAnswers && workStatus !== "running" ? <Button type="button" variant="outline" className="council-start-work" disabled={startWork.isPending} title="Plan the steps and carry them out (multi-step), instead of one answer" onClick={() => { const goal = (message.trim() || latestUserMessage?.body || "").trim(); if (!goal) return; setOptionsOpen(false); const decision = [...(comments.data ?? [])].reverse().find((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX))?.body; const typedGoal = message.trim().length > 0; startWork.mutate({ companyId, roomId: roomId!, vars: { goal, ...(typedGoal ? { postGoal: true } : {}), ...(decision ? { decision: decision.slice(0, 8000) } : {}), ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }, typedGoal ? { onSuccess: () => setMessage("") } : undefined); }}>Start the work</Button> : null}{workQuery.data && ["failed", "partial", "cancelled"].includes(workQuery.data.status) && workQuery.data.steps.some((step) => step.status !== "done" || step.grade === "fail") ? <Button type="button" variant="outline" disabled={startWork.isPending} onClick={() => startWork.mutate({ companyId, roomId: roomId!, vars: { resume: true } })}>Resume the work</Button> : null}{workStatus === "running" ? <Button type="button" variant="destructive" onClick={() => void councilApi.stopWork(companyId, roomId!).then(() => workQuery.refetch())}><Square /> Stop work</Button> : null}</>}
             </div>
             {!comments.isLoading && !comments.isError && !comments.data?.length ? <p className="px-2 text-xs text-muted-foreground">Tip: ask for a PowerPoint or Word file and a download button appears.</p> : null}
             <ImageSeatNotice imageCount={images.length} seats={activeSeats} />
@@ -1546,7 +1549,7 @@ export function Council() {
               </div>
             ) : null}
             <div className="relative flex flex-wrap items-center gap-2 text-xs">
-              <Button type="button" variant="outline" size="sm" className="self-start sm:hidden" aria-expanded={mobileRoomOptionsOpen} aria-controls="council-room-tools" onClick={() => setMobileRoomOptionsOpen((open) => !open)}>Options</Button>
+              <Button type="button" variant="outline" size="sm" className="self-start sm:hidden" aria-expanded={optionsOpen} aria-controls="council-options-popover" onClick={() => setOptionsOpen((open) => !open)}>Options</Button>
               <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="council-options-trigger max-sm:min-h-11" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /><span>Options</span></Button>
               <Button type="button" variant="outline" size="sm" className="shrink-0 max-sm:min-h-11" aria-label={`Documents, ${documentCount} attached`} onClick={openDocuments}><FileText /><span className="max-sm:hidden">Documents{documentCount ? ` (${documentCount})` : ""}</span><span className="sm:hidden">{documentCount}</span></Button>
               {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg max-sm:max-h-(--council-thread-min-height-mobile) border bg-popover p-2 shadow-lg">
