@@ -84,6 +84,29 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 
 describe("Council page", () => {
+  it("shows supported document count and opens the documents heading", async () => {
+    api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }, { id: "b", originalFilename: "image.png", byteSize: 42 }, { id: "c", originalFilename: "large.md", byteSize: 600000 }]);
+    await renderPage();
+    expect(container.textContent).not.toContain("Tip: drop a file onto this room");
+    await waitFor(() => expect(container.querySelector('button[aria-label="Documents, 1 attached"]')).toBeTruthy());
+    const chip = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="Documents, 1 attached"]')].at(-1)!;
+    expect(chip.textContent).toContain("Documents (1)");
+    await act(async () => { chip.click(); });
+    expect(container.querySelector('[role="dialog"][aria-label="Room settings"]')).toBeTruthy();
+    expect(document.activeElement?.id).toBe("council-documents-heading");
+  });
+  it("shows a zero-count shortcut and the drop tip only for an empty room without documents", async () => {
+    api.comments["room-1"] = [];
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><ThemeProvider><BreadcrumbProvider><DialogProvider><Council /></DialogProvider></BreadcrumbProvider></ThemeProvider></MemoryRouter></QueryClientProvider>));
+    await waitFor(() => expect(container.textContent).toContain("Tip: drop a file onto this room to give the seats something to read."));
+    const chip = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="Documents, 0 attached"]')].at(-1)!;
+    expect(chip).toBeTruthy();
+    expect(chip.querySelector("[class*='max-sm:hidden']")?.textContent).toBe("Documents");
+    await act(async () => { client.setQueryData(["issues", "attachments", "room-1"], [{ id: "a", originalFilename: "notes.md", byteSize: 42 }]); });
+    await waitFor(() => expect(container.textContent).not.toContain("Tip: drop a file onto this room"));
+    await act(async () => { client.setQueryData(["issues", "attachments", "room-1"], []); client.setQueryData(["council", "company-1", "room-1", "comments"], [question]); });
+    await waitFor(() => expect(container.textContent).not.toContain("Tip: drop a file onto this room"));
+  });
   it("offers document review in an open room with a document", async () => {
     api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }]);
     await renderPage();

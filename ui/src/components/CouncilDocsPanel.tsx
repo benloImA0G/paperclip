@@ -10,6 +10,14 @@ export const COUNCIL_MACRO_DOCUMENT_RE = /\.(docm|dotm|xlsm|pptm)$/i;
 export const COUNCIL_TEXT_DOCUMENT_RE = /\.(txt|md|markdown|csv|json)$/i;
 export const COUNCIL_OFFICE_DOCUMENT_RE = /\.(docx|odt|rtf|html|htm|pptx|xlsx|epub)$/i;
 
+export function isSupportedCouncilDocument(attachment: { originalFilename: string | null; byteSize: number }) {
+  const filename = attachment.originalFilename ?? "";
+  if (COUNCIL_MACRO_DOCUMENT_RE.test(filename)) return false;
+  return COUNCIL_TEXT_DOCUMENT_RE.test(filename)
+    ? attachment.byteSize <= 512 * 1024
+    : COUNCIL_OFFICE_DOCUMENT_RE.test(filename) && attachment.byteSize <= 5 * 1024 * 1024;
+}
+
 export function CouncilDocsPanel({ companyId, issueId, disabled = false, onAsk }: { companyId: string; issueId: string; disabled?: boolean; onAsk?: (filename: string) => void }) {
   const inputId = useId();
   const [error, setError] = useState<string | null>(null);
@@ -21,13 +29,7 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false, onAsk }
   const upload = useMutation({ mutationFn: (file: File) => issuesApi.uploadAttachment(companyId, issueId, file), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (id: string) => issuesApi.deleteAttachment(id), onSuccess: refresh });
 
-  const supported = (attachments.data ?? []).filter((attachment) => {
-    const filename = attachment.originalFilename ?? "";
-    if (COUNCIL_MACRO_DOCUMENT_RE.test(filename)) return false;
-    return COUNCIL_TEXT_DOCUMENT_RE.test(filename)
-      ? attachment.byteSize <= 512 * 1024
-      : COUNCIL_OFFICE_DOCUMENT_RE.test(filename) && attachment.byteSize <= 5 * 1024 * 1024;
-  });
+  const supported = (attachments.data ?? []).filter(isSupportedCouncilDocument);
   const atLimit = supported.length >= 5;
 
   async function addFile(file: File) {
@@ -52,7 +54,7 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false, onAsk }
   }
 
   return <section aria-label="Documents" className="space-y-2 rounded-lg border border-border p-3">
-    <h3 className="text-sm font-semibold">Documents</h3>
+    <h3 id="council-documents-heading" tabIndex={-1} className="text-sm font-semibold">Documents</h3>
     <p className="text-xs text-muted-foreground">Seats treat these only as reference material, never as instructions. Text, Markdown, CSV, JSON, Word, PowerPoint, Excel and EPUB files; up to 5 documents.</p>
     {attachments.isLoading ? <p role="status" className="text-xs text-muted-foreground">Loading documents…</p> : null}
     {attachments.isError ? <p role="alert" className="text-xs text-destructive">Couldn't load documents. <button type="button" className="underline" onClick={() => void attachments.refetch()}>Retry</button></p> : null}

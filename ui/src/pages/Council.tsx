@@ -4,11 +4,11 @@ import { CHAIN_TEMPLATE_PRESETS, GENERIC_TEMPLATE_SEAT_NAMES } from "./council-t
 import { COUNCIL_ROLE_PRESETS } from "./council-role-presets";
 import { seatCheckText } from "./council-check-memory";
 import { CouncilSettingsPanel, CouncilSetting, CouncilAnswerStyle } from "../components/CouncilSettingsPanel";
-import { COUNCIL_MACRO_DOCUMENT_RE, COUNCIL_OFFICE_DOCUMENT_RE, COUNCIL_TEXT_DOCUMENT_RE, CouncilDocsPanel } from "../components/CouncilDocsPanel";
+import { COUNCIL_MACRO_DOCUMENT_RE, COUNCIL_OFFICE_DOCUMENT_RE, COUNCIL_TEXT_DOCUMENT_RE, isSupportedCouncilDocument, CouncilDocsPanel } from "../components/CouncilDocsPanel";
 import { CouncilArtifactDiff } from "../components/CouncilArtifactDiff";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ChevronDown, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, RotateCcw, Send, Settings2, Square, Trash2, Users, X } from "lucide-react";
+import { Archive, ChevronDown, FileText, ImagePlus, Loader2, MessagesSquare, MoreHorizontal, RotateCcw, Send, Settings2, Square, Trash2, Users, X } from "lucide-react";
 import { aiConnectionsApi } from "../api/ai-connections";
 import { councilApi, type CouncilKind, type CouncilModeSuggestion, type CouncilSeat, type CouncilSeatResult } from "../api/council";
 import { issuesApi } from "../api/issues";
@@ -284,6 +284,15 @@ export function Council() {
     return () => media.removeEventListener("change", update);
   }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [focusDocuments, setFocusDocuments] = useState(false);
+  useEffect(() => {
+    if (!settingsOpen || !focusDocuments) return;
+    const heading = document.getElementById("council-documents-heading");
+    heading?.scrollIntoView?.({ block: "nearest" });
+    heading?.focus();
+    setFocusDocuments(false);
+  }, [settingsOpen, focusDocuments]);
+  const openDocuments = () => { setSettingsOpen(true); setFocusDocuments(true); };
   const [advancedMode, setAdvancedMode] = useState(false);
   const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -350,6 +359,7 @@ export function Council() {
   const seats = useQuery({ queryKey: ["council", companyId, roomId, "seats"], queryFn: () => councilApi.listSeats(companyId, roomId!), enabled: !!companyId && !!roomId });
   const briefQuery = useQuery({ queryKey: ["council", companyId, roomId, "brief"], queryFn: () => councilApi.getBrief(companyId, roomId!), enabled: !!companyId && !!roomId });
   const roomAttachments = useQuery({ queryKey: queryKeys.issues.attachments(roomId ?? ""), queryFn: () => issuesApi.listAttachments(roomId!), enabled: !!roomId });
+  const documentCount = (roomAttachments.data ?? []).filter(isSupportedCouncilDocument).length;
   const roomIssueQuery = useQuery({ queryKey: queryKeys.issues.detail(roomId ?? ""), queryFn: () => issuesApi.get(roomId!), enabled: !!roomId });
   const workQuery = useQuery({
     queryKey: ["council", companyId, roomId, "work"],
@@ -1194,6 +1204,7 @@ export function Council() {
           <div id="council-room-tools" className={advancedMode ? `shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5 ${mobileRoomOptionsOpen ? "" : "max-sm:hidden"}` : "hidden"}>
             <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs">
               <span className="mr-1 shrink-0 font-semibold text-muted-foreground">Room tools</span>
+              <button type="button" aria-label={`Documents, ${documentCount} attached`} onClick={openDocuments} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">Documents{documentCount ? ` (${documentCount})` : ""}</button>
               <button type="button" aria-expanded={briefOpen} onClick={() => setBriefOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
                 Brief <span className="ml-1 rounded-full bg-muted px-1.5 text-(length:--text-nano)">{brief.trim() ? "set" : "empty"}</span>
               </button>
@@ -1413,7 +1424,7 @@ export function Council() {
             ))}
             {roomId && templateOffByRoom[roomId]?.length ? <p className="text-xs text-muted-foreground">{templateOffByRoom[roomId].join(", ")} {templateOffByRoom[roomId].length === 1 ? "is" : "are"} switched off for this template. Switch {templateOffByRoom[roomId].length === 1 ? "it" : "them"} on from {templateOffByRoom[roomId].length === 1 ? "its" : "their"} chip.</p> : null}
             {!comments.isLoading && !comments.isError && comments.data && !comments.data.length ? (
-              <CouncilEmptyState activeSeatNames={activeSeats.map((seat) => seat.name)} hasFreeConnection={hasFreeConnection} addDisabled={hasFreeConnection && (!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending)} onAdd={() => { if (hasFreeConnection) addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam }); else { setAdvancedMode(true); setCardsOpen(true); } }} onPrompt={(prompt) => { setMessage(prompt); messageRef.current?.focus(); }} />
+              <><CouncilEmptyState activeSeatNames={activeSeats.map((seat) => seat.name)} hasFreeConnection={hasFreeConnection} addDisabled={hasFreeConnection && (!freeTeam.length || addFreeTeam.isPending || addDefaults.isPending)} onAdd={() => { if (hasFreeConnection) addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam }); else { setAdvancedMode(true); setCardsOpen(true); } }} onPrompt={(prompt) => { setMessage(prompt); messageRef.current?.focus(); }} />{roomAttachments.isSuccess && documentCount === 0 ? <p className="text-xs text-muted-foreground">Tip: drop a file onto this room to give the seats something to read.</p> : null}</>
             ) : null}
             <div ref={threadEndRef} />
           </div>
@@ -1513,6 +1524,7 @@ export function Council() {
             ) : null}
             <div className="relative flex flex-wrap items-center gap-2 text-xs">
               <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="max-sm:min-h-11" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /><span>Options</span></Button>
+              <Button type="button" variant="outline" size="sm" className="shrink-0 max-sm:min-h-11" aria-label={`Documents, ${documentCount} attached`} onClick={openDocuments}><FileText /><span className="max-sm:hidden">Documents{documentCount ? ` (${documentCount})` : ""}</span><span className="sm:hidden">{documentCount}</span></Button>
               {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg max-sm:max-h-(--council-thread-min-height-mobile) border bg-popover p-2 shadow-lg">
               <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-muted-foreground hover:bg-accent">
                 <ImagePlus className="h-3.5 w-3.5" /> upload
