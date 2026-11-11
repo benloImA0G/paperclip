@@ -18,6 +18,7 @@ type SeatResult = { ok: boolean; text?: string; error?: string };
 
 export type RunWorkDependencies = {
   goal: string;
+  referenceContext?: (query: string) => Promise<string>;
   resume?: { steps: WorkStep[] };
   seatNames: string[];
   chairName: string;
@@ -157,6 +158,12 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
   const call = async (seat: string, prompt: string): Promise<SeatResult> => {
     try { return await deps.callSeat(seat, prompt); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Seat call failed" }; }
   };
+  const withReference = async (prompt: string, query: string) => {
+    try {
+      const reference = await deps.referenceContext?.(query);
+      return reference ? `${prompt}\n\n${reference}` : prompt;
+    } catch { return prompt; }
+  };
   const finishCancelled = (steps: WorkStep[]) => {
     emit("done", steps);
     return { steps, summary: null, status: "cancelled" as const };
@@ -180,7 +187,7 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
   };
 
   if (cancelled() && !deps.resume) return finishCancelled([]);
-  const plan = deps.resume ? null : await call(deps.chairName, buildPlanPrompt(deps));
+  const plan = deps.resume ? null : await call(deps.chairName, await withReference(buildPlanPrompt(deps), deps.goal));
   const steps = deps.resume ? deps.resume.steps.map((step) => {
     if (step.status === "done" && step.grade !== "fail") return { ...step };
     const { error, grade, gradeNote, attempts, output, ...rest } = step;
@@ -197,19 +204,20 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     const previous = parallel && step.after === undefined ? [] : steps.slice(0, index);
     step.status = "running";
     emit("step", steps);
+    const stepPrompt = await withReference(buildStepPrompt({ goal: deps.goal, step, previous }), `${deps.goal} ${step.title} ${step.expected}`);
     let author = step.assignee;
-    let result = await call(step.assignee, buildStepPrompt({ goal: deps.goal, step, previous }));
+    let result = await call(step.assignee, stepPrompt);
     if (!result.ok && step.assignee !== deps.chairName) {
       if (cancelled()) return;
       author = deps.chairName;
-      result = await call(deps.chairName, buildStepPrompt({ goal: deps.goal, step, previous }));
+      result = await call(deps.chairName, stepPrompt);
     }
     step.attempts = 1;
     if (result.ok && deps.checkSteps) {
       step.output = result.text ?? "";
       const verdict = await gradeStep(step);
       if (verdict?.grade === "fail" && !cancelled()) {
-        const retryPrompt = `${buildStepPrompt({ goal: deps.goal, step, previous })}\n\n${untrusted("CHECKER FEEDBACK ON YOUR PREVIOUS ATTEMPT", verdict.note)}\nFix the problems named above.`;
+        const retryPrompt = `${stepPrompt}\n\n${untrusted("CHECKER FEEDBACK ON YOUR PREVIOUS ATTEMPT", verdict.note)}\nFix the problems named above.`;
         const retry = await call(step.assignee, retryPrompt);
         step.attempts = 2;
         if (retry.ok) {
@@ -262,7 +270,7 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     const votes: Array<{ verdict: "pass" | "revise"; note: string }> = [];
     for (const voter of voters) {
       if (cancelled()) return finishCancelled(steps);
-      const response = await call(voter, buildFinalReviewPrompt({ goal: deps.goal, step: deliverable }));
+      const response = await call(voter, await withReference(buildFinalReviewPrompt({ goal: deps.goal, step: deliverable }), deps.goal));
       if (cancelled()) return finishCancelled(steps);
       const verdict = response.ok ? response.text?.match(/VERDICT\s*:\s*\**\s*(PASS|REVISE)/i)?.[1]?.toLowerCase() : undefined;
       if (verdict === "pass" || verdict === "revise") votes.push({ verdict, note: response.text?.match(/NOTE\s*:\s*(.+)/i)?.[1]?.replace(/\*\*/g, "").trim().slice(0, 300) ?? "" });
@@ -273,7 +281,7 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
       const note = (verdict === "revise" ? revisions : votes.filter((vote) => vote.verdict === "pass")).map((vote) => vote.note).filter(Boolean).join("; ");
       finalReview = { verdict, note, revised: false };
       if (verdict === "revise") {
-        const revision = await call(author, buildRevisionPrompt({ goal: deps.goal, step: deliverable, notes: note }));
+        const revision = await call(author, await withReference(buildRevisionPrompt({ goal: deps.goal, step: deliverable, notes: note }), deps.goal));
         deliverable.attempts = (deliverable.attempts ?? 1) + 1;
         if (cancelled()) return finishCancelled(steps);
         if (revision.ok && (revision.text ?? "").trim()) {
