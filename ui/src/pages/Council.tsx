@@ -4,7 +4,7 @@ import { CHAIN_TEMPLATE_PRESETS, GENERIC_TEMPLATE_SEAT_NAMES } from "./council-t
 import { COUNCIL_ROLE_PRESETS } from "./council-role-presets";
 import { seatCheckText } from "./council-check-memory";
 import { CouncilSettingsPanel, CouncilSetting, CouncilAnswerStyle } from "../components/CouncilSettingsPanel";
-import { CouncilDocsPanel } from "../components/CouncilDocsPanel";
+import { COUNCIL_MACRO_DOCUMENT_RE, COUNCIL_OFFICE_DOCUMENT_RE, COUNCIL_TEXT_DOCUMENT_RE, CouncilDocsPanel } from "../components/CouncilDocsPanel";
 import { CouncilArtifactDiff } from "../components/CouncilArtifactDiff";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -860,12 +860,13 @@ export function Council() {
     catch { const title = "Could not load room documents"; if (toast) toast.pushToast({ tone: "error", title }); else setError(title); return; }
     const existing = attachments.filter((attachment) => {
       const name = attachment.originalFilename ?? "";
-      return /\.(txt|md|markdown|csv|json)$/i.test(name) ? attachment.byteSize <= 512 * 1024 : /\.(docx|odt|rtf|html|htm)$/i.test(name) && attachment.byteSize <= 5 * 1024 * 1024;
+      if (COUNCIL_MACRO_DOCUMENT_RE.test(name)) return false;
+      return COUNCIL_TEXT_DOCUMENT_RE.test(name) ? attachment.byteSize <= 512 * 1024 : COUNCIL_OFFICE_DOCUMENT_RE.test(name) && attachment.byteSize <= 5 * 1024 * 1024;
     }).length;
     for (const file of files) {
-      const textType = /\.(txt|md|markdown|csv|json)$/i.test(file.name);
-      const wordLike = /\.(docx|odt|rtf|html|htm)$/i.test(file.name);
-      let reason = file.type.startsWith("image/") ? "images must be added in the composer" : !textType && !wordLike ? "unsupported type" : file.size > (textType ? 512 * 1024 : 5 * 1024 * 1024) ? "file too large" : existing + added >= 5 ? "room already has 5 documents" : null;
+      const textType = COUNCIL_TEXT_DOCUMENT_RE.test(file.name);
+      const officeType = COUNCIL_OFFICE_DOCUMENT_RE.test(file.name);
+      let reason = file.type.startsWith("image/") ? "images must be added in the composer" : COUNCIL_MACRO_DOCUMENT_RE.test(file.name) || !textType && !officeType ? "unsupported type" : file.size > (textType ? 512 * 1024 : 5 * 1024 * 1024) ? "file too large" : existing + added >= 5 ? "room already has 5 documents" : null;
       if (!reason) {
         try { await issuesApi.uploadAttachment(companyId, targetRoomId, file); added++; }
         catch { reason = "upload failed"; }
@@ -1507,7 +1508,7 @@ export function Council() {
                 <ImagePlus className="h-3.5 w-3.5" /> upload
                 <input
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+      accept="image/png,image/jpeg,image/webp,image/gif"
                   multiple
                   className="hidden"
                   onChange={async (e) => {

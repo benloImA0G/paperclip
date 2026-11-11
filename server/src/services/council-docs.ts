@@ -20,7 +20,17 @@ export function extractDocText({ filename, contentType: _contentType, bytes }: {
   }
 }
 
-const PANDOC_FORMATS: Record<string, string> = { docx: "docx", odt: "odt", rtf: "rtf", html: "html", htm: "html" };
+const PANDOC_FORMATS: Record<string, string> = { docx: "docx", odt: "odt", rtf: "rtf", html: "html", htm: "html", pptx: "pptx", xlsx: "xlsx", epub: "epub" };
+const ARCHIVE_FORMATS = new Set(["docx", "odt", "pptx", "xlsx", "epub"]);
+const MACRO_FORMATS = new Set(["docm", "dotm", "xlsm", "xltm", "xlam", "pptm", "potm", "ppsm", "ppam", "sldm"]);
+
+export function councilDocumentKind(filename: string): "pandoc" | "text" | "macro" | null {
+  const kind = filename.toLowerCase().match(/\.([^.\/\\]+)$/)?.[1];
+  if (!kind) return null;
+  if (MACRO_FORMATS.has(kind)) return "macro";
+  if (Object.hasOwn(PANDOC_FORMATS, kind)) return "pandoc";
+  return KINDS.has(kind) ? "text" : null;
+}
 const MAX_PANDOC_INPUT = 5 * 1024 * 1024;
 const MAX_PANDOC_OUTPUT = 4 * 1024 * 1024;
 
@@ -85,14 +95,14 @@ export async function extractDocTextAsync(input: {
   filename: string; contentType?: string; bytes: Uint8Array; pandocPath?: string;
 }): Promise<ExtractResult> {
   const kind = input.filename.toLowerCase().match(/\.([^.\/\\]+)$/)?.[1];
-  if (/macroenabled/i.test(input.contentType ?? "") || (kind && /^(docm|dotm|xlsm|xltm|xlam|pptm|potm|ppsm|ppam|sldm)$/.test(kind))) {
+  if (/macroenabled/i.test(input.contentType ?? "") || councilDocumentKind(input.filename) === "macro") {
     return { ok: false, reason: "Macro-enabled documents are not supported" };
   }
   const format = kind && PANDOC_FORMATS[kind];
   if (!format) return extractDocText(input);
   if (input.bytes.byteLength > MAX_PANDOC_INPUT) return { ok: false, reason: "Document exceeds 5 MB" };
 
-  if (kind === "docx" || kind === "odt") {
+  if (kind && ARCHIVE_FORMATS.has(kind)) {
     const raw = Buffer.from(input.bytes.buffer, input.bytes.byteOffset, input.bytes.byteLength);
     if (/vbaproject\.bin|macroenabled/i.test(raw.toString("latin1"))) return { ok: false, reason: "Macro-enabled documents are not supported" };
     if (!validDocumentZip(input.bytes)) return { ok: false, reason: "Invalid or oversized document archive" };
@@ -130,14 +140,14 @@ export async function extractDocTextAsync(input: {
       });
       child.stderr.resume();
       child.stdin.on("error", () => {});
-      child.on("error", (error: NodeJS.ErrnoException) => { release(); finish({ ok: false, reason: error.code === "ENOENT" ? "Word files need Pandoc on the server" : "Document conversion failed" }); });
+      child.on("error", (error: NodeJS.ErrnoException) => { release(); finish({ ok: false, reason: error.code === "ENOENT" ? "This document type needs Pandoc on the server" : "Document conversion failed" }); });
       child.on("close", (code) => { release(); finish(code === 0
         ? { ok: true, text: Buffer.concat(parts).toString("utf8"), kind: kind! }
         : { ok: false, reason: "Document conversion failed" }); });
       child.stdin.end(input.bytes);
     } catch (error) {
       release();
-      finish({ ok: false, reason: (error as NodeJS.ErrnoException).code === "ENOENT" ? "Word files need Pandoc on the server" : "Document conversion failed" });
+      finish({ ok: false, reason: (error as NodeJS.ErrnoException).code === "ENOENT" ? "This document type needs Pandoc on the server" : "Document conversion failed" });
     }
   });
 }

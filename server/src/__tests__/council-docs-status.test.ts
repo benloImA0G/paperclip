@@ -28,6 +28,24 @@ it("reports extraction results without returning document text", async () => {
   ]);
 }, 60_000);
 
+it("loads new archive formats and reports macro-enabled variants", async () => {
+  const docs = await import("../services/council-docs.js");
+  const extract = vi.spyOn(docs, "extractDocTextAsync").mockResolvedValue({ ok: true, text: "archive evidence", kind: "xlsx" });
+  mocks.listAttachments.mockResolvedValue([
+    ...["pptx", "xlsx", "epub"].map((ext) => attachment(ext, `file.${ext}`)),
+    attachment("macro", "slides.pptm"),
+    { ...attachment("large", "large.xlsx"), byteSize: 5 * 1024 * 1024 + 1 },
+  ]);
+  const { loadCouncilDocuments } = await import("../services/council-chat.js");
+  const result = await loadCouncilDocuments({} as never, companyId, issueId);
+  expect(result.documents.slice(0, 3).every((doc) => doc.readable)).toBe(true);
+  expect(result.docContext).toContain("archive evidence");
+  expect(result.documents[3].reason).toBe("Macro-enabled documents are not supported");
+  expect(result.documents[4].reason).toBe("Too large");
+  expect(extract).toHaveBeenCalledTimes(3);
+  extract.mockRestore();
+});
+
 it("reuses extraction on a repeated status request and refreshes changed attachments", async () => {
   const docs = await import("../services/council-docs.js");
   const extract = vi.spyOn(docs, "extractDocTextAsync");

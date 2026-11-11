@@ -11,7 +11,7 @@ import { createCostEventInTransaction } from "./costs.js";
 import { fastResponseModel } from "./fast-response-provider.js";
 import { issueService } from "./issues.js";
 import { memoryContext, memoryService } from "./memory.js";
-import { buildDocContext, chunkDoc, extractDocTextAsync, pickRelevantChunks } from "./council-docs.js";
+import { buildDocContext, chunkDoc, councilDocumentKind, extractDocTextAsync, pickRelevantChunks } from "./council-docs.js";
 import { untrusted } from "./council-untrusted.js";
 import { getStorageService } from "../storage/index.js";
 import { documentService } from "./documents.js";
@@ -356,13 +356,12 @@ export async function loadCouncilDocuments(db: Db, companyId: string, issueId: s
   for (const attachment of attachments) {
     const filename = attachment.originalFilename ?? "";
     const status = { attachmentId: attachment.id, filename, byteSize: attachment.byteSize, readable: false };
-    const wordLike = /\.(docx|odt|rtf|html|htm)$/i.test(filename);
-    const supported = wordLike || /\.(txt|md|markdown|csv|json)$/i.test(filename);
-    if (!supported) {
-      documents.push({ ...status, reason: /\.(docm|dotm|xlsm)$/i.test(filename) ? "Macro-enabled documents are not supported" : "Not supported" });
+    const kind = councilDocumentKind(filename);
+    if (!kind || kind === "macro") {
+      documents.push({ ...status, reason: kind === "macro" ? "Macro-enabled documents are not supported" : "Not supported" });
       continue;
     }
-    const limit = wordLike ? 5 * 1024 * 1024 : 512 * 1024;
+    const limit = kind === "pandoc" ? 5 * 1024 * 1024 : 512 * 1024;
     if (attachment.byteSize > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
     if (eligible++ >= 5) { documents.push({ ...status, reason: "Not read: only the first 5 are used" }); continue; }
     try {

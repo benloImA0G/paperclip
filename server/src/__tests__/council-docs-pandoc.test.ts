@@ -36,12 +36,29 @@ describe("Pandoc document extraction", () => {
     expect(result.ok && result.text).toContain("Hello council.");
   });
 
+  it.skipIf(!available).each(["pptx", "xlsx", "epub"])("extracts a real %s", async (format) => {
+    const generated = format === "xlsx"
+      ? Buffer.from("UEsDBBQAAAAAAIkDbF1bma6uCwIAAAsCAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbDw/eG1sIHZlcnNpb249IjEuMCI/PjxUeXBlcyB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3BhY2thZ2UvMjAwNi9jb250ZW50LXR5cGVzIj48RGVmYXVsdCBFeHRlbnNpb249InJlbHMiIENvbnRlbnRUeXBlPSJhcHBsaWNhdGlvbi92bmQub3BlbnhtbGZvcm1hdHMtcGFja2FnZS5yZWxhdGlvbnNoaXBzK3htbCIvPjxEZWZhdWx0IEV4dGVuc2lvbj0ieG1sIiBDb250ZW50VHlwZT0iYXBwbGljYXRpb24veG1sIi8+PE92ZXJyaWRlIFBhcnROYW1lPSIveGwvd29ya2Jvb2sueG1sIiBDb250ZW50VHlwZT0iYXBwbGljYXRpb24vdm5kLm9wZW54bWxmb3JtYXRzLW9mZmljZWRvY3VtZW50LnNwcmVhZHNoZWV0bWwuc2hlZXQubWFpbit4bWwiLz48T3ZlcnJpZGUgUGFydE5hbWU9Ii94bC93b3Jrc2hlZXRzL3NoZWV0MS54bWwiIENvbnRlbnRUeXBlPSJhcHBsaWNhdGlvbi92bmQub3BlbnhtbGZvcm1hdHMtb2ZmaWNlZG9jdW1lbnQuc3ByZWFkc2hlZXRtbC53b3Jrc2hlZXQreG1sIi8+PC9UeXBlcz5QSwMEFAAAAAAAiQNsXf5bhnLwAAAA8AAAAAsAAABfcmVscy8ucmVsczxSZWxhdGlvbnNoaXBzIHhtbG5zPSJodHRwOi8vc2NoZW1hcy5vcGVueG1sZm9ybWF0cy5vcmcvcGFja2FnZS8yMDA2L3JlbGF0aW9uc2hpcHMiPjxSZWxhdGlvbnNoaXAgSWQ9InJJZDEiIFR5cGU9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy9vZmZpY2VEb2N1bWVudC8yMDA2L3JlbGF0aW9uc2hpcHMvb2ZmaWNlRG9jdW1lbnQiIFRhcmdldD0ieGwvd29ya2Jvb2sueG1sIi8+PC9SZWxhdGlvbnNoaXBzPlBLAwQUAAAAAACJA2xddtvbiOQAAADkAAAADwAAAHhsL3dvcmtib29rLnhtbDx3b3JrYm9vayB4bWxucz0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3NwcmVhZHNoZWV0bWwvMjAwNi9tYWluIiB4bWxuczpyPSJodHRwOi8vc2NoZW1hcy5vcGVueG1sZm9ybWF0cy5vcmcvb2ZmaWNlRG9jdW1lbnQvMjAwNi9yZWxhdGlvbnNoaXBzIj48c2hlZXRzPjxzaGVldCBuYW1lPSJTaGVldDEiIHNoZWV0SWQ9IjEiIHI6aWQ9InJJZDEiLz48L3NoZWV0cz48L3dvcmtib29rPlBLAwQUAAAAAACJA2xdKPPx234BAAB+AQAAGgAAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxzPFJlbGF0aW9uc2hpcHMgeG1sbnM9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy9wYWNrYWdlLzIwMDYvcmVsYXRpb25zaGlwcyI+PFJlbGF0aW9uc2hpcCBJZD0icklkMSIgVHlwZT0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL29mZmljZURvY3VtZW50LzIwMDYvcmVsYXRpb25zaGlwcy93b3Jrc2hlZXQiIFRhcmdldD0id29ya3NoZWV0cy9zaGVldDEueG1sIi8+PFJlbGF0aW9uc2hpcCBJZD0icklkMiIgVHlwZT0iaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL29mZmljZURvY3VtZW50LzIwMDYvcmVsYXRpb25zaGlwcy9zaGFyZWRTdHJpbmdzIiBUYXJnZXQ9InNoYXJlZFN0cmluZ3MueG1sIi8+PC9SZWxhdGlvbnNoaXBzPlBLAwQUAAAAAACJA2xdDQJmp+IAAADiAAAAGAAAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbDx3b3Jrc2hlZXQgeG1sbnM9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy9zcHJlYWRzaGVldG1sLzIwMDYvbWFpbiI+PGRpbWVuc2lvbiByZWY9IkExOkEyIi8+PHNoZWV0RGF0YT48cm93IHI9IjEiPjxjIHI9IkExIiB0PSJzIj48dj4wPC92PjwvYz48L3Jvdz48cm93IHI9IjIiPjxjIHI9IkEyIiB0PSJzIj48dj4xPC92PjwvYz48L3Jvdz48L3NoZWV0RGF0YT48L3dvcmtzaGVldD5QSwMEFAAAAAAAiQNsXTzieFCfAAAAnwAAABQAAAB4bC9zaGFyZWRTdHJpbmdzLnhtbDxzc3QgeG1sbnM9Imh0dHA6Ly9zY2hlbWFzLm9wZW54bWxmb3JtYXRzLm9yZy9zcHJlYWRzaGVldG1sLzIwMDYvbWFpbiIgY291bnQ9IjIiIHVuaXF1ZUNvdW50PSIyIj48c2k+PHQ+SGVhZGluZzwvdD48L3NpPjxzaT48dD5IZWxsbyBzcHJlYWRzaGVldDwvdD48L3NpPjwvc3N0PlBLAQIUAxQAAAAAAIkDbF1bma6uCwIAAAsCAAATAAAAAAAAAAAAAACAAQAAAABbQ29udGVudF9UeXBlc10ueG1sUEsBAhQDFAAAAAAAiQNsXf5bhnLwAAAA8AAAAAsAAAAAAAAAAAAAAIABPAIAAF9yZWxzLy5yZWxzUEsBAhQDFAAAAAAAiQNsXXbb24jkAAAA5AAAAA8AAAAAAAAAAAAAAIABVQMAAHhsL3dvcmtib29rLnhtbFBLAQIUAxQAAAAAAIkDbF0o8/HbfgEAAH4BAAAaAAAAAAAAAAAAAACAAWYEAAB4bC9fcmVscy93b3JrYm9vay54bWwucmVsc1BLAQIUAxQAAAAAAIkDbF0NAman4gAAAOIAAAAYAAAAAAAAAAAAAACAARwGAAB4bC93b3Jrc2hlZXRzL3NoZWV0MS54bWxQSwECFAMUAAAAAACJA2xdPOJ4UJ8AAACfAAAAFAAAAAAAAAAAAAAAgAE0BwAAeGwvc2hhcmVkU3RyaW5ncy54bWxQSwUGAAAAAAYABgCHAQAABQgAAAAA", "base64")
+      : spawnSync(pandoc, ["--from", "markdown", "--to", format], { input: "# Fixture\n\nHello council." }).stdout;
+    const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    mocks.spawn.mockImplementation(actual.spawn);
+    const result = await extractDocTextAsync({ filename: `real.${format}`, bytes: generated, pandocPath: pandoc });
+    expect(result.ok && result.text).toContain(format === "xlsx" ? "Hello spreadsheet" : "Hello council.");
+  });
+
+  it.each(["pptx", "xlsx", "epub"])("applies archive safeguards to %s", async (format) => {
+    expect(await extractDocTextAsync({ filename: `test.${format}`, bytes: Buffer.from("vbaProject.bin") })).toEqual({ ok: false, reason: "Macro-enabled documents are not supported" });
+    expect(await extractDocTextAsync({ filename: `test.${format}`, bytes: Buffer.from("invalid") })).toEqual({ ok: false, reason: "Invalid or oversized document archive" });
+    expect(await extractDocTextAsync({ filename: `test.${format}`, bytes: Buffer.alloc(5 * 1024 * 1024 + 1) })).toEqual({ ok: false, reason: "Document exceeds 5 MB" });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
   it("returns a useful reason when Pandoc is missing", async () => {
     const proc = child(); mocks.spawn.mockReturnValue(proc);
     const result = extractDocTextAsync(input);
     await Promise.resolve();
     proc.emit("error", Object.assign(new Error("missing"), { code: "ENOENT" }));
-    expect(await result).toEqual({ ok: false, reason: "Word files need Pandoc on the server" });
+    expect(await result).toEqual({ ok: false, reason: "This document type needs Pandoc on the server" });
   });
 
   it("kills a conversion on timeout", async () => {
@@ -58,6 +75,9 @@ describe("Pandoc document extraction", () => {
   it("rejects macro-enabled files before spawning", async () => {
     expect(await extractDocTextAsync({ ...input, filename: "test.docm" })).toEqual({ ok: false, reason: "Macro-enabled documents are not supported" });
     expect(await extractDocTextAsync({ ...input, contentType: "application/vnd.ms-word.document.macroEnabled.12" })).toEqual({ ok: false, reason: "Macro-enabled documents are not supported" });
+    for (const filename of ["test.pptm", "test.xlsm", "test.ppsm"]) {
+      expect(await extractDocTextAsync({ ...input, filename })).toEqual({ ok: false, reason: "Macro-enabled documents are not supported" });
+    }
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
