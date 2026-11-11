@@ -176,6 +176,16 @@ RUN mkdir -p /provider-pack /provider-pack-transport \
 FROM base AS production
 ARG USER_UID=1000
 ARG USER_GID=1000
+# Debian's apt pandoc is too old for pptx/xlsx input.
+ARG PANDOC_SHA256
+ENV PANDOC_PATH=/usr/local/bin/pandoc
+RUN set -eux; \
+    test -n "$PANDOC_SHA256" || { echo "ERROR: PANDOC_SHA256 is required; pass the SHA-256 of the official Pandoc 3.13 release tarball" >&2; exit 1; }; \
+    curl -fsSLo /tmp/pandoc.tar.gz "https://github.com/jgm/pandoc/releases/download/3.13/pandoc-3.13-linux-amd64.tar.gz"; \
+    echo "${PANDOC_SHA256}  /tmp/pandoc.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/pandoc.tar.gz --strip-components=2 -C /usr/local/bin "pandoc-3.13/bin/pandoc"; \
+    rm /tmp/pandoc.tar.gz; \
+    chmod 0755 /usr/local/bin/pandoc
 # Refreshes the tool layer below when it changes (CI stamps an ISO week, so
 # the @latest CLI tools advance weekly). Without it the cached layer would
 # freeze the tools until an unrelated cache bust.
