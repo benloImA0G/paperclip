@@ -82,6 +82,17 @@ describe("council document wiring", () => {
       expect(call.prompt).toContain("notes.md");
     }
   });
+  it("reuses extracted text across rounds", async () => {
+    mocks.listAttachments.mockResolvedValue([attachment({ id: "round-cache", createdAt: new Date("2026-01-01") })]);
+    const docs = await import("../services/council-docs.js");
+    const extract = vi.spyOn(docs, "extractDocTextAsync");
+    const { councilChatService } = await import("../services/council-chat.js");
+    await councilChatService(discussionDb()).runRound({ companyId, issueId, userId, message: "launch", mode: "ask" });
+    await councilChatService(discussionDb()).runRound({ companyId, issueId, userId, message: "evidence", mode: "ask" });
+    expect(mocks.getObject).toHaveBeenCalledTimes(1);
+    expect(extract).toHaveBeenCalledTimes(1);
+    extract.mockRestore();
+  });
   it("continues when storage fails", async () => {
     mocks.listAttachments.mockResolvedValue([attachment()]);
     mocks.getObject.mockRejectedValue(new Error("unavailable"));

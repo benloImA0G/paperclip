@@ -346,7 +346,15 @@ export interface CouncilChatServiceDependencies {
   agentTurnService?: Pick<ReturnType<typeof createCouncilAgentTurnService>, "runAgentTurn">;
 }
 
-const councilDocumentCache = new Map<string, { expiresAt: number; result: Awaited<ReturnType<typeof extractDocTextAsync>> }>();
+const councilDocumentCache = new Map<string, { expiresAt: number; text: string; bytes: number }>();
+const COUNCIL_DOCUMENT_CACHE_MAX_BYTES = 20 * 1024 * 1024;
+let councilDocumentCacheBytes = 0;
+
+function deleteCachedCouncilDocument(key: string) {
+  const entry = councilDocumentCache.get(key);
+  if (entry) councilDocumentCacheBytes -= entry.bytes;
+  councilDocumentCache.delete(key);
+}
 
 export async function loadCouncilDocuments(db: Db, companyId: string, issueId: string, query = "") {
   const attachments = (await issueService(db).listAttachments(issueId)).filter((a) => a.companyId === companyId && a.issueId === issueId);
@@ -365,10 +373,13 @@ export async function loadCouncilDocuments(db: Db, companyId: string, issueId: s
     if (attachment.byteSize > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
     if (eligible++ >= 5) { documents.push({ ...status, reason: "Not read: only the first 5 are used" }); continue; }
     try {
-      const key = JSON.stringify([companyId, attachment.id, attachment.byteSize, attachment.createdAt]);
-      const cacheable = !!attachment.id && !!attachment.createdAt;
+      const timestamp = attachment.updatedAt ?? attachment.createdAt;
+      const key = JSON.stringify([companyId, attachment.id, attachment.byteSize, timestamp]);
+      const cacheable = !!attachment.id && !!timestamp;
       const cached = cacheable ? councilDocumentCache.get(key) : undefined;
-      let extracted = cached && cached.expiresAt > Date.now() ? cached.result : undefined;
+      if (cached && cached.expiresAt <= Date.now()) deleteCachedCouncilDocument(key);
+      let extracted: Awaited<ReturnType<typeof extractDocTextAsync>> | undefined =
+        cached && cached.expiresAt > Date.now() ? { ok: true, text: cached.text, kind } : undefined;
       if (!extracted) {
         const object = await getStorageService().getObject(companyId, attachment.objectKey);
         const parts: Buffer[] = [];
@@ -381,10 +392,16 @@ export async function loadCouncilDocuments(db: Db, companyId: string, issueId: s
         }
         if (size > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
         extracted = await extractDocTextAsync({ filename, contentType: attachment.contentType, bytes: Buffer.concat(parts) });
-        if (cacheable) {
-          councilDocumentCache.delete(key);
-          councilDocumentCache.set(key, { expiresAt: Date.now() + 10 * 60_000, result: extracted });
-          if (councilDocumentCache.size > 100) councilDocumentCache.delete(councilDocumentCache.keys().next().value!);
+        if (cacheable && extracted.ok) {
+          const bytes = Buffer.byteLength(extracted.text, "utf8");
+          if (bytes <= COUNCIL_DOCUMENT_CACHE_MAX_BYTES) {
+            deleteCachedCouncilDocument(key);
+            while (councilDocumentCache.size >= 100 || councilDocumentCacheBytes + bytes > COUNCIL_DOCUMENT_CACHE_MAX_BYTES) {
+              deleteCachedCouncilDocument(councilDocumentCache.keys().next().value!);
+            }
+            councilDocumentCache.set(key, { expiresAt: Date.now() + 10 * 60_000, text: extracted.text, bytes });
+            councilDocumentCacheBytes += bytes;
+          }
         }
       }
       if (!extracted.ok) { documents.push({ ...status, reason: extracted.reason }); continue; }

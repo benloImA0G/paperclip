@@ -14,8 +14,8 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let client: QueryClient;
 const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
-async function render() {
-  await act(async () => root.render(<QueryClientProvider client={client}><CouncilDocsPanel companyId="company" issueId="room" /></QueryClientProvider>));
+async function render(onAsk?: (filename: string) => void) {
+  await act(async () => root.render(<QueryClientProvider client={client}><CouncilDocsPanel companyId="company" issueId="room" onAsk={onAsk} /></QueryClientProvider>));
   await flush();
 }
 async function selectFile(file: File) {
@@ -111,4 +111,21 @@ it("shows readability and extraction reasons, and refreshes after attachments ch
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Remove notes.md"]')!.click());
   await flush();
   expect(status.mock.calls.length).toBeGreaterThan(1);
+});
+
+it("offers the shortcut only for readable documents and passes the filename", async () => {
+  api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }, { id: "b", originalFilename: "broken.docx", byteSize: 10 }]);
+  status.mockResolvedValue({ documents: [{ attachmentId: "a", readable: true }, { attachmentId: "b", readable: false, reason: "Could not extract" }] });
+  const onAsk = vi.fn();
+  await render(onAsk);
+  const buttons = [...container.querySelectorAll("button")].filter((button) => button.textContent === "Ask about this");
+  expect(buttons).toHaveLength(1);
+  await act(async () => buttons[0]!.click());
+  expect(onAsk).toHaveBeenCalledWith("notes.md");
+});
+
+it("falls back to supported documents within the read limit when status is unavailable", async () => {
+  api.listAttachments.mockResolvedValue([...Array.from({ length: 6 }, (_, i) => ({ id: String(i), originalFilename: `doc${i}.md`, byteSize: 42 })), { id: "image", originalFilename: "image.png", byteSize: 1 }]);
+  await render(vi.fn());
+  expect([...container.querySelectorAll("li")].filter((row) => row.textContent?.includes("Ask about this")).map((row) => row.textContent)).toEqual(Array.from({ length: 5 }, (_, i) => expect.stringContaining(`doc${i}.md`)));
 });

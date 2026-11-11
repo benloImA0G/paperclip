@@ -115,6 +115,22 @@ describe("Council page", () => {
     expect((container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement).value).toBe(draft || "Review the attached document. List the biggest gaps, risks and contradictions, cite the source marker (like [d1#2]) for each, and suggest one concrete fix per point.");
     expect(api.runRound).not.toHaveBeenCalled();
   });
+  it.each(["", "My existing draft"])("adds a document prompt to the composer: %s", async (draft) => {
+    api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }]);
+    await renderPage();
+    const input = container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement;
+    if (draft) await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, draft);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Room settings"]')!.click(); });
+    await waitFor(() => expect(container.textContent).toContain("Ask about this"));
+    await click("Ask about this");
+    expect(input.value).toBe(`${draft ? `${draft}\n` : ""}Summarize "notes.md" and list the three most important points, citing source markers like [d1#2].`);
+    expect(document.activeElement).toBe(input);
+    expect(container.querySelector('section[aria-label="Documents"]')).toBeNull();
+    expect(api.runRound).not.toHaveBeenCalled();
+  });
   it("toggles the mobile room options disclosure", async () => {
     await renderPage();
     const disclosure = button("Options");

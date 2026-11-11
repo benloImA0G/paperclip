@@ -10,7 +10,7 @@ export const COUNCIL_MACRO_DOCUMENT_RE = /\.(docm|dotm|xlsm|pptm)$/i;
 export const COUNCIL_TEXT_DOCUMENT_RE = /\.(txt|md|markdown|csv|json)$/i;
 export const COUNCIL_OFFICE_DOCUMENT_RE = /\.(docx|odt|rtf|html|htm|pptx|xlsx|epub)$/i;
 
-export function CouncilDocsPanel({ companyId, issueId, disabled = false }: { companyId: string; issueId: string; disabled?: boolean }) {
+export function CouncilDocsPanel({ companyId, issueId, disabled = false, onAsk }: { companyId: string; issueId: string; disabled?: boolean; onAsk?: (filename: string) => void }) {
   const inputId = useId();
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -62,6 +62,7 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false }: { com
         const item = status.data.documents.find((entry) => entry.attachmentId === attachment.id)!;
         return <span className="block text-xs text-muted-foreground">{item.readable ? `Seats can read this (${(item.characters ?? 0).toLocaleString()} characters)` : item.reason}</span>;
       })() : !status.data && supported.findIndex((item) => item.id === attachment.id) >= 5 && <span className="block text-xs text-muted-foreground">Not read</span>}</span>
+      {onAsk && attachment.originalFilename && (status.data ? status.data.documents.some((item) => item.attachmentId === attachment.id && item.readable) : supported.slice(0, 5).some((item) => item.id === attachment.id)) ? <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onAsk(attachment.originalFilename!)}>Ask about this</Button> : null}
       <Button type="button" variant="outline" size="sm" disabled={disabled || remove.isPending} aria-label={`Remove ${attachment.originalFilename ?? "document"}`} onClick={() => { setError(null); void remove.mutateAsync(attachment.id).catch(() => setError("Couldn't remove document. Please try again.")); }}>Remove</Button>
     </li>)}</ul> : null}
     <label htmlFor={inputId} className="block text-sm font-medium">Add document</label>
