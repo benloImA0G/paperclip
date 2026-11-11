@@ -1,9 +1,10 @@
+import { CouncilMemoryButton, type CouncilMemoryButtonProps } from "./CouncilMemoryButton";
 import { formatTokens, type CouncilReplyReliability } from "../pages/council-reply-labels";
 
 type Reliability = Omit<CouncilReplyReliability, "costCents"> & { costCents?: number | string };
 const measured = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
-export function CouncilReplyFooter({ metadata }: { metadata?: { councilReliability?: Reliability | null } | null }) {
+export function CouncilReplyFooter({ metadata, memory }: { metadata?: { councilReliability?: Reliability | null } | null; memory?: CouncilMemoryButtonProps }) {
   const reply = metadata?.councilReliability;
   const parts: string[] = [];
   const unavailable = ["First-token time is not measured yet"];
@@ -19,5 +20,5 @@ export function CouncilReplyFooter({ metadata }: { metadata?: { councilReliabili
   else unavailable.push("This vendor did not report a price.");
   if (reply?.fallbackUsed) parts.push("answered by a backup model");
   parts.push("Not fact-checked");
-  return <div className="mt-1 text-(length:--text-nano) text-muted-foreground" title={unavailable.join(" · ")}>{parts.join(" · ")}</div>;
+  return <div className="mt-1 text-(length:--text-nano) text-muted-foreground" title={unavailable.join(" · ")}>{parts.join(" · ")}{memory ? <> · <CouncilMemoryButton {...memory} /></> : null}</div>;
 }

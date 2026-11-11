@@ -1211,7 +1211,7 @@ export function Council() {
                         </div>
                       </section>
                     ) : <MarkdownBody className="min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{cleanMarkdownForDisplay(c.body)}</MarkdownBody>}
-                    <CouncilReplyFooter metadata={c.metadata as { councilReliability?: CouncilReplyReliability } | null} />
+                    <CouncilReplyFooter metadata={c.metadata as { councilReliability?: CouncilReplyReliability } | null} memory={{ companyId, issueId: roomId!, roomTitle: room?.title ?? "Council room", seatName: name, body: c.body, decision: seat?.role === "moderator" }} />
                     <div className="mt-1 flex justify-end gap-2 text-(length:--text-nano) text-muted-foreground">
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" onClick={async () => {
                         if (!roomId) return;

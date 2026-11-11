@@ -64,7 +64,7 @@ export function memoryService(db: Db) {
     patch: (companyId: string, id: string, input: UpdateMemoryInput) => update(companyId, id, input),
     async withdraw(companyId: string, id: string, reason?: string) {
       const entry = await get(companyId, id);
-      if (entry.status !== "active") throw conflict("Only active memories can be withdrawn");
+      if (entry.status === "withdrawn") throw conflict("This memory is already withdrawn");
       return update(companyId, id, { status: "withdrawn", withdrawnAt: new Date(), withdrawnReason: reason ?? null });
     },
     async restore(companyId: string, id: string) {
