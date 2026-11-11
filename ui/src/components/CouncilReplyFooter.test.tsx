@@ -34,3 +34,8 @@ it("hides reference documents when absent or empty", () => {
   expect(renderToStaticMarkup(<CouncilReplyFooter />)).not.toContain("Read:");
   expect(renderToStaticMarkup(<CouncilReplyFooter metadata={{ documents: [] }} />)).not.toContain("Read:");
 });
+
+it("reads documents from persisted reliability metadata", () => {
+  const html = renderToStaticMarkup(<CouncilReplyFooter metadata={{ councilReliability: { documents: ["notes.md"] } }} />);
+  expect(html).toContain("Read: notes.md");
+});

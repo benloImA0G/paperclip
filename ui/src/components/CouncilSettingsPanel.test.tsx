@@ -15,6 +15,10 @@ it("shows the three groups and descriptions, and selects chain", async () => {
   }
   await act(async () => root.render(<Example />));
   expect([...container.querySelectorAll("h3")].map((heading) => heading.textContent)).toEqual(["Who answers", "How they talk", "Safety and extras"]);
+  const settings = container.firstElementChild as HTMLElement;
+  expect(settings.classList.contains("min-w-0")).toBe(true);
+  expect(settings.className).toContain("[&_select]:max-w-full");
+  expect(container.querySelector("[aria-label='How they talk']")?.classList.contains("min-w-0")).toBe(true);
   for (const description of ["Choose seats.", "Choose how seats answer.", "Protect exports."]) expect(container.textContent).toContain(description);
   const select = container.querySelector("select")!;
   expect(select.value).toBe("side-by-side");

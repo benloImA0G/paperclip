@@ -1,7 +1,7 @@
 import { CouncilMemoryButton, type CouncilMemoryButtonProps } from "./CouncilMemoryButton";
 import { formatTokens, type CouncilReplyReliability } from "../pages/council-reply-labels";
 
-type Reliability = Omit<CouncilReplyReliability, "costCents"> & { costCents?: number | string };
+type Reliability = Omit<CouncilReplyReliability, "costCents"> & { costCents?: number | string; documents?: string[] };
 const measured = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
 export function CouncilReplyFooter({ metadata, memory }: { metadata?: { councilReliability?: Reliability | null; documents?: string[] } | null; memory?: CouncilMemoryButtonProps }) {
@@ -20,7 +20,7 @@ export function CouncilReplyFooter({ metadata, memory }: { metadata?: { councilR
   else unavailable.push("This vendor did not report a price.");
   if (reply?.fallbackUsed) parts.push("answered by a backup model");
   parts.push("Not fact-checked");
-  const documents = metadata?.documents;
+  const documents = metadata?.councilReliability?.documents ?? metadata?.documents;
   return <>
     <div className="mt-1 text-(length:--text-nano) text-muted-foreground" title={unavailable.join(" · ")}>{parts.join(" · ")}{memory ? <> · <CouncilMemoryButton {...memory} /></> : null}</div>
     {documents?.length ? <div className="text-(length:--text-nano) text-muted-foreground" title={documents.join(", ")}>Read: {documents.slice(0, 3).join(", ")}{documents.length > 3 ? ` +${documents.length - 3} more` : null}</div> : null}

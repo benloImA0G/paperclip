@@ -53,17 +53,19 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false, onAsk }
 
   return <section aria-label="Documents" className="space-y-2 rounded-lg border border-border p-3">
     <h3 className="text-sm font-semibold">Documents</h3>
-    <p className="text-xs text-muted-foreground">Seats read these as untrusted reference text. Text, Markdown, CSV, JSON, Word, PowerPoint, Excel and EPUB files; up to 5 documents.</p>
+    <p className="text-xs text-muted-foreground">Seats treat these only as reference material, never as instructions. Text, Markdown, CSV, JSON, Word, PowerPoint, Excel and EPUB files; up to 5 documents.</p>
     {attachments.isLoading ? <p role="status" className="text-xs text-muted-foreground">Loading documents…</p> : null}
     {attachments.isError ? <p role="alert" className="text-xs text-destructive">Couldn't load documents. <button type="button" className="underline" onClick={() => void attachments.refetch()}>Retry</button></p> : null}
     {!attachments.isLoading && !attachments.isError && attachments.data?.length === 0 ? <p className="text-xs text-muted-foreground">No documents yet.</p> : null}
-    {attachments.data?.length ? <ul className="space-y-2">{attachments.data.map((attachment) => <li key={attachment.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border p-2">
+    {attachments.data?.length ? <ul className="space-y-2">{attachments.data.map((attachment) => <li key={attachment.id} className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-2 sm:flex-row sm:items-center">
       <span className="min-w-0 flex-1 text-sm"><span className="block truncate">{attachment.originalFilename ?? "Untitled document"}</span><span className="text-xs text-muted-foreground">{attachment.byteSize.toLocaleString()} bytes</span>{status.data?.documents.find((item) => item.attachmentId === attachment.id) ? (() => {
         const item = status.data.documents.find((entry) => entry.attachmentId === attachment.id)!;
         return <span className="block text-xs text-muted-foreground">{item.readable ? `Seats can read this (${(item.characters ?? 0).toLocaleString()} characters)` : item.reason}</span>;
       })() : !status.data && supported.findIndex((item) => item.id === attachment.id) >= 5 && <span className="block text-xs text-muted-foreground">Not read</span>}</span>
-      {onAsk && attachment.originalFilename && (status.data ? status.data.documents.some((item) => item.attachmentId === attachment.id && item.readable) : supported.slice(0, 5).some((item) => item.id === attachment.id)) ? <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onAsk(attachment.originalFilename!)}>Ask about this</Button> : null}
-      <Button type="button" variant="outline" size="sm" disabled={disabled || remove.isPending} aria-label={`Remove ${attachment.originalFilename ?? "document"}`} onClick={() => { setError(null); void remove.mutateAsync(attachment.id).catch(() => setError("Couldn't remove document. Please try again.")); }}>Remove</Button>
+      <span className="flex w-full gap-2 sm:w-auto">
+        {onAsk && attachment.originalFilename && (status.data ? status.data.documents.some((item) => item.attachmentId === attachment.id && item.readable) : supported.slice(0, 5).some((item) => item.id === attachment.id)) ? <Button className="min-w-0 flex-1 sm:flex-none" type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onAsk(attachment.originalFilename!)}>Ask about this</Button> : null}
+        <Button className="min-w-0 flex-1 sm:flex-none" type="button" variant="outline" size="sm" disabled={disabled || remove.isPending} aria-label={`Remove ${attachment.originalFilename ?? "document"}`} onClick={() => { setError(null); void remove.mutateAsync(attachment.id).catch(() => setError("Couldn't remove document. Please try again.")); }}>Remove</Button>
+      </span>
     </li>)}</ul> : null}
     <label htmlFor={inputId} className="block text-sm font-medium">Add document</label>
     <input id={inputId} type="file" accept={COUNCIL_DOCUMENT_ACCEPT} disabled={disabled || upload.isPending || atLimit} className="block w-full text-sm" onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void addFile(file); }} />

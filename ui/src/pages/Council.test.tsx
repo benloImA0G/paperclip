@@ -84,6 +84,45 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 
 describe("Council page", () => {
+  it("offers document review in an open room with a document", async () => {
+    api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }]);
+    await renderPage();
+    await waitFor(() => expect(container.textContent).toContain("Review a document"));
+    await click("Review a document");
+    expect((container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement).value).toContain("Review the attached document");
+  });
+  it("passes document metadata to seat and summary reply footers", async () => {
+    api.comments["room-1"] = [question, { ...reply, metadata: { councilReliability: { documents: ["notes.md"] } } }, { ...reply, id: "summary", authorUserId: "council-seat:summary", body: "Summary", metadata: { councilReliability: { documents: ["brief.md"] } } }];
+    await renderPage();
+    expect(container.textContent).toContain("Read: notes.md");
+    expect(container.textContent).toContain("Read: brief.md");
+  });
+  it("closes message options on Escape, outside click and composer focus", async () => {
+    await renderPage();
+    const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Message options"]')!;
+    const input = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the council"]')!;
+    await act(async () => { trigger.click(); });
+    await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => { trigger.click(); });
+    await act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => { trigger.click(); });
+    await act(async () => { input.focus(); });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+  it("clears the submitted draft immediately and restores it on failure", async () => {
+    let reject!: (error: Error) => void;
+    api.runRound.mockReturnValue(new Promise((_resolve, fail) => { reject = fail; }));
+    await renderPage();
+    const input = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the council"]')!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "My question"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await click("Send");
+    await waitFor(() => expect(input.value).toBe(""));
+    await act(async () => reject(new Error("Failed")));
+    await waitFor(() => expect(input.value).toBe("My question"));
+  });
   it.each([1, 2])("shows comparison only when artifact has multiple revisions (%s)", async (count) => {
     const artifact = { key: "draft", title: "Draft", latestRevisionNumber: count, body: "current", revisions: Array.from({ length: count }, (_, i) => ({ revisionNumber: i + 1, createdAt: "2026-01-01" })) };
     api.listArtifacts.mockResolvedValue([artifact]);

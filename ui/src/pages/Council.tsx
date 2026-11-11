@@ -273,6 +273,7 @@ export function Council() {
   const [cardsOpen, setCardsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const submittedDraftRef = useRef("");
   const [mobileRoomOptionsOpen, setMobileRoomOptionsOpen] = useState(false);
   const [compactComposer, setCompactComposer] = useState(() => window.matchMedia?.("(max-width: 639px)").matches ?? false);
   useEffect(() => {
@@ -335,7 +336,7 @@ export function Council() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (moreOpen && !moreTriggerRef.current?.parentElement?.contains(target)) { setMoreOpen(false); moreTriggerRef.current?.focus(); }
-      if (optionsOpen && !optionsTriggerRef.current?.parentElement?.contains(target)) { setOptionsOpen(false); optionsTriggerRef.current?.focus(); }
+      if (optionsOpen && !optionsTriggerRef.current?.parentElement?.contains(target)) setOptionsOpen(false);
     };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
@@ -348,6 +349,7 @@ export function Council() {
   const connections = useQuery({ queryKey: ["council", companyId, "connections"], queryFn: () => aiConnectionsApi.list(companyId), enabled: !!companyId });
   const seats = useQuery({ queryKey: ["council", companyId, roomId, "seats"], queryFn: () => councilApi.listSeats(companyId, roomId!), enabled: !!companyId && !!roomId });
   const briefQuery = useQuery({ queryKey: ["council", companyId, roomId, "brief"], queryFn: () => councilApi.getBrief(companyId, roomId!), enabled: !!companyId && !!roomId });
+  const roomAttachments = useQuery({ queryKey: queryKeys.issues.attachments(roomId ?? ""), queryFn: () => issuesApi.listAttachments(roomId!), enabled: !!roomId });
   const roomIssueQuery = useQuery({ queryKey: queryKeys.issues.detail(roomId ?? ""), queryFn: () => issuesApi.get(roomId!), enabled: !!roomId });
   const workQuery = useQuery({
     queryKey: ["council", companyId, roomId, "work"],
@@ -699,7 +701,7 @@ export function Council() {
         compacted = Math.max(compacted, r.compactedTurns ?? 0);
         setCompactedTurns(compacted);
       };
-      const text = message.trim();
+      const text = (mode === "ask" ? submittedDraftRef.current : message).trim();
       const pics = images.map(({ mediaType, data }) => ({ mediaType, data }));
       const targeted = mentionedSeatIds(text, activeSeats) !== undefined;
       const debate = mode === "ask" && !targeted && discussion && activeSeats.length > 1 ? DEPTHS[depth] : null;
@@ -751,14 +753,17 @@ export function Council() {
       }
       return { roomId: runRoomId, results: merged };
     },
-    onMutate: () => {
+    onMutate: (request) => {
+      const draft = request === "ask" ? message : null;
+      if (draft !== null) { submittedDraftRef.current = draft; setMessage(""); }
       setError(null);
       setStoppedNote(false);
       setRunning(true);
       // fold the vendor cards so the live conversation gets the screen
       setCardsOpen(false);
+      return { draft };
     },
-    onSuccess: ({ roomId: runRoomId, results, repeatLast }) => {
+    onSuccess: ({ roomId: runRoomId, results, repeatLast }, _request, context) => {
       if (runRoomId !== roomId) return;
       const updates = results.filter((r) => r.status !== "cancelled" && allSeats.some((seat) => seat.id === r.seatId));
       if (updates.length) {
@@ -786,14 +791,15 @@ export function Council() {
           .slice(0, 2)
           .map((r) => `${r.seatName ?? "A seat"}: ${r.error}`)
           .join(" ");
+        if (context?.draft != null) setMessage((current) => current || context.draft!);
         setError(`No seat answered. ${why ? `${why} ` : ""}Your message is kept; press Check seats, fix what it shows, then send again.`);
         setCardsOpen(true);
         return;
       }
-      setMessage("");
       setImages([]);
     },
-    onError: (e, request) => {
+    onError: (e, request, context) => {
+      if (context?.draft != null) setMessage((current) => current || context.draft!);
       if (abortRef.current?.signal.aborted) return;
       if (typeof request !== "string") {
         if (toast) toast.pushToast({ tone: "error", title: "Could not ask again", body: errorText(e) });
@@ -1450,12 +1456,15 @@ export function Council() {
               setOptionsOpen(false);
               setMobileRoomOptionsOpen(false);
               if (planFirst && workStatus !== "running" && targetedSeatIds === undefined) {
-                startWork.mutate({ companyId, roomId: roomId!, vars: { goal: message.trim(), postGoal: true, ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }, { onSuccess: () => setMessage("") });
+                const draft = message;
+                setMessage("");
+                startWork.mutate({ companyId, roomId: roomId!, vars: { goal: draft.trim(), postGoal: true, ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }, { onError: () => setMessage((current) => current || draft) });
                 return;
               }
               ask.mutate("ask");
             }}
           >
+            {!message.trim() && roomAttachments.data?.some((a) => COUNCIL_TEXT_DOCUMENT_RE.test(a.originalFilename ?? "") || COUNCIL_OFFICE_DOCUMENT_RE.test(a.originalFilename ?? "")) ? <button type="button" className="self-start rounded-full border px-2 py-1 text-xs hover:bg-accent" onClick={() => { applyTemplate("review-document"); messageRef.current?.focus(); }}>Review a document</button> : null}
             {suggestion && !startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground max-sm:flex" data-testid="council-mode-hint"><span className="max-sm:min-w-0 max-sm:truncate">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}</span>{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 shrink-0 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
             {message.trim() ? <p className="px-1 text-xs text-muted-foreground" title={callEstimate.lines.join("; ")}>About {callEstimate.low}{callEstimate.low !== callEstimate.high ? `–${callEstimate.high}` : ""} model call{callEstimate.high === 1 ? "" : "s"}</p> : null}
             {startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground">Only this seat will answer</p> : null}
@@ -1465,6 +1474,7 @@ export function Council() {
               ref={messageRef}
               value={message}
               aria-label="Message the council"
+              onFocus={() => setOptionsOpen(false)}
               onChange={(e) => { setMessage(e.target.value); setMentionCursor(e.target.selectionStart); setMentionClosed(false); setMentionIndex(0); }}
               onSelect={(e) => { setMentionCursor(e.currentTarget.selectionStart); }}
               placeholder={compactComposer ? "Ask the council" : `Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a seat"}`}

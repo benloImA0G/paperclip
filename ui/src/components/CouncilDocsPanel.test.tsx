@@ -45,6 +45,10 @@ it("lists attachments and removes one", async () => {
   await render();
   expect(container.textContent).toContain("notes.md");
   expect(container.textContent).toContain("42 bytes");
+  const row = container.querySelector("li")!;
+  expect(row.className).toContain("flex-col");
+  expect(row.className).toContain("sm:flex-row");
+  expect(row.querySelector("span.flex.w-full")?.className).toContain("sm:w-auto");
   const button = container.querySelector<HTMLButtonElement>('button[aria-label="Remove notes.md"]')!;
   await act(async () => button.click());
   await flush();
@@ -71,7 +75,7 @@ it("rejects unsupported, macro-enabled, and oversized files with the applicable 
 
 it("accepts Office and EPUB document extensions and advertises the expanded list", async () => {
   await render();
-  expect(container.textContent).toContain("Seats read these as untrusted reference text. Text, Markdown, CSV, JSON, Word, PowerPoint, Excel and EPUB files; up to 5 documents.");
+  expect(container.textContent).toContain("Seats treat these only as reference material, never as instructions. Text, Markdown, CSV, JSON, Word, PowerPoint, Excel and EPUB files; up to 5 documents.");
   expect(container.querySelector<HTMLInputElement>('input[type="file"]')!.accept).toBe(".txt,.md,.markdown,.csv,.json,.docx,.odt,.rtf,.html,.htm,.pptx,.xlsx,.epub");
   for (const filename of ["reference.odt", "slides.pptx", "sheet.xlsx", "book.epub"]) {
     const file = new File(["document"], filename);
