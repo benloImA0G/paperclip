@@ -6,15 +6,16 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BreadcrumbProvider } from "../context/BreadcrumbContext";
 import { ThemeProvider } from "../context/ThemeContext";
+import { DialogProvider } from "../context/DialogContext";
 import { Council } from "./Council";
 
 const api = vi.hoisted(() => ({
   comments: {} as Record<string, unknown[]>,
-  runRound: vi.fn(), forkRoom: vi.fn(),
+  runRound: vi.fn(), forkRoom: vi.fn(), listRooms: vi.fn(), listAttachments: vi.fn(),
 }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }), useOptionalCompany: () => null }));
 vi.mock("../api/council", () => ({ councilApi: {
-  listRooms: vi.fn(async () => [{ id: "room-1", title: "First room" }, { id: "room-2", title: "Second room" }]),
+  listRooms: api.listRooms,
   listArchivedRooms: vi.fn(async () => []),
   listSeats: vi.fn(async () => [
     { id: "seat-1", name: "Alice", kind: "vendor", connectionId: "conn-1", model: "model", role: "none", fallbacks: [], active: true },
@@ -30,6 +31,7 @@ vi.mock("../api/ai-connections", () => ({ aiConnectionsApi: { list: vi.fn(async 
   { id: "conn-2", grantId: "grant-2", name: "Cloud Two", provider: "openai", routing: { kind: "cloud" } },
 ] })) } }));
 vi.mock("../api/issues", () => ({ issuesApi: {
+  listAttachments: api.listAttachments,
   get: vi.fn(async () => ({})), listComments: vi.fn(async (room: string) => api.comments[room] ?? []),
 } }));
 
@@ -58,7 +60,7 @@ function counts() {
   expect([...container.querySelectorAll("p")].filter((el) => el.textContent?.includes("Prompts may be sent to a cloud provider"))).toHaveLength(1);
 }
 async function renderPage() {
-  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><ThemeProvider><BreadcrumbProvider><Council /></BreadcrumbProvider></ThemeProvider></MemoryRouter></QueryClientProvider>));
+  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><ThemeProvider><BreadcrumbProvider><DialogProvider><Council /></DialogProvider></BreadcrumbProvider></ThemeProvider></MemoryRouter></QueryClientProvider>));
   await waitFor(() => expect(container.textContent).toContain("A useful answer"));
 }
 async function click(label: string) { await act(async () => { button(label).click(); }); }
@@ -66,6 +68,8 @@ async function click(label: string) { await act(async () => { button(label).clic
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   api.comments = { "room-1": [question, reply], "room-2": [question, { ...reply, id: "reply-2", body: "Second room answer" }] };
+  api.listRooms.mockReset().mockResolvedValue([{ id: "room-1", title: "First room" }, { id: "room-2", title: "Second room" }]);
+  api.listAttachments.mockReset().mockResolvedValue([]);
   api.runRound.mockReset().mockResolvedValue({ results: [] });
   api.forkRoom.mockReset().mockResolvedValue({ room: { id: "room-2" } });
   localStorage.clear();
@@ -75,6 +79,20 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 
 describe("Council page", () => {
+  it("shows documents for the open room in settings", async () => {
+    await renderPage();
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Room settings"]')!.click(); });
+    expect(container.querySelector('section[aria-label="Documents"]')).toBeTruthy();
+    await waitFor(() => expect(api.listAttachments).toHaveBeenCalledWith("room-1"));
+  });
+  it("does not show documents when no room is open", async () => {
+    api.listRooms.mockResolvedValue([]);
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><ThemeProvider><BreadcrumbProvider><DialogProvider><Council /></DialogProvider></BreadcrumbProvider></ThemeProvider></MemoryRouter></QueryClientProvider>));
+    await waitFor(() => expect(container.textContent).toContain("Create"));
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Room settings"]')!.click(); });
+    expect(container.querySelector('section[aria-label="Documents"]')).toBeNull();
+    expect(api.listAttachments).not.toHaveBeenCalled();
+  });
   it("renders seats, reply footer, and one set of room controls", async () => {
     await renderPage();
     await waitFor(() => counts());
@@ -105,7 +123,7 @@ describe("Council page", () => {
   });
   it("shows first-use steps only while the room has no comments", async () => {
     api.comments["room-1"] = [];
-    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><ThemeProvider><BreadcrumbProvider><Council /></BreadcrumbProvider></ThemeProvider></MemoryRouter></QueryClientProvider>));
+    await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><ThemeProvider><BreadcrumbProvider><DialogProvider><Council /></DialogProvider></BreadcrumbProvider></ThemeProvider></MemoryRouter></QueryClientProvider>));
     await waitFor(() => expect(container.textContent).toContain("1. Add a team"));
     api.comments["room-1"] = [question, reply];
     await act(async () => { await client.invalidateQueries({ queryKey: ["council", "company-1", "room-1", "comments"] }); });
