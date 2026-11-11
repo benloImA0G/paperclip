@@ -1113,6 +1113,7 @@ export const issueCommentMetadataSchema = z
       local: z.boolean().optional(),
       /** The question an "Ask again" reply answers (no new user message is posted). */
       askedAgain: z.string().max(300).optional(),
+      documents: z.array(z.string().trim().max(120)).max(5).optional(),
     }).strict().optional(),
     chatMessage: z.object({
       sourceTaskId: z.uuid(),

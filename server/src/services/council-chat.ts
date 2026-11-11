@@ -898,6 +898,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     retryIndex?: number;
     /** The question being asked again (no new user message is posted); stored with the reply. */
     askedAgain?: string;
+    documents?: string[];
     prompt: string;
     images?: CouncilImage[];
     maxOutputTokens: number;
@@ -1041,6 +1042,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
               local: metadata.routing?.kind === "local",
               // "Ask again": remember which question this reply answers, since no new user message is posted.
               ...(input.askedAgain ? { askedAgain: input.askedAgain.slice(0, 300) } : {}),
+              ...(input.documents?.length ? { documents: input.documents } : {}),
             },
             sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
           },
@@ -1084,6 +1086,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     roundId: string;
     seat: typeof councilSeats.$inferSelect;
     prompt: string;
+    documents?: string[];
     images?: CouncilImage[];
     maxOutputTokens: number;
     signal?: AbortSignal;
@@ -1135,6 +1138,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
             councilReliability: {
               durationMs,
               fallbackUsed: false,
+              ...(input.documents?.length ? { documents: input.documents } : {}),
               ...(usage ? { usage } : {}),
             },
             sections: [{ rows: [{ type: "text", text: "Council seat reply reliability details." }] }],
@@ -1191,6 +1195,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     stance?: boolean;
     stanceOnly?: boolean;
     askedAgain?: string;
+    documents?: string[];
     generation?: number;
     isCancelled?: () => Promise<boolean>;
     abort?: () => void;
@@ -1503,6 +1508,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       // Memory is optional context and must not prevent a round from running.
     }
     let docContext = "";
+    let documents: string[] = [];
     try {
       const attachments = await issueSvc.listAttachments(issueId);
       const candidates = attachments.filter((attachment) =>
@@ -1538,6 +1544,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         docs.set(label, excerpts);
       }
       docContext = buildDocContext([...docs].map(([label, excerpts]) => ({ label, text: excerpts.join("\n\n") })));
+      if (docContext) documents = [...docs.keys()].slice(0, 5).map((label) => label.trim().slice(0, 120));
     } catch {
       // Documents are optional context and must not prevent a round from running.
     }
@@ -1562,7 +1569,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
         maxOutputTokens: options?.maxOutputTokens ?? maxOutputTokens, signal, generation: input.generation,
         isCancelled: input.isCancelled, abort: input.abort, persistComment: options?.persistComment,
         stance: options?.stance ?? (discuss && input.stance), stanceOnly: options?.stanceOnly,
-        askedAgain: input.repeatLast ? message : undefined,
+        askedAgain: input.repeatLast ? message : undefined, documents,
       });
     };
     const results: CouncilSeatTurnResult[] = [];

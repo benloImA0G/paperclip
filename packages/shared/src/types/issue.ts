@@ -1197,6 +1197,7 @@ export interface IssueCommentMetadata {
     local?: boolean;
     /** The question an "Ask again" reply answers (no new user message is posted). */
     askedAgain?: string;
+    documents?: string[];
   };
   chatMessage?: {
     sourceTaskId: string;
