@@ -1,0 +1,63 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { CouncilDocsPanel } from "./CouncilDocsPanel";
+
+const api = vi.hoisted(() => ({ listAttachments: vi.fn(), uploadAttachment: vi.fn(), deleteAttachment: vi.fn() }));
+vi.mock("../api/issues", () => ({ issuesApi: api }));
+
+let container: HTMLDivElement;
+let root: ReturnType<typeof createRoot>;
+let client: QueryClient;
+const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+async function render() {
+  await act(async () => root.render(<QueryClientProvider client={client}><CouncilDocsPanel companyId="company" issueId="room" /></QueryClientProvider>));
+  await flush();
+}
+async function selectFile(file: File) {
+  const input = container.querySelector('input[type="file"]')!;
+  Object.defineProperty(input, "files", { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  await flush();
+}
+beforeEach(() => {
+  vi.resetAllMocks();
+  api.listAttachments.mockResolvedValue([]);
+  api.uploadAttachment.mockResolvedValue({});
+  api.deleteAttachment.mockResolvedValue({ ok: true });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+});
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); client.clear(); });
+
+it("shows an empty state", async () => {
+  await render();
+  expect(api.listAttachments).toHaveBeenCalledWith("room");
+  expect(container.textContent).toContain("No documents yet.");
+});
+it("lists attachments and removes one", async () => {
+  api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }]);
+  await render();
+  expect(container.textContent).toContain("notes.md");
+  expect(container.textContent).toContain("42 bytes");
+  const button = container.querySelector<HTMLButtonElement>('button[aria-label="Remove notes.md"]')!;
+  await act(async () => button.click());
+  await flush();
+  expect(api.deleteAttachment).toHaveBeenCalledWith("a");
+});
+it("uploads an allowed document", async () => {
+  await render();
+  const file = new File(["hello"], "notes.md", { type: "text/markdown" });
+  await selectFile(file);
+  expect(api.uploadAttachment).toHaveBeenCalledWith("company", "room", file);
+});
+it("rejects unsupported and oversized files", async () => {
+  await render();
+  await selectFile(new File(["x"], "image.png"));
+  expect(container.textContent).toContain("Choose a text, Markdown, CSV or JSON file.");
+  await selectFile(new File([new Uint8Array(512 * 1024 + 1)], "large.txt"));
+  expect(container.textContent).toContain("Documents must be 512 KB or smaller.");
+  expect(api.uploadAttachment).not.toHaveBeenCalled();
+});

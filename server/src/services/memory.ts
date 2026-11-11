@@ -15,9 +15,31 @@ export function rankMemory(entries: Entry[], query?: string) {
     return { entry, matches: words.every((word) => haystack.includes(word)), score: words.filter((word) => title.includes(word)).length };
   }).filter((item) => item.matches).sort((a, b) => Number(b.entry.pinned) - Number(a.entry.pinned) || b.score - a.score || b.entry.updatedAt.getTime() - a.entry.updatedAt.getTime()).map((item) => item.entry);
 }
+const stopWords = new Set("a an and are as at be by for from in is it of on or that the this to was were with".split(" "));
+function words(text: string): Set<string> {
+  return new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((word) => !stopWords.has(word)));
+}
+function overlap(a: Set<string>, b: Set<string>): number {
+  return [...a].filter((word) => b.has(word)).length;
+}
+export function relatedEntries(entries: Entry[], entry: Entry, limit = 3): Entry[] {
+  const title = words(entry.title);
+  const tags = new Set(entry.tags.map((tag) => tag.toLowerCase()));
+  return entries.filter((candidate) => candidate.id !== entry.id).map((candidate) => ({
+    entry: candidate,
+    score: overlap(title, words(candidate.title)) + overlap(tags, new Set(candidate.tags.map((tag) => tag.toLowerCase()))),
+  })).filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || b.entry.updatedAt.getTime() - a.entry.updatedAt.getTime())
+    .slice(0, Math.max(0, limit)).map((item) => item.entry);
+}
 const contextHeader = "MEMORY (reference, may be out of date):\n";
-export function selectMemoryContext(entries: Entry[], { maxChars = 1800 }: { maxChars?: number } = {}) {
-  const ordered = [...entries].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+export function selectMemoryContext(entries: Entry[], { maxChars = 1800, query }: { maxChars?: number; query?: string } = {}) {
+  const queryWords = words(query ?? "");
+  const score = (entry: Entry) => overlap(queryWords, words(entry.title)) * 3
+    + overlap(queryWords, words(entry.tags.join(" "))) * 2 + overlap(queryWords, words(entry.body));
+  const scores = new Map(queryWords.size ? entries.map((entry) => [entry, score(entry)] as const) : []);
+  const ordered = [...entries].sort((a, b) => Number(b.pinned) - Number(a.pinned)
+    || (queryWords.size && !a.pinned ? (scores.get(b)! - scores.get(a)! || b.updatedAt.getTime() - a.updatedAt.getTime()) : 0));
   const included: Entry[] = [];
   const lines: string[] = [];
   for (const entry of ordered) {
@@ -27,7 +49,7 @@ export function selectMemoryContext(entries: Entry[], { maxChars = 1800 }: { max
   }
   return { text: lines.length ? contextHeader + lines.join("\n") : "", entries: included };
 }
-export function memoryContext(entries: Entry[], options?: { maxChars?: number }) {
+export function memoryContext(entries: Entry[], options?: { maxChars?: number; query?: string }) {
   return selectMemoryContext(entries, options).text;
 }
 export function memoryService(db: Db) {
@@ -80,7 +102,7 @@ export function memoryService(db: Db) {
       const [row] = await withDuplicateCheck(companyId, input.kind, input.title, () => db.insert(memoryEntries).values({ ...input, companyId, status, createdByLabel: input.createdByLabel || "Board" }).returning());
       return row!;
     },
-    async context(companyId: string, entries: Entry[], options?: { maxChars?: number }) {
+    async context(companyId: string, entries: Entry[], options?: { maxChars?: number; query?: string }) {
       const selected = selectMemoryContext(entries, options);
       if (selected.entries.length) {
         try {

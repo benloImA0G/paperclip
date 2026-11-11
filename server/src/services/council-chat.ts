@@ -1495,7 +1495,8 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     let sharedMemory = "";
     try {
       const query = message || [...history].reverse().find((comment) => !comment.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX))?.body || "";
-      sharedMemory = memoryContext(await memoryService(db).list(companyId, { status: "active", query, limit: 6 }));
+      // A full question never matches "every word" search, so fetch recent active entries and rank by relevance.
+      sharedMemory = memoryContext(await memoryService(db).list(companyId, { status: "active", limit: 60 }), { query });
     } catch {
       // Memory is optional context and must not prevent a round from running.
     }
