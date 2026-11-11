@@ -80,8 +80,68 @@ try {
     const textareaExists = await textarea.count() > 0;
     report(`${viewport.name} Council composer textarea exists`, textareaExists);
     report(`${viewport.name} Council Options button exists`, optionsExists);
-    if (viewport.name.startsWith("phone") && optionsExists) {
-      await optionsButton.first().click().catch(() => {});
+    const workTogether = page.locator("button:visible").filter({ hasText: "Work together" });
+    const workVisibleBefore = await workTogether.first().isVisible().catch(() => false);
+    if (viewport.name === "desktop") report("desktop Work together strip visible before Options opens", workVisibleBefore);
+    if (viewport.name.startsWith("phone")) {
+      report(`${viewport.name} Work together strip hidden before Options opens`, !workVisibleBefore);
+      if (optionsExists) {
+        const trigger = optionsButton.first();
+        await trigger.click().catch(() => {});
+        const sheet = page.locator("#council-options-popover");
+        const visible = await sheet.isVisible().catch(() => false);
+        const rect = visible ? await sheet.evaluate((element) => {
+          const r = element.getBoundingClientRect();
+          const nav = document.querySelector(".mobile-bottom-nav");
+          const textarea = document.querySelector(".council-thread-shell textarea");
+          return { width: r.width, height: r.height, left: r.left, right: r.right, bottom: r.bottom, navTop: nav?.getBoundingClientRect().top ?? innerHeight, textareaTop: textarea?.getBoundingClientRect().top ?? Infinity };
+        }) : null;
+        const fits = !!rect && rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= viewport.width && rect.bottom <= rect.navTop && ((rect.textareaTop >= 0 && rect.textareaTop <= viewport.height) || rect.bottom <= rect.textareaTop);
+        report(`${viewport.name} Options sheet fits viewport/nav and leaves composer top visible`, visible && fits, rect ? `left ${Math.round(rect.left)}, right ${Math.round(rect.right)}, bottom ${Math.round(rect.bottom)}, nav ${Math.round(rect.navTop)}` : "sheet missing");
+        report(`${viewport.name} Work together strip visible after Options opens`, await workTogether.first().isVisible().catch(() => false));
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(100);
+        report(`${viewport.name} Options Escape closes sheet and restores focus`, await sheet.count() === 0 && await trigger.evaluate((element) => element === document.activeElement).catch(() => false));
+      } else {
+        report(`${viewport.name} Options sheet fits viewport/nav and leaves composer top visible`, false, "button missing");
+        report(`${viewport.name} Work together strip visible after Options opens`, false, "button missing");
+        report(`${viewport.name} Options Escape closes sheet and restores focus`, false, "button missing");
+      }
+
+      const seatsButton = page.getByRole("button", { name: /^\d+ seats?$/ }).first();
+      if (await seatsButton.count()) {
+        const before = await seatsButton.getAttribute("aria-expanded");
+        await seatsButton.click().catch(() => {});
+        const after = await seatsButton.getAttribute("aria-expanded");
+        const composerRect = textareaExists ? await textarea.boundingBox() : null;
+        report(`${viewport.name} Seats disclosure toggles aria-expanded`, before !== after && after === "true");
+        report(`${viewport.name} Composer remains inside viewport after expanding seats`, !!composerRect && composerRect.y + composerRect.height <= viewport.height, composerRect ? `bottom ${Math.round(composerRect.y + composerRect.height)}px` : "textarea missing");
+        await seatsButton.click().catch(() => {});
+      } else {
+        report(`${viewport.name} Seats disclosure toggles aria-expanded`, false, "disclosure missing");
+        report(`${viewport.name} Composer remains inside viewport after expanding seats`, false, "disclosure missing");
+      }
+
+      const messageAction = page.locator('button[aria-label="Message actions"]:visible').first();
+      if (await messageAction.count()) {
+        const triggerRect = await messageAction.boundingBox();
+        await messageAction.click().catch(() => {});
+        const menuRects = await messageAction.evaluate((element) => {
+          const container = element.parentElement;
+          return [...(container?.querySelectorAll("button") ?? [])].filter((button) => button !== element && button.getClientRects().length).map((button) => {
+            const r = button.getBoundingClientRect(); return { left: r.left, right: r.right };
+          });
+        });
+        report(`${viewport.name} Message actions trigger is inside viewport horizontally`, !!triggerRect && triggerRect.x >= 0, triggerRect ? `left ${Math.round(triggerRect.x)}px` : "trigger missing");
+        report(`${viewport.name} Message actions menu items fit viewport`, menuRects.length > 0 && menuRects.every((r) => r.left >= 0 && r.right <= viewport.width), `${menuRects.length} visible item(s)`);
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(100);
+        report(`${viewport.name} Message actions Escape closes menu and restores focus`, await messageAction.evaluate((element) => element.getAttribute("aria-expanded") === "false" && element === document.activeElement).catch(() => false));
+      } else {
+        report(`${viewport.name} Message actions trigger is inside viewport horizontally`, false, "no messages/actions");
+        report(`${viewport.name} Message actions menu items fit viewport`, false, "no messages/actions");
+        report(`${viewport.name} Message actions Escape closes menu and restores focus`, false, "no messages/actions");
+      }
     }
 
     const documents = page.locator('button[aria-label^="Documents"]:visible');
