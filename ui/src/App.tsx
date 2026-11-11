@@ -837,6 +837,8 @@ export function App() {
             </>
           ) : null}
           <Route path="decisions" element={<UnprefixedBoardRedirect />} />
+          <Route path="council" element={<UnprefixedBoardRedirect />} />
+          <Route path="memory" element={<UnprefixedBoardRedirect />} />
           <Route path="u/:userSlug" element={<UnprefixedBoardRedirect />} />
           <Route path="skills/studio" element={<UnprefixedBoardRedirect />} />
           <Route path="skills/studio/new" element={<UnprefixedBoardRedirect />} />
