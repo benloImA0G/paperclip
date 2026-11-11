@@ -76,6 +76,16 @@ describe("council document sources", () => {
     for (const reply of replies) expect(reply[3].metadata.councilReliability.documents).toEqual(["notes.md"]);
   });
 
+  it("stores document names on the orchestrator reply", async () => {
+    mocks.listAttachments.mockResolvedValue([attachment()]);
+    const moderator = { ...seats[0], id: "moderator", fallbacks: { fallbacks: [], role: "moderator" }, active: true };
+    const { councilChatService } = await import("../services/council-chat.js");
+    await councilChatService(discussionDb([...seats, moderator])).runRound({ companyId, issueId, userId, message: "launch", mode: "ask" });
+    const replies = mocks.addComment.mock.calls.filter((call) => call[2]?.userId?.startsWith("council-seat:"));
+    expect(replies).toHaveLength(3);
+    expect(replies[2][3].metadata.councilReliability.documents).toEqual(["notes.md"]);
+  });
+
   it("omits documents when no document is supplied", async () => {
     const { councilChatService } = await import("../services/council-chat.js");
     await councilChatService(discussionDb(seats)).runRound({ companyId, issueId, userId, message: "launch", mode: "ask" });

@@ -13,7 +13,7 @@ export function rankMemory(entries: Entry[], query?: string) {
     const title = entry.title.toLowerCase();
     const haystack = [title, entry.body, ...entry.tags, entry.sourceLabel ?? ""].join(" ").toLowerCase();
     return { entry, matches: words.every((word) => haystack.includes(word)), score: words.filter((word) => title.includes(word)).length };
-  }).filter((item) => item.matches).sort((a, b) => Number(b.entry.pinned) - Number(a.entry.pinned) || b.score - a.score || b.entry.updatedAt.getTime() - a.entry.updatedAt.getTime()).map((item) => item.entry);
+  }).filter((item) => item.matches).sort((a, b) => Number(b.entry.pinned) - Number(a.entry.pinned) || b.score - a.score || b.entry.updatedAt.getTime() - a.entry.updatedAt.getTime() || a.entry.id.localeCompare(b.entry.id)).map((item) => item.entry);
 }
 const stopWords = new Set("a an and are as at be by for from in is it of on or that the this to was were with".split(" "));
 function words(text: string): Set<string> {
@@ -29,7 +29,7 @@ export function relatedEntries(entries: Entry[], entry: Entry, limit = 3): Entry
     entry: candidate,
     score: overlap(title, words(candidate.title)) + overlap(tags, new Set(candidate.tags.map((tag) => tag.toLowerCase()))),
   })).filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || b.entry.updatedAt.getTime() - a.entry.updatedAt.getTime())
+    .sort((a, b) => b.score - a.score || b.entry.updatedAt.getTime() - a.entry.updatedAt.getTime() || a.entry.id.localeCompare(b.entry.id))
     .slice(0, Math.max(0, limit)).map((item) => item.entry);
 }
 const contextHeader = "MEMORY (reference, may be out of date):\n";
@@ -39,7 +39,7 @@ export function selectMemoryContext(entries: Entry[], { maxChars = 1800, query }
     + overlap(queryWords, words(entry.tags.join(" "))) * 2 + overlap(queryWords, words(entry.body));
   const scores = new Map(queryWords.size ? entries.map((entry) => [entry, score(entry)] as const) : []);
   const ordered = [...entries].sort((a, b) => Number(b.pinned) - Number(a.pinned)
-    || (queryWords.size && !a.pinned ? (scores.get(b)! - scores.get(a)! || b.updatedAt.getTime() - a.updatedAt.getTime()) : 0));
+    || (queryWords.size && !a.pinned ? (scores.get(b)! - scores.get(a)! || b.updatedAt.getTime() - a.updatedAt.getTime()) : 0) || a.id.localeCompare(b.id));
   const included: Entry[] = [];
   const lines: string[] = [];
   for (const entry of ordered) {

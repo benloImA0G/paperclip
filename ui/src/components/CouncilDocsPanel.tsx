@@ -14,8 +14,12 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false }: { com
   const upload = useMutation({ mutationFn: (file: File) => issuesApi.uploadAttachment(companyId, issueId, file), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (id: string) => issuesApi.deleteAttachment(id), onSuccess: refresh });
 
+  const supported = (attachments.data ?? []).filter((attachment) => /\.(txt|md|markdown|csv|json)$/i.test(attachment.originalFilename ?? "") && attachment.byteSize <= 512 * 1024);
+  const atLimit = supported.length >= 5;
+
   async function addFile(file: File) {
     setError(null);
+    if (atLimit) return;
     if (!/\.(txt|md|markdown|csv|json)$/i.test(file.name)) {
       setError("Choose a text, Markdown, CSV or JSON file.");
       return;
@@ -34,11 +38,12 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false }: { com
     {attachments.isError ? <p role="alert" className="text-xs text-destructive">Couldn't load documents. <button type="button" className="underline" onClick={() => void attachments.refetch()}>Retry</button></p> : null}
     {!attachments.isLoading && !attachments.isError && attachments.data?.length === 0 ? <p className="text-xs text-muted-foreground">No documents yet.</p> : null}
     {attachments.data?.length ? <ul className="space-y-2">{attachments.data.map((attachment) => <li key={attachment.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border p-2">
-      <span className="min-w-0 flex-1 text-sm"><span className="block truncate">{attachment.originalFilename ?? "Untitled document"}</span><span className="text-xs text-muted-foreground">{attachment.byteSize.toLocaleString()} bytes</span></span>
+      <span className="min-w-0 flex-1 text-sm"><span className="block truncate">{attachment.originalFilename ?? "Untitled document"}</span><span className="text-xs text-muted-foreground">{attachment.byteSize.toLocaleString()} bytes</span>{supported.findIndex((item) => item.id === attachment.id) >= 5 && <span className="block text-xs text-muted-foreground">Not read</span>}</span>
       <Button type="button" variant="outline" size="sm" disabled={disabled || remove.isPending} aria-label={`Remove ${attachment.originalFilename ?? "document"}`} onClick={() => { setError(null); void remove.mutateAsync(attachment.id).catch(() => setError("Couldn't remove document. Please try again.")); }}>Remove</Button>
     </li>)}</ul> : null}
     <label htmlFor={inputId} className="block text-sm font-medium">Add document</label>
-    <input id={inputId} type="file" accept=".txt,.md,.markdown,.csv,.json" disabled={disabled || upload.isPending} className="block w-full text-sm" onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void addFile(file); }} />
+    <input id={inputId} type="file" accept=".txt,.md,.markdown,.csv,.json" disabled={disabled || upload.isPending || atLimit} className="block w-full text-sm" onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void addFile(file); }} />
+    {atLimit && <p className="text-xs text-muted-foreground">Seats read up to 5 documents; remove one to add another.</p>}
     {error ? <p role="alert" className="text-xs text-destructive">{error}</p> : null}
   </section>;
 }

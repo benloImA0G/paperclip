@@ -18,9 +18,9 @@ describe("memory relevance", () => {
   const unrelated = entry("unrelated", { updatedAt: new Date("2026-01-01") });
   const entries = [body, unrelated, tag, title, pinned];
 
-  it("preserves existing ordering without a query and keeps pinned entries first", () => {
-    expect(selectMemoryContext(entries).entries).toEqual([pinned, body, unrelated, tag, title]);
-    expect(selectMemoryContext(entries, { query: "the and" }).entries).toEqual([pinned, body, unrelated, tag, title]);
+  it("orders ties by id without a query and keeps pinned entries first", () => {
+    expect(selectMemoryContext(entries).entries).toEqual([pinned, body, tag, title, unrelated]);
+    expect(selectMemoryContext(entries, { query: "the and" }).entries).toEqual([pinned, body, tag, title, unrelated]);
   });
   it("weights title, tags and body matches, with recency only breaking ties", () => {
     const newerBody = entry("newer", { body: "LAUNCH", updatedAt: new Date("2026-01-01") });
@@ -40,6 +40,17 @@ describe("memory relevance", () => {
     const one = entry("one", { title: "Plan review" });
     expect(relatedEntries([source, one, unrelated, both], source)).toEqual([both, one]);
     expect(relatedEntries([one, both], source, 1)).toEqual([both]);
+  });
+  it("uses entry id to break ties regardless of input order", () => {
+    const a = entry("a", { title: "Launch plan" });
+    const b = entry("b", { title: "Launch plan" });
+    const source = entry("source", { title: "Launch plan" });
+    for (const items of [[b, a], [a, b]]) {
+      expect(rankMemory(items, "launch")).toEqual([a, b]);
+      expect(selectMemoryContext(items, { query: "launch" }).entries).toEqual([a, b]);
+      expect(selectMemoryContext(items).entries).toEqual([a, b]);
+      expect(relatedEntries(items, source)).toEqual([a, b]);
+    }
   });
   it("retains every-word search matching", () => {
     expect(rankMemory([title, body], "launch plans")).toEqual([body]);

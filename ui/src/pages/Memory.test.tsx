@@ -49,7 +49,18 @@ describe("Memory", () => {
     expect(related).toBeTruthy();
     await act(async () => related.click());
     await waitFor(() => expect(mock.related).toHaveBeenCalledWith("company-1", "2"));
-    await waitFor(() => expect(container.textContent).not.toContain("Related"));
+    await waitFor(() => expect(container.textContent).toContain("No related entries"));
+  });
+  it("shows loading and empty states for related entries", async () => {
+    mock.entries = [entry()];
+    let resolve!: (value: { entries: MemoryEntry[] }) => void;
+    mock.related.mockReturnValue(new Promise((done) => { resolve = done; }));
+    await render(); await waitFor(() => expect(button("Launch checklist")).toBeTruthy());
+    await click("Launch checklist");
+    expect(container.querySelector('[aria-live="polite"]')?.textContent).toContain("Loading related…");
+    await act(async () => resolve({ entries: [] }));
+    await waitFor(() => expect(container.textContent).toContain("No related entries"));
+    expect(container.textContent).not.toContain("Loading related…");
   });
   it("toggles automatic approval", async () => {
     await render(); await waitFor(() => expect(button("Auto-approve: On").disabled).toBe(false));

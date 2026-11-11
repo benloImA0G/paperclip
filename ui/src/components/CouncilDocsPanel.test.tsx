@@ -61,3 +61,25 @@ it("rejects unsupported and oversized files", async () => {
   expect(container.textContent).toContain("Documents must be 512 KB or smaller.");
   expect(api.uploadAttachment).not.toHaveBeenCalled();
 });
+
+it("limits supported documents and marks those beyond the fifth as not read", async () => {
+  api.listAttachments.mockResolvedValue([
+    { id: "unsupported", originalFilename: "image.png", byteSize: 42 },
+    ...Array.from({ length: 6 }, (_, i) => ({ id: String(i), originalFilename: `doc${i}.md`, byteSize: 42 })),
+  ]);
+  await render();
+  expect(container.querySelector<HTMLInputElement>('input[type="file"]')!.disabled).toBe(true);
+  expect(container.textContent).toContain("Seats read up to 5 documents; remove one to add another.");
+  const rows = [...container.querySelectorAll("li")];
+  expect(rows.filter((row) => row.textContent?.includes("Not read")).map((row) => row.textContent)).toEqual([expect.stringContaining("doc5.md")]);
+});
+
+it("allows adding when fewer than five documents are supported", async () => {
+  api.listAttachments.mockResolvedValue([
+    ...Array.from({ length: 4 }, (_, i) => ({ id: String(i), originalFilename: `doc${i}.md`, byteSize: 42 })),
+    { id: "large", originalFilename: "large.txt", byteSize: 512 * 1024 + 1 },
+  ]);
+  await render();
+  expect(container.querySelector<HTMLInputElement>('input[type="file"]')!.disabled).toBe(false);
+  expect(container.textContent).not.toContain("Not read");
+});

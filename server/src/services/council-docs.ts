@@ -19,7 +19,7 @@ export function extractDocText({ filename, contentType: _contentType, bytes }: {
   }
 }
 
-export type DocChunk = { id: string; text: string };
+export type DocChunk = { id: string; text: string; label?: string };
 
 export function chunkDoc(text: string, { maxChars = 1800 }: { maxChars?: number } = {}): DocChunk[] {
   const size = Number.isFinite(maxChars) ? Math.max(1, Math.floor(maxChars)) : 1800;
@@ -80,12 +80,21 @@ export function pickRelevantChunks(chunks: DocChunk[], question: string, limit: 
   const words = (value: string) => new Set(value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
   const query = words(question);
   const count = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0;
-  return chunks.map((chunk, index) => {
+  const ranked = chunks.map((chunk, index) => {
     const terms = words(chunk.text);
     let score = 0;
     for (const term of query) if (terms.has(term)) score++;
     return { chunk, index, score };
-  }).filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
+  }).filter(({ score }) => score > 0);
+  if (!ranked.length) {
+    const counts = new Map<string, number>();
+    return chunks.filter((chunk) => {
+      const document = chunk.label ?? chunk.id.split("#")[0];
+      const seen = counts.get(document) ?? 0;
+      counts.set(document, seen + 1);
+      return seen < count;
+    });
+  }
+  return ranked.sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, count).map(({ chunk }) => chunk);
 }

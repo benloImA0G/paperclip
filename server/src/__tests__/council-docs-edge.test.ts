@@ -51,9 +51,9 @@ describe("council document edge cases", () => {
     expect(chunks.every((chunk) => chunk.text.length <= 37)).toBe(true);
   });
 
-  it("returns an empty selection for no overlap and for a zero limit", () => {
-    const chunks = [{ id: "d1#1", text: "one two" }];
-    expect(pickRelevantChunks(chunks, "unrelated question", 5)).toEqual([]);
+  it("returns bounded chunks per document for no overlap and none for a zero limit", () => {
+    const chunks = [{ id: "d1#1", text: "one two", label: "a" }, { id: "d1#2", text: "three", label: "a" }, { id: "d1#1", text: "four", label: "b" }];
+    expect(pickRelevantChunks(chunks, "unrelated question", 1)).toEqual([chunks[0], chunks[2]]);
     expect(pickRelevantChunks(chunks, "one", 0)).toEqual([]);
   });
 });

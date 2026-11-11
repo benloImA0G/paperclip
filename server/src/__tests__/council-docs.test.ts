@@ -45,7 +45,7 @@ describe("council documents", () => {
   it("ranks keyword overlap deterministically and respects the limit", () => {
     const chunks = [{ id: "d1#1", text: "red blue" }, { id: "d1#2", text: "blue" }, { id: "d1#3", text: "red blue green" }];
     expect(pickRelevantChunks(chunks, "BLUE red", 2).map((chunk) => chunk.id)).toEqual(["d1#1", "d1#3"]);
-    expect(pickRelevantChunks(chunks, "missing", 2)).toEqual([]);
+    expect(pickRelevantChunks(chunks, "missing", 2)).toEqual(chunks.slice(0, 2));
     expect(pickRelevantChunks(chunks, "red", 0)).toEqual([]);
   });
 });
