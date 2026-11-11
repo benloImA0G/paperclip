@@ -24,7 +24,7 @@ import { buildDissentPrompt, parseDissent, shouldRunDissent, type DissentResult 
 import { parseStance, scoreAgreement, stripStanceBlock, type AgreementScore, type ParsedStance } from "./council-consensus.js";
 import { CouncilAgentTurnError, createCouncilAgentTurnService, isAgentInvokableForCouncil, isCouncilAgentAdapterType } from "./council-agent-turn.js";
 import { runWork, type WorkStep } from "./council-work.js";
-import { councilRateLimitDelayMs, isCouncilRateLimit } from "./council-rate-limit.js";
+import { councilRateLimitDelayMs, isCouncilRateLimit, withCouncilConnectionLimit } from "./council-rate-limit.js";
 import { logger } from "../middleware/logger.js";
 import type { CouncilKind } from "./council-modes.js";
 
@@ -186,7 +186,7 @@ export interface CouncilSeatTurnResult {
   commentId?: string;
   text?: string;
   error?: string;
-  /** Total wall-clock time for this seat, including fallback attempts. */
+  /** Seat duration including fallback attempts, excluding connection queue waits. */
   durationMs?: number;
   /** Whether an earlier model failed before the returned result. */
   fallbackUsed?: boolean;
@@ -997,6 +997,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     attempt: number;
     /** Set on a repeat call to the same model so its cost receipt gets its own idempotency key. */
     retryIndex?: number;
+    onQueueWait?: (milliseconds: number) => void;
     /** The question being asked again (no new user message is posted); stored with the reply. */
     askedAgain?: string;
     documents?: string[];
@@ -1013,7 +1014,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
   }): Promise<CouncilSeatTurnResult> {
     const { companyId, issueId, userId, seat, target } = input;
     const base = { seatId: seat.id, seatName: seat.name, model: target.model };
-    const startedAt = Date.now();
+    let startedAt = Date.now();
     let reservationId: string | null = null;
     try {
       const selected = await connections.selectFastResponse({
@@ -1034,39 +1035,42 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       if (!heldReservationId) return { ...base, status: "blocked", error: "Budget limit reached", durationMs: Date.now() - startedAt };
       reservationId = heldReservationId;
 
-      const requestStartedAt = new Date();
-      const result = await awaitSeatProviderCall(input, () => generateText({
-        model: fastResponseModel({ metadata, credential, model: target.model }),
-        system: seatAttemptSystemPrompt(seat),
-        ...(seat.acceptsImages && input.images?.length
-          ? {
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [
-                    { type: "text" as const, text: input.prompt },
-                    ...input.images.map((img) => ({
-                      type: "image" as const,
-                      image: img.data,
-                      mediaType: img.mediaType,
-                    })),
-                  ],
-                },
-              ],
-            }
-          : {
-              prompt: input.images?.length
-                ? `${input.prompt}\n\n(Ben attached ${input.images.length} image(s) that you cannot see.)`
-                : input.prompt,
-            }),
-        maxOutputTokens: input.maxOutputTokens,
-        maxRetries: 0,
-        ...(seat.reasoningEffort
-          ? { providerOptions: { openai: { reasoningEffort: seat.reasoningEffort } } }
-          : {}),
-        abortSignal: input.signal,
-        telemetry: { isEnabled: false, recordInputs: false, recordOutputs: false },
-      }));
+      let requestStartedAt = new Date();
+      const result = await awaitSeatProviderCall(input, () => withCouncilConnectionLimit(target.connectionId, input.signal, () => {
+        requestStartedAt = new Date();
+        return generateText({
+          model: fastResponseModel({ metadata, credential, model: target.model }),
+          system: seatAttemptSystemPrompt(seat),
+          ...(seat.acceptsImages && input.images?.length
+            ? {
+                messages: [
+                  {
+                    role: "user" as const,
+                    content: [
+                      { type: "text" as const, text: input.prompt },
+                      ...input.images.map((img) => ({
+                        type: "image" as const,
+                        image: img.data,
+                        mediaType: img.mediaType,
+                      })),
+                    ],
+                  },
+                ],
+              }
+            : {
+                prompt: input.images?.length
+                  ? `${input.prompt}\n\n(Ben attached ${input.images.length} image(s) that you cannot see.)`
+                  : input.prompt,
+              }),
+          maxOutputTokens: input.maxOutputTokens,
+          maxRetries: 0,
+          ...(seat.reasoningEffort
+            ? { providerOptions: { openai: { reasoningEffort: seat.reasoningEffort } } }
+            : {}),
+          abortSignal: input.signal,
+          telemetry: { isEnabled: false, recordInputs: false, recordOutputs: false },
+        });
+      }, (waitMs) => { startedAt += waitMs; input.onQueueWait?.(waitMs); }));
       const latencyMs = Date.now() - requestStartedAt.getTime();
       const receipt = providerUsageReceipt(result);
       const usage = result.usage && typeof result.usage.inputTokens === "number" && typeof result.usage.outputTokens === "number" && typeof result.usage.totalTokens === "number"
@@ -1315,6 +1319,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const failed: NonNullable<CouncilSeatTurnResult["failedAttempts"]> = [];
     let last: CouncilSeatTurnResult | null = null;
     const turnStartedAt = Date.now();
+    let queueWaitMs = 0;
     let answerCap = input.maxOutputTokens;
     let emptyRetried = false;
     for (const [attempt, target] of targets.entries()) {
@@ -1329,6 +1334,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           ...input,
           target,
           attempt,
+          onQueueWait: (waitMs) => { queueWaitMs += waitMs; },
           retryIndex: retry,
           signal: input.signal ? AbortSignal.any([input.signal, timeout]) : timeout,
           persistComment: input.persistComment,
@@ -1365,7 +1371,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       failed.push({ model: target.model, error: last.error ?? last.status });
       if (last.status === "blocked" || input.signal?.aborted) break;
     }
-    return finalizeCouncilSeatTurn(last!, failed, Date.now() - turnStartedAt);
+    return finalizeCouncilSeatTurn(last!, failed, Date.now() - turnStartedAt - queueWaitMs);
   }
 
   async function runOrchestratorSeatTurn(
@@ -1632,7 +1638,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       : orderSeats(seats, input.order);
     // Chain: seats answer one after another, each handed the earlier answers to build on or review.
     const chain = mode === "ask" && input.style === "chain" && dispatchedSeats.length > 1;
-    for (const seat of dispatchedSeats) {
+    const dispatchRoundSeat = async (seat: typeof councilSeats.$inferSelect) => {
       const earlierRoundAnswers = discuss || chain
         ? capChainHandoff(results.filter((result) => result.status === "ok" && result.text).map((result) => ({ name: result.seatName, text: result.text! }))).map((entry) => councilTurn(entry.name, entry.text))
         : [];
@@ -1647,7 +1653,12 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
           ].join("\n\n"), roomMetadata(room.description).brief)
         : prompt;
       const persona = panelPersonas?.get(seat.id);
-      const result = await dispatch(seat, roundId, persona ? `${seatPrompt}\n\n${personaInstruction(persona)}` : seatPrompt);
+      return dispatch(seat, roundId, persona ? `${seatPrompt}\n\n${personaInstruction(persona)}` : seatPrompt);
+    };
+    if (!discuss && !chain && !summarize) {
+      results.push(...await Promise.all(dispatchedSeats.map(dispatchRoundSeat)));
+    } else for (const seat of dispatchedSeats) {
+      const result = await dispatchRoundSeat(seat);
       results.push(result);
       if (result.status === "cancelled") break;
       if (summarize && result.status === "ok" && result.text?.trim()) break;
