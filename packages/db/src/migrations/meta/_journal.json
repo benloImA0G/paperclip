@@ -3046,6 +3046,13 @@
       "when": 1793990000000,
       "tag": "0436_council_work_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 437,
+      "version": "7",
+      "when": 1794000000000,
+      "tag": "0437_memory_entries",
+      "breakpoints": true
     }
   ]
 }

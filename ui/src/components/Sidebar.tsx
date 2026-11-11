@@ -2,6 +2,7 @@ import { CoordinatorSidebar } from "./CoordinatorSidebar";
 import { useCoordinatorWorkspaceEnabled } from "@/hooks/useCoordinatorWorkspaceEnabled";
 import {
   Inbox,
+  Brain,
   ListChecks,
   CircleCheck,
   Target,
@@ -196,6 +197,7 @@ function ClassicSidebar({ children }: { children?: ReactNode }) {
               alert={inboxBadge.failedRuns > 0}
             />
           ) : null}
+          <SidebarNavItem to="/memory" label="Memory" icon={Brain} />
           {agentChatEnabled && !chatRail ? <SidebarNavItem to="/chats" label="Chat" icon={MessageCircle} badge={unreadChatCount} badgeLabel="unread chats" /> : null}
           {showDecisions ? (
             <SidebarNavItem

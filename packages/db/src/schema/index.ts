@@ -280,3 +280,5 @@ export { projectTaskExecutionPolicies, executionAdmissions, executionAdmissionPr
 export * from "./council_seats.js";
 export * from "./council_round_claims.js";
 export * from "./council_work_sessions.js";
+
+export * from "./memory_entries.js";

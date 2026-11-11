@@ -350,6 +350,8 @@ describe("Sidebar", () => {
 
     const primaryNavText = container.querySelector("nav > div:first-child")?.textContent ?? "";
     expect(primaryNavText).toContain("Inbox");
+    expect(primaryNavText).toContain("Memory");
+    expect(primaryNavText.indexOf("Inbox")).toBeLessThan(primaryNavText.indexOf("Memory"));
     expect(primaryNavText).not.toContain("Plugin slot outlet");
 
     flushSync(() => {

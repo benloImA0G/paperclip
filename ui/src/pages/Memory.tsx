@@ -1,0 +1,75 @@
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Brain } from "lucide-react";
+import { memoryApi, type MemoryEntry, type MemoryInput, type MemoryKind } from "../api/memory";
+import { ApiError } from "../api/client";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
+import { EmptyState } from "../components/EmptyState";
+import { useCompany } from "../context/CompanyContext";
+import { useBreadcrumbs } from "../context/BreadcrumbContext";
+import { useOptionalToastActions } from "../context/ToastContext";
+
+const kinds: MemoryKind[] = ["fact", "decision", "preference", "reference", "lesson"];
+const label = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);
+const blank = (): MemoryInput => ({ kind: "reference", title: "", body: "", sourceUrl: null, sourceLabel: null, tags: [], pinned: false });
+
+function MemoryForm({ initial, onSave, onCancel, busy }: { initial: MemoryInput; onSave: (input: MemoryInput) => void; onCancel: () => void; busy: boolean }) {
+  const [draft, setDraft] = useState<MemoryInput>(() => ({ kind: initial.kind, title: initial.title, body: initial.body, sourceUrl: initial.sourceUrl, sourceLabel: initial.sourceLabel, tags: initial.tags, pinned: initial.pinned }));
+  const [tags, setTags] = useState(initial.tags.join(", "));
+  return <form className="space-y-3 rounded-md border p-4" onSubmit={(event) => { event.preventDefault(); onSave({ ...draft, title: draft.title.trim(), sourceUrl: draft.sourceUrl?.trim() || null, sourceLabel: draft.sourceLabel?.trim() || null, tags: tags.split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean) }); }}>
+    <label className="block space-y-1 text-sm">Kind<select className="w-full rounded-md border bg-background px-3 py-2" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value as MemoryKind })}>{kinds.map((kind) => <option key={kind} value={kind}>{label(kind)}</option>)}</select></label>
+    <label className="block space-y-1 text-sm">Title<Input required maxLength={160} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label>
+    <label className="block space-y-1 text-sm">Details<Textarea maxLength={8000} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} /></label>
+    <label className="block space-y-1 text-sm">Source link (optional)<Input type="url" value={draft.sourceUrl ?? ""} onChange={(e) => setDraft({ ...draft, sourceUrl: e.target.value })} /></label>
+    <label className="block space-y-1 text-sm">Source label (optional)<Input maxLength={160} value={draft.sourceLabel ?? ""} onChange={(e) => setDraft({ ...draft, sourceLabel: e.target.value })} /></label>
+    <label className="block space-y-1 text-sm">Tags (comma separated)<Input value={tags} onChange={(e) => setTags(e.target.value)} /></label>
+    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.pinned} onChange={(e) => setDraft({ ...draft, pinned: e.target.checked })} /> Pinned</label>
+    <div className="flex justify-between"><Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button><Button disabled={busy || !draft.title.trim()} type="submit">Save</Button></div>
+  </form>;
+}
+
+export function Memory() {
+  const { selectedCompanyId } = useCompany();
+  const { setBreadcrumbs } = useBreadcrumbs();
+  const toast = useOptionalToastActions();
+  const client = useQueryClient();
+  const companyId = selectedCompanyId ?? "";
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<MemoryKind | undefined>();
+  const [tag, setTag] = useState<string | undefined>();
+  const [showWithdrawn, setShowWithdrawn] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => setBreadcrumbs([{ label: "Memory" }]), [setBreadcrumbs]);
+  useEffect(() => { const timer = setTimeout(() => setQuery(search), 250); return () => clearTimeout(timer); }, [search]);
+  const entries = useQuery({ queryKey: ["memory", companyId, query, kind, tag, showWithdrawn], queryFn: () => memoryApi.list(companyId, { query, kind, tag, status: showWithdrawn ? "all" : "active" }), enabled: !!companyId });
+  const pending = useQuery({ queryKey: ["memory-pending", companyId], queryFn: () => memoryApi.list(companyId, { status: "pending" }), enabled: !!companyId });
+  const tagsQuery = useQuery({ queryKey: ["memory-tags", companyId], queryFn: () => memoryApi.list(companyId, { status: "active" }), enabled: !!companyId });
+  const mutate = useMutation({ mutationFn: (action: () => Promise<unknown>) => action(), onSuccess: () => { setError(""); void client.invalidateQueries({ queryKey: ["memory"] }); void client.invalidateQueries({ queryKey: ["memory-pending"] }); void client.invalidateQueries({ queryKey: ["memory-tags"] }); }, onError: (err) => setError(err instanceof ApiError && err.status === 409 ? "Already saved - open the existing one" : err instanceof Error ? err.message : "Something went wrong. Please try again.") });
+  const save = (input: MemoryInput, id?: string) => mutate.mutateAsync(() => id ? memoryApi.update(companyId, id, input) : memoryApi.create(companyId, input)).then(() => { setAdding(false); setEditing(null); toast?.pushToast({ tone: "success", title: id ? "Memory updated" : "Saved to memory" }); }).catch(() => {});
+  const act = (action: () => Promise<unknown>) => mutate.mutate(action);
+  const download = async () => { try { const blob = await memoryApi.export(companyId); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = "memory.md"; a.click(); URL.revokeObjectURL(url); } catch (err) { setError(err instanceof Error ? err.message : "Could not export memory."); } };
+  if (!companyId) return <EmptyState icon={Brain} message="Select an organization to use Memory." />;
+  const visible = (entries.data?.entries ?? []).filter((entry) => entry.status !== "pending").sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const tags = [...new Set((tagsQuery.data?.entries ?? []).flatMap((entry) => entry.tags))].sort();
+  return <div className="mx-auto max-w-4xl space-y-5 p-6">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">Memory</h1><p className="text-sm text-muted-foreground">Notes, decisions and links your whole team and every agent can reuse. Mark one Pinned and agents see it every time.</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => void download()}>Export as Markdown</Button><Button onClick={() => setAdding(!adding)}>+ Add to memory</Button></div></div>
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {pending.isError && <p role="alert" className="text-sm text-destructive">Could not load entries waiting for approval.</p>}
+    {!!pending.data?.entries.length && <section className="space-y-2 rounded-md border bg-muted p-4"><h2 className="font-semibold">Waiting for approval</h2>{pending.data.entries.map((entry) => <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2"><span>{entry.title} · {entry.createdByLabel}</span><div className="flex gap-2"><Button size="sm" disabled={mutate.isPending} onClick={() => act(() => memoryApi.approve(companyId, entry.id))}>Approve</Button><Button size="sm" variant="outline" onClick={() => { setWithdrawing(entry.id); setReason(""); }}>Withdraw</Button></div>{withdrawing === entry.id && <WithdrawForm reason={reason} setReason={setReason} cancel={() => setWithdrawing(null)} submit={() => { act(() => memoryApi.withdraw(companyId, entry.id, reason || undefined)); setWithdrawing(null); }} />}</div>)}</section>}
+    {adding && <MemoryForm initial={blank()} busy={mutate.isPending} onSave={(input) => void save(input)} onCancel={() => setAdding(false)} />}
+    <div className="space-y-3"><Input aria-label="Search memory" placeholder="Search memory" value={search} onChange={(e) => setSearch(e.target.value)} /><div className="flex flex-wrap gap-2"><Button size="sm" variant={!kind ? "secondary" : "outline"} aria-pressed={!kind} onClick={() => setKind(undefined)}>All kinds</Button>{kinds.map((item) => <Button key={item} size="sm" variant={kind === item ? "secondary" : "outline"} aria-pressed={kind === item} onClick={() => setKind(kind === item ? undefined : item)}>{label(item)}</Button>)}</div>{tags.length > 0 && <div className="flex flex-wrap gap-2">{tags.map((item) => <Button key={item} size="sm" variant={tag === item ? "secondary" : "outline"} aria-pressed={tag === item} onClick={() => setTag(tag === item ? undefined : item)}>{item}</Button>)}</div>}<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showWithdrawn} onChange={(e) => setShowWithdrawn(e.target.checked)} /> Show withdrawn</label></div>
+    {entries.isLoading ? <p>Loading memory…</p> : entries.isError ? <p role="alert" className="text-destructive">Could not load memory.</p> : visible.length === 0 ? <div className="rounded-md border p-6 text-center"><p className="font-medium">Nothing in memory yet</p><p className="text-sm text-muted-foreground">Try saving an idea like:</p><p className="text-sm text-muted-foreground">Our launch checklist · Why we picked Groq as chair · Preferred answer style</p></div> : <div className="space-y-3">{visible.map((entry) => <article key={entry.id} className={`space-y-2 rounded-md border p-4 ${entry.status === "withdrawn" ? "bg-muted text-muted-foreground" : ""}`}>
+      {editing === entry.id ? <MemoryForm initial={entry} busy={mutate.isPending} onSave={(input) => void save(input, entry.id)} onCancel={() => setEditing(null)} /> : <><div className="flex flex-wrap items-center gap-2"><span className="rounded-full border px-2 py-1 text-xs">{label(entry.kind)}</span><h2 className="font-semibold">{entry.title}</h2>{entry.status === "withdrawn" && <span className="text-xs">Withdrawn</span>}</div><p className="line-clamp-3 whitespace-pre-wrap text-sm">{entry.body}</p>{entry.sourceUrl && <a className="text-sm text-primary underline" href={entry.sourceUrl} target="_blank" rel="noopener noreferrer">{entry.sourceLabel || entry.sourceUrl}</a>}<div className="flex flex-wrap gap-2">{entry.tags.map((item) => <span key={item} className="rounded-full bg-muted px-2 py-1 text-xs">{item}</span>)}</div><p className="text-xs text-muted-foreground">{entry.createdByLabel} · {new Date(entry.createdAt).toLocaleDateString()}</p>{entry.withdrawnReason && <p className="text-sm">Reason: {entry.withdrawnReason}</p>}<div className="flex flex-wrap gap-2">{entry.status === "active" ? <><Button size="sm" variant="outline" aria-pressed={entry.pinned} disabled={mutate.isPending} onClick={() => act(() => memoryApi.update(companyId, entry.id, { pinned: !entry.pinned }))}>{entry.pinned ? "Unpin" : "Pin"}</Button><Button size="sm" variant="outline" onClick={() => setEditing(entry.id)}>Edit</Button><Button size="sm" variant="outline" onClick={() => { setWithdrawing(entry.id); setReason(""); }}>Withdraw</Button></> : <Button size="sm" variant="outline" disabled={mutate.isPending} onClick={() => act(() => memoryApi.restore(companyId, entry.id))}>Restore</Button>}</div>{withdrawing === entry.id && <WithdrawForm reason={reason} setReason={setReason} cancel={() => setWithdrawing(null)} submit={() => { act(() => memoryApi.withdraw(companyId, entry.id, reason || undefined)); setWithdrawing(null); }} />}</>}
+    </article>)}</div>}
+  </div>;
+}
+function WithdrawForm({ reason, setReason, submit, cancel }: { reason: string; setReason: (reason: string) => void; submit: () => void; cancel: () => void }) {
+  return <div className="w-full space-y-2"><label className="block text-sm">Reason (optional)<Input value={reason} onChange={(e) => setReason(e.target.value)} /></label><div className="flex gap-2"><Button size="sm" variant="outline" onClick={cancel}>Cancel</Button><Button size="sm" onClick={submit}>Confirm withdrawal</Button></div></div>;
+}

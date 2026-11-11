@@ -72,6 +72,7 @@ const Agents = lazy(() => import("./pages/Agents").then((module) => ({ default: 
 const Cases = lazy(() => import("./pages/Cases").then((module) => ({ default: module.Cases })));
 const CaseDetail = lazy(() => import("./pages/CaseDetail").then((module) => ({ default: module.CaseDetail })));
 const Dashboard = lazy(() => import("./pages/Dashboard").then((module) => ({ default: module.Dashboard })));
+const Memory = lazy(() => import("./pages/Memory").then((module) => ({ default: module.Memory })));
 const Council = lazy(() => import("./pages/Council").then((module) => ({ default: module.Council })));
 const DashboardLive = lazy(() => import("./pages/DashboardLive").then((module) => ({ default: module.DashboardLive })));
 const Timeline = lazy(() => import("./pages/Timeline").then((module) => ({ default: module.Timeline })));
@@ -154,6 +155,7 @@ function boardRoutes(streamlinedUiEnabled: boolean, combinedInboxTasksEnabled: b
       <Route index element={<Navigate to="dashboard" replace />} />
       <Route path="dashboard" element={<Dashboard />} />
       <Route path="council" element={<Council />} />
+      <Route path="memory" element={<Memory />} />
       <Route path="dashboard/live" element={<DashboardLive />} />
       <Route
         path="timeline"
