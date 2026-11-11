@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { inflateRawSync } from "node:zlib";
 import { untrusted } from "./council-untrusted.js";
 
 const MAX_BYTES = 512 * 1024;
@@ -62,6 +63,50 @@ function validDocumentZip(bytes: Uint8Array): boolean {
     return pos === end;
   }
   return false;
+}
+
+/** Never throws: a malformed archive must not crash the process from an event handler. */
+function safeXlsxInline(bytes: Uint8Array): string {
+  try { return xlsxInlineStrings(bytes); } catch { return ""; }
+}
+// Pandoc's XLSX reader omits inline strings. Recover those cells alongside its
+// output; the ZIP has already passed validDocumentZip's size and layout checks.
+function xlsxInlineStrings(bytes: Uint8Array): string {
+  const zip = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let end = zip.length - 22;
+  while (end >= Math.max(0, zip.length - 22 - 0xffff)) {
+    if (zip.readUInt32LE(end) === 0x06054b50 && end + 22 + zip.readUInt16LE(end + 20) === zip.length) break;
+    end--;
+  }
+  let pos = zip.readUInt32LE(end + 16);
+  const count = zip.readUInt16LE(end + 10);
+  const lines: string[] = [];
+  let remaining = MAX_PANDOC_OUTPUT;
+  for (let i = 0; i < count && remaining > 0; i++) {
+    const nameLength = zip.readUInt16LE(pos + 28), extraLength = zip.readUInt16LE(pos + 30), commentLength = zip.readUInt16LE(pos + 32);
+    const name = zip.toString("utf8", pos + 46, pos + 46 + nameLength);
+    if (/^xl\/worksheets\/sheet[^/]*\.xml$/i.test(name)) {
+      const local = zip.readUInt32LE(pos + 42);
+      const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+      const compressed = zip.subarray(start, start + zip.readUInt32LE(pos + 20));
+      const method = zip.readUInt16LE(pos + 10);
+      try {
+        const xml = (method === 0 ? compressed : method === 8 ? inflateRawSync(compressed, { maxOutputLength: MAX_ZIP_UNCOMPRESSED }) : Buffer.alloc(0)).toString("utf8");
+        for (const cell of xml.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c\s*>/g)) {
+          if (!/\bt\s*=\s*["']inlineStr["']/.test(cell[1])) continue;
+          const value = [...cell[2].matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t\s*>/g)].map((match) => match[1]).join("")
+            .replace(/&#(?:x([\da-f]+)|(\d+));|&(amp|lt|gt|quot|apos);/gi, (entity, hex, dec, named) => {
+              if (named) return ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" } as Record<string, string>)[named.toLowerCase()];
+              const code = parseInt(hex ?? dec, hex ? 16 : 10);
+              return code <= 0x10ffff ? String.fromCodePoint(code) : entity;
+            });
+          if (value) { const line = `${name} ${cell[1].match(/\br\s*=\s*["']([^"']+)["']/)?.[1] ?? ""}: ${value}`.slice(0, remaining); lines.push(line); remaining -= line.length; }
+        }
+      } catch { /* Leave unsupported or invalid worksheet data to Pandoc. */ }
+    }
+    pos += 46 + nameLength + extraLength + commentLength;
+  }
+  return lines.join("\n");
 }
 
 let activeConversions = 0;
@@ -141,8 +186,10 @@ export async function extractDocTextAsync(input: {
       child.stderr.resume();
       child.stdin.on("error", () => {});
       child.on("error", (error: NodeJS.ErrnoException) => { release(); finish({ ok: false, reason: error.code === "ENOENT" ? "This document type needs Pandoc on the server" : "Document conversion failed" }); });
-      child.on("close", (code) => { release(); finish(code === 0
-        ? { ok: true, text: Buffer.concat(parts).toString("utf8"), kind: kind! }
+      child.on("close", (code) => { release(); const output = Buffer.concat(parts).toString("utf8");
+        const inline = code === 0 && kind === "xlsx" ? safeXlsxInline(input.bytes).slice(0, Math.max(0, MAX_PANDOC_OUTPUT - output.length)) : "";
+        finish(code === 0
+        ? { ok: true, text: inline ? `${output}\n${inline}` : output, kind: kind! }
         : { ok: false, reason: "Document conversion failed" }); });
       child.stdin.end(input.bytes);
     } catch (error) {

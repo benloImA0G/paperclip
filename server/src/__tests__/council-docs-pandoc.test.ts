@@ -8,7 +8,7 @@ vi.mock("node:child_process", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:child_process")>(),
   spawn: mocks.spawn,
 }));
-import { buildDocContext, extractDocTextAsync } from "../services/council-docs.js";
+import { buildDocContext, chunkDoc, extractDocTextAsync, pickRelevantChunks } from "../services/council-docs.js";
 
 const pandoc = process.env.PANDOC_PATH || "/home/super/.local/bin/pandoc";
 const available = spawnSync(pandoc, ["--version"]).status === 0;
@@ -27,6 +27,21 @@ function child() {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.resetAllMocks(); });
 
 describe("Pandoc document extraction", () => {
+  it.skipIf(!available || spawnSync("python3", ["--version"]).status !== 0)("extracts the office smoke spreadsheet into relevant context", async () => {
+    const fixture = spawnSync("python3", ["-c", `
+import pathlib, runpy, sys, tempfile
+script = runpy.run_path('../scripts/council-docs-smoke-office.py')
+with tempfile.TemporaryDirectory() as directory:
+    sys.stdout.buffer.write(script['build_xlsx'](pathlib.Path(directory)))
+`], { env: { ...process.env, PANDOC_PATH: pandoc } });
+    expect(fixture.status).toBe(0);
+    const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    mocks.spawn.mockImplementation(actual.spawn);
+    const result = await extractDocTextAsync({ filename: "launch.xlsx", bytes: fixture.stdout, pandocPath: pandoc });
+    const chunks = chunkDoc(result.ok ? result.text : "");
+    expect(result.ok && result.text).toContain("KESTREL-2");
+    expect(pickRelevantChunks(chunks, "What is the launch codename?", 8).some((chunk) => chunk.text.includes("KESTREL-2"))).toBe(true);
+  });
   it.skipIf(!available)("extracts a real DOCX", async () => {
     const generated = spawnSync(pandoc, ["--from", "markdown", "--to", "docx"], { input: "# Real document\n\nHello council." });
     expect(generated.status).toBe(0);
