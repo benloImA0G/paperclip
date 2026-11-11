@@ -674,6 +674,12 @@
     min-height: 0;
   }
 
+  .council-privacy-hint > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .council-message-input {
     max-height: calc(var(--spacing) * 24);
     overflow-y: auto;

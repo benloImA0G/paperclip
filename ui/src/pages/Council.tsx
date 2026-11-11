@@ -943,6 +943,22 @@ export function Council() {
             {moreOpen ? <div id="council-more-actions" className="absolute right-0 z-20 mt-1 flex min-w-44 flex-col rounded-lg border bg-popover p-1 shadow-lg">
 
               <div className="space-y-1 px-2 py-1 text-xs sm:hidden">{room?.kind ? <KindChip kind={room.kind} /> : null}{room ? <CouncilRoomStats replies={(comments.data ?? []).filter((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((c) => ({ metadata: c.metadata as { councilReliability?: CouncilReplyReliability } | null }))} /> : null}</div>
+              {roomId ? <div className="sm:hidden">
+          <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} onRemember={(check) => { setCheckMemory((current) => ({ ...current, [roomId]: check })); setCheckNow(Date.now()); }} showCheck={activeSeats.length > 0} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }}>
+          <CouncilSavedTeams seats={allSeats} onCreate={async (seat) => {
+            const conn = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
+            const grantId = seat.grantId ?? conn?.grantId;
+            if (!grantId) throw new Error("Connection is unavailable");
+            try { return await councilApi.addSeat(companyId, roomId, { ...seat, grantId }); }
+            finally { void refreshSeatsFor(roomId); }
+          }} onAdded={(count) => toast?.pushToast({ tone: "success", title: `Added ${count} seats` })} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not add seats", body: errorText(error) }); else setError(`Could not add seats: ${errorText(error)}`); }} />
+          {activeSeats.length < 3 && !connections.isLoading && !connections.isError && !seats.isLoading && !seats.isError ? <>
+            <Button type="button" variant="outline" size="sm" disabled={!hasFreeConnection || addFreeTeam.isPending || addDefaults.isPending} onClick={() => addFreeTeam.mutate({ targetRoomId: roomId, plans: freeTeam })}>Add a free team</Button>
+            {!hasFreeConnection ? <span className="text-xs text-muted-foreground">Connect a free AI first</span> : null}
+          </> : null}
+          {freeTeamNote ? <span role="status" className="text-xs text-muted-foreground">{freeTeamNote}</span> : null}
+          </CouncilSeatCheck>
+              </div> : null}
               <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || setArchived.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Archive Thread unavailable while a round is running" : "Archive Thread"} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}><Archive /> Archive Thread</Button>
               <Button variant="ghost" size="sm" className="justify-start" disabled={!comments.data?.length} onClick={() => { const text = formatCouncilMarkdown((comments.data ?? []).map((c) => ({ name: c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX) ? seatById.get(c.authorUserId)?.name ?? "Seat" : "You", body: c.body }))); void copyTextToClipboard(text).then(() => { toast?.pushToast({ tone: "success", title: "Copied" }); setMoreOpen(false); }).catch(() => setError("Could not copy messages")); }}>Copy as Markdown</Button>
               <Button variant="ghost" size="sm" className="justify-start text-destructive" disabled={!roomId || !room || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Delete Thread unavailable while a round is running" : "Delete Thread"} onClick={() => { if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id); }}><Trash2 /> Delete Thread</Button>
@@ -1100,6 +1116,7 @@ export function Council() {
             </div>
           </>
           ) : null}
+          <div className="max-sm:hidden">
           <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} onRemember={(check) => { setCheckMemory((current) => ({ ...current, [roomId]: check })); setCheckNow(Date.now()); }} showCheck={activeSeats.length > 0} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }}>
           <CouncilSavedTeams seats={allSeats} onCreate={async (seat) => {
             const conn = connectionOptions.find((candidate) => candidate.id === seat.connectionId);
@@ -1114,6 +1131,7 @@ export function Council() {
           </> : null}
           {freeTeamNote ? <span role="status" className="text-xs text-muted-foreground">{freeTeamNote}</span> : null}
           </CouncilSeatCheck>
+          </div>
           <details open={participantsOpen} onToggle={(event) => setParticipantsOpen(event.currentTarget.open)} className={advancedMode ? "council-participants shrink-0 rounded-lg border bg-muted/10" : "hidden"}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
               <span className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-muted-foreground" /> Seats: <span className="font-normal text-muted-foreground">{activeSeats.length} active</span></span>
@@ -1460,10 +1478,10 @@ export function Council() {
               const mayUseCloud = councilSeatMayUseCloud({ local: reliability?.local, routingKind: connection?.routing?.kind, provider: connection?.provider ?? reliability?.provider });
               if (mayUseCloud) cloudProviders.add((({ hermes_gateway: "Hermes", hermes_local: "Hermes", http: "HTTP agent", process: "Local agent" } as Record<string, string>)[vendorOf(seat)] ?? (vendorOf(seat) || connection?.provider || reliability?.provider || "provider unavailable")).replace(/\s*\([^)]*\)\s*$/, ""));
             }
-            return cloudProviders.size ? <CouncilEgressBanner local={false} provider={[...cloudProviders].join(", ")} /> : null;
+            return cloudProviders.size ? <div className="council-privacy-hint min-w-0"><CouncilEgressBanner local={false} provider={[...cloudProviders].join(", ")} /></div> : null;
           })()}
           {!creating && roomId ? <LinkedTasksPanel roomId={roomId} companyId={companyId} onAskInRoom={(text) => setMessage(text)} /> : null}
-          {!creating ? <><div id="council-discussion-options" className={mobileRoomOptionsOpen ? "" : "max-sm:hidden"}><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /></div></> : null}
+          {!creating ? <><div className="max-sm:hidden"><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /></div></> : null}
           {!creating ? <form
             className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
             onSubmit={(e) => {
@@ -1528,10 +1546,11 @@ export function Council() {
               </div>
             ) : null}
             <div className="relative flex flex-wrap items-center gap-2 text-xs">
-              <Button type="button" variant="outline" size="sm" className="self-start sm:hidden" aria-expanded={mobileRoomOptionsOpen} aria-controls="council-room-tools council-discussion-options" onClick={() => setMobileRoomOptionsOpen((open) => !open)}>Options</Button>
+              <Button type="button" variant="outline" size="sm" className="self-start sm:hidden" aria-expanded={mobileRoomOptionsOpen} aria-controls="council-room-tools" onClick={() => setMobileRoomOptionsOpen((open) => !open)}>Options</Button>
               <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="council-options-trigger max-sm:min-h-11" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /><span>Options</span></Button>
               <Button type="button" variant="outline" size="sm" className="shrink-0 max-sm:min-h-11" aria-label={`Documents, ${documentCount} attached`} onClick={openDocuments}><FileText /><span className="max-sm:hidden">Documents{documentCount ? ` (${documentCount})` : ""}</span><span className="sm:hidden">{documentCount}</span></Button>
               {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg max-sm:max-h-(--council-thread-min-height-mobile) border bg-popover p-2 shadow-lg">
+              <div className="mb-2 sm:hidden"><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /></div>
               <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-muted-foreground hover:bg-accent">
                 <ImagePlus className="h-3.5 w-3.5" /> upload
                 <input
@@ -1578,7 +1597,7 @@ export function Council() {
               </div>
               </div> : null}</div>
           </form> : null}
-          {!creating ? <p className="text-xs text-muted-foreground max-sm:truncate">
+          {!creating ? <p className="text-xs text-muted-foreground max-sm:hidden">
             Enter or Ctrl+Enter sends, Shift+Enter adds a line. Type @ to ask one seat, or @all for everyone.
           </p> : null}
           </div>
