@@ -104,7 +104,7 @@ describe("Council PPTX consolidation", () => {
     expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source })).toEqual({ markdown: source, consolidated: false, reason: "invalid_deck:not a deck" });
     const controller = new AbortController();
     controller.abort();
-    mocks.generateText.mockRejectedValueOnce(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    // An already-aborted signal never reaches the model (the per-connection limiter stops it first), so no mocked model error is queued here.
     expect(await service.consolidateForExport({ companyId, issueId, userId, markdown: source, signal: controller.signal })).toEqual({ markdown: source, consolidated: false, reason: "timeout/abort" });
     expect(logger.warn).toHaveBeenCalledWith(expect.any(Object), "Council export consolidation fell back to original markdown");
   });
