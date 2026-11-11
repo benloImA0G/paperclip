@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Db } from "@paperclipai/db";
 import { createMemorySchema, updateMemorySchema, withdrawMemorySchema, listMemorySchema, memoryContextSchema, supersedeMemorySchema, mergeMemorySchema, tidyMemorySchema, memorySettingsSchema } from "@paperclipai/shared";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
-import { forbidden } from "../errors.js";
+import { badRequest, forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { logActivity } from "../services/activity-log.js";
 import { MemoryDuplicateError, memoryService, relatedEntries } from "../services/memory.js";
@@ -74,6 +74,47 @@ export function memoryRoutes(db: Db) {
     const actor = getActorInfo(req);
     return memory.create(req.params.companyId as string, actor.actorType === "agent" ? { ...req.body, originKind: "agent" } : req.body);
   }, 201));
+  router.post(`${base}/import`, async (req, res) => {
+    const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    if (actor.actorType !== "user") throw forbidden("Only board users can manage memory");
+    const { format, text } = req.body ?? {};
+    if ((format !== "json" && format !== "markdown") || typeof text !== "string" || Buffer.byteLength(text, "utf8") > 200 * 1024) throw badRequest("Expected a format and text of at most 200 KB");
+    let entries: unknown[];
+    if (format === "json") {
+      let parsed: unknown;
+      try { parsed = JSON.parse(text); } catch { throw badRequest("Invalid JSON"); }
+      if (!Array.isArray(parsed)) throw badRequest("JSON must be an array");
+      entries = parsed;
+    } else {
+      const sections = text.split(/^## /m);
+      entries = sections.slice(1).map((section: string) => {
+        const lines = section.replace(/\r/g, "").split("\n");
+        const title = lines.shift() ?? "";
+        while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
+        const last = lines[lines.length - 1];
+        const tags = last?.startsWith("Tags:") ? lines.pop()!.slice(5).split(",").map((tag) => tag.trim()).filter(Boolean) : [];
+        return { title, body: lines.join("\n").trim(), tags };
+      });
+    }
+    const existing = await memory.list(companyId, { status: "all" });
+    const keys = new Set(existing.filter((entry) => entry.status === "active" || entry.status === "pending").map((entry) => JSON.stringify([entry.kind, entry.title])));
+    const result: { created: number; skippedDuplicates: number; skippedInvalid: { index: number; reason: string }[] } = { created: 0, skippedDuplicates: 0, skippedInvalid: [] };
+    for (const [index, raw] of entries.entries()) {
+      if (index >= 100) { result.skippedInvalid.push({ index, reason: "Maximum 100 entries" }); continue; }
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) { result.skippedInvalid.push({ index, reason: "Expected an entry object" }); continue; }
+      const item = raw as Record<string, unknown>;
+      if (typeof item.title === "string" && item.title.length > 200 || typeof item.body === "string" && item.body.length > 4000) { result.skippedInvalid.push({ index, reason: "Title or body exceeds the length limit" }); continue; }
+      const parsed = createMemorySchema.safeParse({ kind: item.kind ?? "note", title: item.title, body: item.body, tags: item.tags, sourceLabel: item.sourceLabel ?? `Imported ${new Date().toISOString().slice(0, 10)}`, originKind: "agent", createdByLabel: "Import" });
+      if (!parsed.success || typeof item.body !== "string") { result.skippedInvalid.push({ index, reason: parsed.success ? "Body is required" : parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ") }); continue; }
+      const key = JSON.stringify([parsed.data.kind, parsed.data.title]);
+      if (keys.has(key)) { result.skippedDuplicates++; continue; }
+      const entry = await memory.create(companyId, parsed.data);
+      keys.add(key); result.created++;
+      await logActivity(db, { companyId, actorType: actor.actorType, actorId: actor.actorId, action: "memory.created", entityType: "memory_entry", entityId: entry.id });
+    }
+    res.json(result);
+  });
   router.post(`${base}/merge`, validate(mergeMemorySchema), async (req, res) => mutate(req, res, "merged", () => memory.merge(req.params.companyId as string, req.body), 201));
   router.post(`${base}/:id/supersede`, validate(supersedeMemorySchema), async (req, res) => mutate(req, res, "superseded", () => memory.supersede(req.params.companyId as string, req.params.id as string, req.body), 201));
   router.patch(`${base}/:id`, validate(updateMemorySchema), async (req, res) => mutate(req, res, "updated", () => memory.patch(req.params.companyId as string, req.params.id as string, req.body)));

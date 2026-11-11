@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Memory } from "./Memory";
 import type { MemoryEntry } from "../api/memory";
 
-const mock = vi.hoisted(() => ({ entries: [] as import("../api/memory").MemoryEntry[], list: vi.fn(), getSettings: vi.fn(), setSettings: vi.fn(), create: vi.fn(), update: vi.fn(), withdraw: vi.fn(), restore: vi.fn(), approve: vi.fn(), tidy: vi.fn(), context: vi.fn(), merge: vi.fn(), supersede: vi.fn(), history: vi.fn(), related: vi.fn(), pushToast: vi.fn() }));
+const mock = vi.hoisted(() => ({ import: vi.fn(), entries: [] as import("../api/memory").MemoryEntry[], list: vi.fn(), getSettings: vi.fn(), setSettings: vi.fn(), create: vi.fn(), update: vi.fn(), withdraw: vi.fn(), restore: vi.fn(), approve: vi.fn(), tidy: vi.fn(), context: vi.fn(), merge: vi.fn(), supersede: vi.fn(), history: vi.fn(), related: vi.fn(), pushToast: vi.fn() }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }) }));
 vi.mock("../context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: vi.fn() }) }));
 vi.mock("../context/ToastContext", () => ({ useOptionalToastActions: () => ({ pushToast: mock.pushToast }) }));
@@ -20,6 +20,7 @@ function change(el: HTMLInputElement | HTMLTextAreaElement, value: string) { con
 async function render() { await act(async () => root.render(<QueryClientProvider client={client}><Memory /></QueryClientProvider>)); await waitFor(() => expect(mock.list).toHaveBeenCalled()); }
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); mock.entries = []; vi.clearAllMocks();
+  mock.import.mockResolvedValue({ created: 5, skippedDuplicates: 1, skippedInvalid: [{ index: 0, reason: "bad" }, { index: 1, reason: "bad" }] });
   mock.getSettings.mockResolvedValue({ autoApprove: true });
   mock.setSettings.mockImplementation(async (_company, autoApprove) => ({ autoApprove }));
   mock.tidy.mockResolvedValue({ duplicates: [], stale: [] });
@@ -38,6 +39,14 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 describe("Memory", () => {
+  it("imports text and shows the result", async () => {
+    await render(); await click("Import");
+    await act(async () => change(container.querySelector('textarea')!, '[{"title":"Example","body":"Details"}]'));
+    const dialog = container.querySelector('[role="dialog"]')!;
+    await act(async () => [...dialog.querySelectorAll("button")].find((el) => el.textContent === "Import")!.click());
+    await waitFor(() => expect(container.textContent).toContain("Imported 5 as pending, 1 duplicate skipped, 2 invalid"));
+    expect(mock.import).toHaveBeenCalledWith("company-1", { format: "json", text: '[{"title":"Example","body":"Details"}]' });
+  });
   it("shows related entries and selects a related title", async () => {
     const second = entry({ id: "2", title: "Launch plan" });
     mock.entries = [entry(), second];

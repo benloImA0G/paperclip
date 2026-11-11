@@ -1,6 +1,6 @@
 import { api, requestResponse } from "./client";
 
-export type MemoryKind = "fact" | "decision" | "preference" | "reference" | "lesson";
+export type MemoryKind = "fact" | "decision" | "preference" | "reference" | "lesson" | "note";
 export interface MemoryEntry {
   id: string; companyId: string; kind: MemoryKind; title: string; body: string;
   sourceUrl: string | null; sourceLabel: string | null; tags: string[]; pinned: boolean;
@@ -11,6 +11,7 @@ export interface MemoryEntry {
 }
 export type MemoryInput = Pick<MemoryEntry, "kind" | "title" | "body" | "sourceUrl" | "sourceLabel" | "tags" | "pinned">;
 export const memoryApi = {
+  import: (companyId: string, input: { format: "json" | "markdown"; text: string }) => api.post<{ created: number; skippedDuplicates: number; skippedInvalid: { index: number; reason: string }[] }>(`/companies/${companyId}/memory/import`, input),
   list: (companyId: string, filters: { query?: string; kind?: MemoryKind; tag?: string; status?: "active" | "withdrawn" | "pending" | "all" } = {}) => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });

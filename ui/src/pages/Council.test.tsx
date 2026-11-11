@@ -11,7 +11,7 @@ import { Council } from "./Council";
 
 const api = vi.hoisted(() => ({
   comments: {} as Record<string, unknown[]>,
-  runRound: vi.fn(), forkRoom: vi.fn(), listRooms: vi.fn(), listAttachments: vi.fn(),
+  runRound: vi.fn(), forkRoom: vi.fn(), listRooms: vi.fn(), listAttachments: vi.fn(), listArtifacts: vi.fn(), getArtifact: vi.fn(),
 }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }), useOptionalCompany: () => null }));
 vi.mock("../api/council", () => ({ councilApi: {
@@ -22,7 +22,7 @@ vi.mock("../api/council", () => ({ councilApi: {
     { id: "seat-2", name: "Bob", kind: "vendor", connectionId: "conn-2", model: "model", role: "none", fallbacks: [], active: true },
   ]),
   getBrief: vi.fn(async () => ({ brief: "" })), getWork: vi.fn(async () => ({ status: "idle", steps: [] })),
-  getReliability: vi.fn(async () => null), listArtifacts: vi.fn(async () => []),
+  getReliability: vi.fn(async () => null), listArtifacts: api.listArtifacts, getArtifact: api.getArtifact,
   getExportSetting: vi.fn(async () => ({ requireApproval: false })), listModels: vi.fn(async () => []),
   runRound: api.runRound, forkRoom: api.forkRoom,
 } }));
@@ -70,6 +70,8 @@ beforeEach(() => {
   api.comments = { "room-1": [question, reply], "room-2": [question, { ...reply, id: "reply-2", body: "Second room answer" }] };
   api.listRooms.mockReset().mockResolvedValue([{ id: "room-1", title: "First room" }, { id: "room-2", title: "Second room" }]);
   api.listAttachments.mockReset().mockResolvedValue([]);
+  api.listArtifacts.mockReset().mockResolvedValue([]);
+  api.getArtifact.mockReset();
   api.runRound.mockReset().mockResolvedValue({ results: [] });
   api.forkRoom.mockReset().mockResolvedValue({ room: { id: "room-2" } });
   localStorage.clear();
@@ -79,6 +81,23 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 
 describe("Council page", () => {
+  it.each([1, 2])("shows comparison only when artifact has multiple revisions (%s)", async (count) => {
+    const artifact = { key: "draft", title: "Draft", latestRevisionNumber: count, body: "current", revisions: Array.from({ length: count }, (_, i) => ({ revisionNumber: i + 1, createdAt: "2026-01-01" })) };
+    api.listArtifacts.mockResolvedValue([artifact]);
+    api.getArtifact.mockResolvedValue(artifact);
+    await renderPage();
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Room settings"]')!.click(); });
+    await click("Artifacts");
+    await waitFor(() => expect(container.textContent).toContain(`Draft v${count}`));
+    await click(`Draft v${count}`);
+    await waitFor(() => expect(container.querySelector('select[aria-label="Artifact revision"]')).toBeTruthy());
+    expect(container.textContent?.includes("Compare with previous version")).toBe(count >= 2);
+    if (count === 2) {
+      await act(async () => { [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("Compare with previous version"))!.querySelector("input")!.click(); });
+      await waitFor(() => expect(api.getArtifact).toHaveBeenCalledWith("company-1", "room-1", "draft", 1));
+      await waitFor(() => expect(container.textContent).toContain("No changes"));
+    }
+  });
   it.each(["", "My existing draft"])("fills the review prompt only for an empty composer: %s", async (draft) => {
     await renderPage();
     const input = container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement;

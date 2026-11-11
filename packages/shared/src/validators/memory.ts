@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-export const memoryKindSchema = z.enum(["fact", "decision", "preference", "reference", "lesson"]);
+export const memoryKindSchema = z.enum(["fact", "decision", "preference", "reference", "lesson", "note"]);
 export const memoryOriginKindSchema = z.enum(["manual", "council", "agent"]);
 export const memoryStatusSchema = z.enum(["active", "withdrawn", "pending"]);
 const sourceUrl = z.string().url().refine((value) => /^https?:\/\//i.test(value), "Expected an HTTP or HTTPS URL").nullable();
 const editable = {
   kind: memoryKindSchema,
-  title: z.string().trim().min(1).max(160),
+  title: z.string().trim().min(1).max(200),
   body: z.string().max(8000),
   sourceUrl,
   sourceLabel: z.string().max(160).nullable(),
