@@ -26,6 +26,7 @@ export const memoryApi = {
   approve: (companyId: string, id: string) => api.post<MemoryEntry>(`/companies/${companyId}/memory/${id}/approve`, {}),
   supersede: (companyId: string, id: string, input: Partial<Omit<MemoryInput, "pinned">>) => api.post<MemoryEntry>(`/companies/${companyId}/memory/${id}/supersede`, input),
   history: (companyId: string, id: string) => api.get<{ entries: MemoryEntry[] }>(`/companies/${companyId}/memory/${id}/history`),
+  related: (companyId: string, id: string) => api.get<{ entries: MemoryEntry[] }>(`/companies/${companyId}/memory/${id}/related`),
   context: (companyId: string, query: string, maxChars = 1800) => api.get<{ text: string; entries: MemoryEntry[] }>(`/companies/${companyId}/memory/context?${new URLSearchParams({ query, maxChars: String(maxChars) })}`),
   tidy: (companyId: string) => api.get<{ duplicates: { ids: string[]; reason: string; suggestedTitle: string; suggestedBody: string }[]; stale: MemoryEntry[] }>(`/companies/${companyId}/memory/tidy?staleDays=60`),
   merge: (companyId: string, input: { ids: string[]; title: string; body: string; tags?: string[] }) => api.post<MemoryEntry>(`/companies/${companyId}/memory/merge`, input),

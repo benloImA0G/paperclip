@@ -53,6 +53,22 @@ suite("memory routes", () => {
     expect((await request(app).get(path).query({ status: "withdrawn" })).body.entries[0].id).toBe(id);
     expect((await request(app).post(`${path}/${id}/restore`)).body.status).toBe("active");
   });
+  it("returns up to three active related entries within the company", async () => {
+    const source = await request(app).post(path).send({ kind: "fact", title: "Orchid launch", tags: ["orchid"] });
+    const ids: string[] = [];
+    for (const title of ["Orchid one", "Orchid two", "Orchid three", "Orchid four", "Orchid withdrawn"]) {
+      const created = await request(app).post(path).send({ kind: "fact", title });
+      ids.push(created.body.id);
+    }
+    await request(app).post(`${path}/${ids[4]}/withdraw`).send({});
+    const response = await request(app).get(`${path}/${source.body.id}/related`);
+    expect(response.status).toBe(200);
+    expect(response.body.entries).toHaveLength(3);
+    expect(response.body.entries.every((entry: { id: string }) => ids.slice(0, 4).includes(entry.id))).toBe(true);
+    expect((await request(app).get(`/api/companies/${other}/memory/${source.body.id}/related`)).status).toBe(404);
+    const isolated = await request(app).post(`/api/companies/${other}/memory`).send({ kind: "fact", title: "Unique zephyr" });
+    expect((await request(app).get(`/api/companies/${other}/memory/${isolated.body.id}/related`)).body.entries).toEqual([]);
+  });
   it("keeps pending out of context and export until approved", async () => {
     const pending = await request(app).post(path).send({ kind: "reference", title: "Pending unique", body: "x".repeat(350), originKind: "agent", createdByLabel: "Agent", pinned: true });
     expect(pending.body.status).toBe("pending");

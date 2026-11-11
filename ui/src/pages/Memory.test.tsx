@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Memory } from "./Memory";
 import type { MemoryEntry } from "../api/memory";
 
-const mock = vi.hoisted(() => ({ entries: [] as import("../api/memory").MemoryEntry[], list: vi.fn(), getSettings: vi.fn(), setSettings: vi.fn(), create: vi.fn(), update: vi.fn(), withdraw: vi.fn(), restore: vi.fn(), approve: vi.fn(), tidy: vi.fn(), context: vi.fn(), merge: vi.fn(), supersede: vi.fn(), history: vi.fn(), pushToast: vi.fn() }));
+const mock = vi.hoisted(() => ({ entries: [] as import("../api/memory").MemoryEntry[], list: vi.fn(), getSettings: vi.fn(), setSettings: vi.fn(), create: vi.fn(), update: vi.fn(), withdraw: vi.fn(), restore: vi.fn(), approve: vi.fn(), tidy: vi.fn(), context: vi.fn(), merge: vi.fn(), supersede: vi.fn(), history: vi.fn(), related: vi.fn(), pushToast: vi.fn() }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }) }));
 vi.mock("../context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: vi.fn() }) }));
 vi.mock("../context/ToastContext", () => ({ useOptionalToastActions: () => ({ pushToast: mock.pushToast }) }));
@@ -25,6 +25,7 @@ beforeEach(() => {
   mock.tidy.mockResolvedValue({ duplicates: [], stale: [] });
   mock.context.mockResolvedValue({ text: "Agent context", entries: [] });
   mock.history.mockResolvedValue({ entries: [entry({ id: "old", title: "Old version" })] });
+  mock.related.mockResolvedValue({ entries: [] });
   mock.merge.mockResolvedValue(entry());
   mock.supersede.mockResolvedValue(entry());
   mock.list.mockImplementation(async (_company, filters) => ({ entries: mock.entries.filter((e) => filters.status === "pending" ? e.status === "pending" : filters.status === "all" ? e.status !== "pending" : e.status === "active").filter((e) => !filters.query || e.title.toLowerCase().includes(filters.query.toLowerCase())) }));
@@ -37,6 +38,19 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 describe("Memory", () => {
+  it("shows related entries and selects a related title", async () => {
+    const second = entry({ id: "2", title: "Launch plan" });
+    mock.entries = [entry(), second];
+    mock.related.mockImplementation(async (_company, id) => ({ entries: id === "1" ? [second] : [] }));
+    await render(); await waitFor(() => expect(button("Launch checklist")).toBeTruthy());
+    await click("Launch checklist");
+    await waitFor(() => expect(container.textContent).toContain("Related"));
+    const related = [...container.querySelectorAll("li button")].find((el) => el.textContent === "Launch plan") as HTMLButtonElement;
+    expect(related).toBeTruthy();
+    await act(async () => related.click());
+    await waitFor(() => expect(mock.related).toHaveBeenCalledWith("company-1", "2"));
+    await waitFor(() => expect(container.textContent).not.toContain("Related"));
+  });
   it("toggles automatic approval", async () => {
     await render(); await waitFor(() => expect(button("Auto-approve: On").disabled).toBe(false));
     await click("Auto-approve: On");

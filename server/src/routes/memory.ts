@@ -5,7 +5,7 @@ import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { logActivity } from "../services/activity-log.js";
-import { MemoryDuplicateError, memoryService } from "../services/memory.js";
+import { MemoryDuplicateError, memoryService, relatedEntries } from "../services/memory.js";
 
 export function memoryRoutes(db: Db) {
   const router = Router();
@@ -41,6 +41,13 @@ export function memoryRoutes(db: Db) {
   router.get(`${base}/:id/history`, async (req, res) => {
     const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
     res.json({ entries: await memory.history(companyId, req.params.id as string) });
+  });
+  router.get(`${base}/:id/related`, async (req, res) => {
+    const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
+    if (getActorInfo(req).actorType !== "user") throw forbidden("Only board users can manage memory");
+    const entry = await memory.get(companyId, req.params.id as string);
+    const entries = await memory.list(companyId, { status: "active" });
+    res.json({ entries: relatedEntries(entries, entry, 3) });
   });
   router.get(`${base}/export`, async (req, res) => {
     const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);

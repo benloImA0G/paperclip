@@ -79,6 +79,15 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 
 describe("Council page", () => {
+  it("toggles the mobile room options disclosure", async () => {
+    await renderPage();
+    const disclosure = button("Options");
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => { disclosure.click(); });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    await act(async () => { disclosure.click(); });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+  });
   it("shows documents for the open room in settings", async () => {
     await renderPage();
     await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Room settings"]')!.click(); });

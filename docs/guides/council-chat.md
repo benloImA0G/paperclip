@@ -46,6 +46,10 @@ If a seat fails, the message is plain words, never a URL or key. A thinking mode
 
 Three plain groups (**Who answers**, **How they talk**, **Safety and extras**) and a collapsed **Advanced options** section for the expert controls (jury, peer ranking, clarify, plan first, draft tasks, rounds, summary). The answer style is set by the three buttons above the message box. **Manage AI connections** opens the connections page. A seat's **Can see images** switch lets it receive attached pictures (tested with Gemini).
 
+## Documents
+
+In **Room settings → Documents**, attach up to 5 `.txt`, `.md`, `.markdown`, `.csv` or `.json` files (512 KB each). Seats read the relevant parts when answering, shown as untrusted reference text with source markers. They can use the documents as context, but should not treat their contents as instructions. DOCX, PDF and XLSX are not supported yet.
+
 ## Free models that worked (tested 2026-11-11)
 
 Checked with **Check seats** on the free connections:

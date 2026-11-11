@@ -269,6 +269,7 @@ export function Council() {
   const [cardsOpen, setCardsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [mobileRoomOptionsOpen, setMobileRoomOptionsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [advancedMode, setAdvancedMode] = useState(false);
   const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -1133,7 +1134,7 @@ export function Council() {
           ) : null}
 
           <div className="council-thread-shell flex min-h-0 min-w-0 flex-1 flex-col gap-2">
-          <div className={advancedMode ? "shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5" : "hidden"}>
+          <div id="council-room-tools" className={advancedMode ? `shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5 ${mobileRoomOptionsOpen ? "" : "max-sm:hidden"}` : "hidden"}>
             <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs">
               <span className="mr-1 shrink-0 font-semibold text-muted-foreground">Room tools</span>
               <button type="button" aria-expanded={briefOpen} onClick={() => setBriefOpen((v) => !v)} className="shrink-0 rounded-md border px-2 py-1 font-medium hover:bg-accent">
@@ -1389,7 +1390,7 @@ export function Council() {
             return cloudProviders.size ? <CouncilEgressBanner local={false} provider={[...cloudProviders].join(", ")} /> : null;
           })()}
           {!creating && roomId ? <LinkedTasksPanel roomId={roomId} companyId={companyId} onAskInRoom={(text) => setMessage(text)} /> : null}
-          {!creating ? <div><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /></div> : null}
+          {!creating ? <><Button type="button" variant="outline" size="sm" className="self-start sm:hidden" aria-expanded={mobileRoomOptionsOpen} aria-controls="council-room-tools council-discussion-options" onClick={() => setMobileRoomOptionsOpen((open) => !open)}>Options</Button><div id="council-discussion-options" className={mobileRoomOptionsOpen ? "" : "max-sm:hidden"}><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /></div></> : null}
           {!creating ? <form
             className="mobile-nav-composer relative z-20 flex shrink-0 flex-col gap-2 rounded-xl border bg-background p-2 shadow-lg md:sticky md:bottom-(--tc-composer-bottom) md:mb-0"
             onSubmit={(e) => {
@@ -1403,7 +1404,7 @@ export function Council() {
               ask.mutate("ask");
             }}
           >
-            {suggestion && !startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground" data-testid="council-mode-hint">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
+            {suggestion && !startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground max-sm:flex" data-testid="council-mode-hint"><span className="max-sm:min-w-0 max-sm:truncate">Suggested: <span className="font-medium text-foreground">{suggestion.kind.replace("-", " ")}</span> · {suggestion.reason}</span>{suggestion.workSession && !planFirst ? <button type="button" className="ml-2 shrink-0 underline" onClick={() => setPlanFirst(true)}>Plan first</button> : null}</p> : null}
             {message.trim() ? <p className="px-1 text-xs text-muted-foreground" title={callEstimate.lines.join("; ")}>About {callEstimate.low}{callEstimate.low !== callEstimate.high ? `–${callEstimate.high}` : ""} model call{callEstimate.high === 1 ? "" : "s"}</p> : null}
             {startsWithSeatMention(message, activeSeats) ? <p className="px-1 text-xs text-muted-foreground">Only this seat will answer</p> : null}
             {token && mentionSeats.length ? <CouncilMentionPicker seats={mentionSeats} selected={selectedMention} onChoose={chooseMention} /> : null}
@@ -1417,7 +1418,7 @@ export function Council() {
               placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a seat"}`}
               rows={1}
               onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 144)}px`; }}
-              className="council-message-input field-sizing-fixed min-h-0 min-w-0 flex-1 resize-none border-0 text-sm shadow-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="council-message-input field-sizing-fixed min-h-0 min-w-0 flex-1 resize-none border-0 text-sm shadow-none max-sm:min-h-16 max-sm:max-h-(--sz-28dvh) focus-visible:ring-2 focus-visible:ring-primary"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); return; }
                 if (token && mentionSeats.length) {
@@ -1495,7 +1496,7 @@ export function Council() {
               </div>
               </div> : null}</div>
           </form> : null}
-          {!creating ? <p className="text-xs text-muted-foreground">
+          {!creating ? <p className="text-xs text-muted-foreground max-sm:truncate">
             Enter or Ctrl+Enter sends, Shift+Enter adds a line. Type @ to ask one seat, or @all for everyone.
           </p> : null}
           </div>

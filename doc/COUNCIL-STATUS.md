@@ -55,3 +55,8 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 - Review fixes from a read-only Codex review: work state saved before and after the run and normalized after a restart, forged-delimiter protection (`council-untrusted.ts`), room-safe clarify form, stale classify guard, abortable backoff.
 - Recipes: `doc/COUNCIL-RECIPES.md`. Live check: `python3 scripts/council-live-smoke.py [--full]` (also checked in the browser: hint, toggles, clarify form, grades, parallel steps).
 - Known gaps: work sessions are not claimed across several server replicas (single dev server is fine); only the latest work session per room is kept; Groq's free tier rate-limits on tokens per minute when several seats share one model (the retry helps, fallbacks help more).
+
+## Added 2026-11-11 (night shift)
+- **Documents:** attach `.txt`, `.md`, `.markdown`, `.csv` or `.json` files to a room in **Room settings → Documents**. Seats read relevant parts as untrusted reference text with source markers. A room can have up to 5 documents, each up to 512 KB. The service is in `server/src/services/council-docs.ts` and is wired into `council-chat.ts`'s `runRound`.
+- **Memory context:** shared memory is now ranked by relevance to the question, with pinned entries first. Previously, a full question could match nothing.
+- **Known gaps:** DOCX, PDF and XLSX are not supported yet (milestone O4 in `COUNCIL-OUTPUTS-ROADMAP.md`).
