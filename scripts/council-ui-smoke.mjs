@@ -195,6 +195,32 @@ try {
       const dialog = page.getByRole("dialog");
       dialogOpened = await dialog.waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false);
       if (dialogOpened) {
+        const formatSelect = dialog.getByRole("combobox", { name: "Format" });
+        const memoryText = dialog.getByRole("textbox", { name: "Memory text" });
+        const help = dialog.locator("#memory-import-help");
+        const assertFormatState = async (format, name) => {
+          const isOpen = await dialog.isVisible().catch(() => false);
+          const selected = await formatSelect.inputValue().catch(() => "");
+          const helpText = await help.innerText().catch(() => "");
+          const matches = format === "markdown" ? helpText.includes("Start each memory with a line like") : helpText.includes("A list of entries: title and body are required");
+          report(`${viewport.name} Memory Import ${name} keeps dialog open and help matches ${format}`, isOpen && selected === format && matches, `selected ${selected}`);
+        };
+        for (let index = 0; index < 3; index++) {
+          await formatSelect.selectOption("markdown");
+          await assertFormatState("markdown", `format change ${index + 1}`);
+          await formatSelect.selectOption("json");
+          await assertFormatState("json", `format change ${index + 1}`);
+        }
+        await formatSelect.click();
+        await formatSelect.focus();
+        await page.keyboard.press("ArrowDown");
+        await page.keyboard.press("Enter");
+        await assertFormatState("markdown", "keyboard format change");
+        await memoryText.fill("test");
+        await formatSelect.selectOption("json");
+        const preserved = await memoryText.inputValue().catch(() => "");
+        await assertFormatState("json", "format change after text entry");
+        report(`${viewport.name} Memory Import text preserved across format change`, preserved === "test", `text ${preserved}`);
         await page.keyboard.press("Escape");
         await page.waitForTimeout(150);
         focusRestored = await importButton.evaluate((element) => element === document.activeElement);
