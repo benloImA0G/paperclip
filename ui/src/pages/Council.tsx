@@ -275,6 +275,7 @@ export function Council() {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const submittedDraftRef = useRef("");
   const [mobileRoomOptionsOpen, setMobileRoomOptionsOpen] = useState(false);
+  const [mobileSeatsOpen, setMobileSeatsOpen] = useState(false);
   const [compactComposer, setCompactComposer] = useState(() => window.matchMedia?.("(max-width: 639px)").matches ?? false);
   useEffect(() => {
     const media = window.matchMedia?.("(max-width: 639px)");
@@ -915,19 +916,19 @@ export function Council() {
 
   return (
     <div data-task-chat-shell className="council-shell flex h-(--sz-100dvh) min-h-0 flex-col gap-3 overflow-hidden pb-(--tc-composer-visible-nav-offset) md:pb-0">
-      <div className="council-header flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 basis-full items-center gap-3 sm:flex-1 sm:basis-0">
+      <div className="council-header flex shrink-0 items-center justify-between gap-2 sm:flex-wrap sm:gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3 sm:basis-0">
           <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40"><MessagesSquare className="h-5 w-5" /></span>
           <div className="min-w-0">
-            <div className="flex items-center gap-2"><h1 className="truncate text-lg font-semibold leading-tight">Council Chat</h1>{room?.kind ? <KindChip kind={room.kind} /> : null}</div>
-            <p className="text-xs text-muted-foreground">Ask several AIs the same question, compare their answers, then turn the result into tasks.</p>
-            {room ? <><CouncilRoomStats replies={(comments.data ?? []).filter((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((c) => ({ metadata: c.metadata as { councilReliability?: CouncilReplyReliability } | null }))} /></> : null}
+            <div className="flex items-center gap-2"><h1 className="truncate text-lg font-semibold leading-tight">Council Chat</h1>{room?.kind ? <span className="max-sm:hidden"><KindChip kind={room.kind} /></span> : null}</div>
+            <p className="text-xs text-muted-foreground max-sm:hidden">Ask several AIs the same question, compare their answers, then turn the result into tasks.</p>
+            {room ? <div className="max-sm:hidden"><CouncilRoomStats replies={(comments.data ?? []).filter((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((c) => ({ metadata: c.metadata as { councilReliability?: CouncilReplyReliability } | null }))} /></div> : null}
           </div>
         </div>
         <div className="flex flex-wrap items-stretch gap-2">
           <div className="relative">
             <Button ref={settingsTriggerRef} type="button" variant="outline" size="sm" aria-label="Room settings" aria-expanded={settingsOpen} aria-controls="council-room-settings" onClick={() => setSettingsOpen((v) => !v)}>
-              <Settings2 /> Settings {brief.trim() || requireApproval ? <span aria-label="Settings need attention" className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
+              <Settings2 /> <span className="max-sm:sr-only">Settings</span> {brief.trim() || requireApproval ? <span aria-label="Settings need attention" className="h-1.5 w-1.5 rounded-full bg-primary" /> : null}
             </Button>
             {settingsOpen ? <div id="council-room-settings" role="dialog" aria-label="Room settings" className="council-settings-panel fixed inset-x-2 bottom-2 z-40 max-h-screen overflow-y-auto rounded-xl border bg-popover p-4 shadow-2xl md:absolute md:inset-x-auto md:right-0 md:top-full md:bottom-auto md:mt-2 md:w-96">
               <div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-semibold">Room settings</h2><p className="text-xs text-muted-foreground">Optional controls for this war room.</p></div><Button type="button" variant="ghost" size="sm" aria-label="Close room settings" onClick={() => { setSettingsOpen(false); settingsTriggerRef.current?.focus(); }}><X /></Button></div>
@@ -938,9 +939,10 @@ export function Council() {
             </div> : null}
           </div>
           <div className="relative">
-            <Button ref={moreTriggerRef} type="button" variant="outline" size="sm" aria-expanded={moreOpen} aria-controls="council-more-actions" onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal /> More</Button>
+            <Button ref={moreTriggerRef} type="button" variant="outline" size="sm" aria-expanded={moreOpen} aria-controls="council-more-actions" onClick={() => setMoreOpen((v) => !v)}><MoreHorizontal /> <span className="max-sm:sr-only">More</span></Button>
             {moreOpen ? <div id="council-more-actions" className="absolute right-0 z-20 mt-1 flex min-w-44 flex-col rounded-lg border bg-popover p-1 shadow-lg">
 
+              <div className="space-y-1 px-2 py-1 text-xs sm:hidden">{room?.kind ? <KindChip kind={room.kind} /> : null}{room ? <CouncilRoomStats replies={(comments.data ?? []).filter((c) => c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX)).map((c) => ({ metadata: c.metadata as { councilReliability?: CouncilReplyReliability } | null }))} /> : null}</div>
               <Button variant="ghost" size="sm" className="justify-start" disabled={!roomId || setArchived.isPending || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Archive Thread unavailable while a round is running" : "Archive Thread"} onClick={() => roomId && setArchived.mutate({ id: roomId, on: true })}><Archive /> Archive Thread</Button>
               <Button variant="ghost" size="sm" className="justify-start" disabled={!comments.data?.length} onClick={() => { const text = formatCouncilMarkdown((comments.data ?? []).map((c) => ({ name: c.authorUserId?.startsWith(SEAT_AUTHOR_PREFIX) ? seatById.get(c.authorUserId)?.name ?? "Seat" : "You", body: c.body }))); void copyTextToClipboard(text).then(() => { toast?.pushToast({ tone: "success", title: "Copied" }); setMoreOpen(false); }).catch(() => setError("Could not copy messages")); }}>Copy as Markdown</Button>
               <Button variant="ghost" size="sm" className="justify-start text-destructive" disabled={!roomId || !room || running} title={running ? "Stop the running round first" : undefined} aria-label={running ? "Delete Thread unavailable while a round is running" : "Delete Thread"} onClick={() => { if (room && window.confirm(`Delete the war room "${room.title}" and all its messages?`)) deleteRoom.mutate(room.id); }}><Trash2 /> Delete Thread</Button>
@@ -1066,7 +1068,9 @@ export function Council() {
             </span>
           </div>
           {!cardsOpen ? (
-          <div className="flex shrink-0 flex-wrap gap-2 overflow-x-auto md:flex-wrap">
+          <>
+          <button type="button" className="self-start rounded-full border px-3 py-1 text-xs sm:hidden" aria-expanded={mobileSeatsOpen} aria-controls="council-seat-pills" onClick={() => setMobileSeatsOpen((open) => !open)}>{allSeats.length} seat{allSeats.length === 1 ? "" : "s"}</button>
+          <div id="council-seat-pills" className={`flex shrink-0 flex-wrap gap-2 overflow-x-auto md:flex-wrap ${mobileSeatsOpen ? "" : "max-sm:hidden"}`}>
               {[...allSeats.map((seat) => ({ connection: connectionOptions.find((conn) => conn.id === seat.connectionId), seat })), ...connectionOptions.filter((conn) => !seatOf(conn.id)).map((conn) => ({ connection: conn, seat: undefined }))].map(({ connection: conn, seat }) => {
                 const isAgent = seat?.kind === "agent";
                 const color = seat ? seatColor(seat.id) : colorOfConnection(conn!.id);
@@ -1094,6 +1098,7 @@ export function Council() {
                 );
               })}
             </div>
+          </>
           ) : null}
           <CouncilSeatCheck key={`${companyId}:${roomId}`} companyId={companyId} roomId={roomId} onRemember={(check) => { setCheckMemory((current) => ({ ...current, [roomId]: check })); setCheckNow(Date.now()); }} showCheck={activeSeats.length > 0} onError={(error) => { if (toast) toast.pushToast({ tone: "error", title: "Could not check seats", body: errorText(error) }); else setError(`Could not check seats: ${errorText(error)}`); }}>
           <CouncilSavedTeams seats={allSeats} onCreate={async (seat) => {

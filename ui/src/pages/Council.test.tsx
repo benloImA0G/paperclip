@@ -276,6 +276,20 @@ describe("Council page", () => {
     expect(container.querySelector('section[aria-label="Documents"]')).toBeNull();
     expect(api.listAttachments).not.toHaveBeenCalled();
   });
+  it("discloses mobile seats while retaining the desktop seat pills", async () => {
+    await renderPage();
+    const disclosure = button("2 seats");
+    const pills = container.querySelector<HTMLElement>("#council-seat-pills")!;
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(pills.className).toContain("max-sm:hidden");
+    expect(pills.textContent).toContain("Alice");
+    expect(pills.textContent).toContain("Bob");
+    await act(async () => { disclosure.click(); });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(pills.className).not.toContain("max-sm:hidden");
+    await act(async () => { disclosure.click(); });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+  });
   it("renders seats, reply footer, and one set of room controls", async () => {
     await renderPage();
     await waitFor(() => counts());
