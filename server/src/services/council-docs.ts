@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
-import { inflateRawSync } from "node:zlib";
+import { inflateRaw } from "node:zlib";
+import { promisify } from "node:util";
+
+const inflateRawAsync = promisify(inflateRaw);
 import { untrusted } from "./council-untrusted.js";
 
 const MAX_BYTES = 512 * 1024;
@@ -65,46 +68,89 @@ function validDocumentZip(bytes: Uint8Array): boolean {
   return false;
 }
 
-/** Never throws: a malformed archive must not crash the process from an event handler. */
-function safeXlsxInline(bytes: Uint8Array): string {
-  try { return xlsxInlineStrings(bytes); } catch { return ""; }
+/** Never throws: malformed archives and failed inflations are ignored. */
+export async function safeXlsxInline(bytes: Uint8Array, budget = 20 * 1024 * 1024): Promise<string> {
+  try { return await xlsxInlineStrings(bytes, budget); } catch { return ""; }
 }
-// Pandoc's XLSX reader omits inline strings. Recover those cells alongside its
-// output; the ZIP has already passed validDocumentZip's size and layout checks.
-function xlsxInlineStrings(bytes: Uint8Array): string {
+// Pandoc omits inline strings. Bound both individual and cumulative inflation.
+async function xlsxInlineStrings(bytes: Uint8Array, budget: number): Promise<string> {
   const zip = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let end = zip.length - 22;
   while (end >= Math.max(0, zip.length - 22 - 0xffff)) {
     if (zip.readUInt32LE(end) === 0x06054b50 && end + 22 + zip.readUInt16LE(end + 20) === zip.length) break;
     end--;
   }
+  if (end < 0) return "";
   let pos = zip.readUInt32LE(end + 16);
   const count = zip.readUInt16LE(end + 10);
   const lines: string[] = [];
-  let remaining = MAX_PANDOC_OUTPUT;
-  for (let i = 0; i < count && remaining > 0; i++) {
+  let remaining = MAX_PANDOC_OUTPUT, inflated = 0, sheets = 0;
+  for (let i = 0; i < count && remaining > 0 && sheets < 20; i++) {
+    if (pos + 46 > end || zip.readUInt32LE(pos) !== 0x02014b50) break;
     const nameLength = zip.readUInt16LE(pos + 28), extraLength = zip.readUInt16LE(pos + 30), commentLength = zip.readUInt16LE(pos + 32);
+    const next = pos + 46 + nameLength + extraLength + commentLength;
+    if (next > end) break;
     const name = zip.toString("utf8", pos + 46, pos + 46 + nameLength);
     if (/^xl\/worksheets\/sheet[^/]*\.xml$/i.test(name)) {
-      const local = zip.readUInt32LE(pos + 42);
-      const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
-      const compressed = zip.subarray(start, start + zip.readUInt32LE(pos + 20));
-      const method = zip.readUInt16LE(pos + 10);
+      sheets++;
       try {
-        const xml = (method === 0 ? compressed : method === 8 ? inflateRawSync(compressed, { maxOutputLength: MAX_ZIP_UNCOMPRESSED }) : Buffer.alloc(0)).toString("utf8");
-        for (const cell of xml.matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c\s*>/g)) {
-          if (!/\bt\s*=\s*["']inlineStr["']/.test(cell[1])) continue;
-          const value = [...cell[2].matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t\s*>/g)].map((match) => match[1]).join("")
-            .replace(/&#(?:x([\da-f]+)|(\d+));|&(amp|lt|gt|quot|apos);/gi, (entity, hex, dec, named) => {
+        const local = zip.readUInt32LE(pos + 42);
+        if (local + 30 > zip.length || zip.readUInt32LE(local) !== 0x04034b50) throw new Error("Invalid local header");
+        const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+        const compressedSize = zip.readUInt32LE(pos + 20);
+        if (start + compressedSize > zip.length) throw new Error("Truncated worksheet");
+        const compressed = zip.subarray(start, start + compressedSize);
+        const method = zip.readUInt16LE(pos + 10);
+        const limit = Math.min(8 * 1024 * 1024, budget - inflated);
+        if (limit <= 0) break;
+        const data = method === 0 ? compressed : method === 8 ? await inflateRawAsync(compressed, { maxOutputLength: limit }) : null;
+        if (!data || data.length > limit) { pos = next; continue; }
+        inflated += data.length;
+        const xml = data.toString("utf8");
+        let scan = 0;
+        while (scan < xml.length && remaining > 0) {
+          const cellStart = xml.indexOf("<c", scan);
+          if (cellStart < 0) break;
+          const boundary = xml[cellStart + 2];
+          if (boundary !== ">" && boundary !== "/" && !/\s/.test(boundary ?? "")) { scan = cellStart + 2; continue; }
+          const tagEnd = xml.indexOf(">", cellStart + 2);
+          if (tagEnd < 0) break;
+          const attrs = xml.slice(cellStart + 2, tagEnd);
+          scan = tagEnd + 1;
+          if (/\/\s*$/.test(attrs)) continue;
+          const cellEnd = xml.indexOf("</c>", scan);
+          if (cellEnd < 0) break;
+          if (/\bt\s*=\s*["']inlineStr["']/.test(attrs)) {
+            let textScan = scan, value = "";
+            while (textScan < cellEnd) {
+              const startText = xml.indexOf("<t", textScan);
+              if (startText < 0 || startText >= cellEnd) break;
+              const boundaryText = xml[startText + 2];
+              if (boundaryText !== ">" && boundaryText !== "/" && !/\s/.test(boundaryText ?? "")) { textScan = startText + 2; continue; }
+              const textTagEnd = xml.indexOf(">", startText + 2);
+              if (textTagEnd < 0 || textTagEnd >= cellEnd) break;
+              textScan = textTagEnd + 1;
+              if (/\/\s*$/.test(xml.slice(startText + 2, textTagEnd))) continue;
+              const textEnd = xml.indexOf("</t>", textScan);
+              if (textEnd < 0 || textEnd > cellEnd) break;
+              value += xml.slice(textScan, textEnd);
+              textScan = textEnd + 4;
+            }
+            value = value.replace(/&#(?:x([\da-f]+)|(\d+));|&(amp|lt|gt|quot|apos);/gi, (entity, hex, dec, named) => {
               if (named) return ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" } as Record<string, string>)[named.toLowerCase()];
               const code = parseInt(hex ?? dec, hex ? 16 : 10);
               return code <= 0x10ffff ? String.fromCodePoint(code) : entity;
-            });
-          if (value) { const line = `${name} ${cell[1].match(/\br\s*=\s*["']([^"']+)["']/)?.[1] ?? ""}: ${value}`.slice(0, remaining); lines.push(line); remaining -= line.length; }
+            }).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+            if (value) {
+              const line = `${name} ${attrs.match(/\br\s*=\s*["']([^"']+)["']/)?.[1] ?? ""}: ${value}`.slice(0, Math.max(0, remaining - (lines.length ? 1 : 0)));
+              if (line) { remaining -= line.length + (lines.length ? 1 : 0); lines.push(line); }
+            }
+          }
+          scan = cellEnd + 4;
         }
       } catch { /* Leave unsupported or invalid worksheet data to Pandoc. */ }
     }
-    pos += 46 + nameLength + extraLength + commentLength;
+    pos = next;
   }
   return lines.join("\n");
 }
@@ -186,11 +232,18 @@ export async function extractDocTextAsync(input: {
       child.stderr.resume();
       child.stdin.on("error", () => {});
       child.on("error", (error: NodeJS.ErrnoException) => { release(); finish({ ok: false, reason: error.code === "ENOENT" ? "This document type needs Pandoc on the server" : "Document conversion failed" }); });
-      child.on("close", (code) => { release(); const output = Buffer.concat(parts).toString("utf8");
-        const inline = code === 0 && kind === "xlsx" ? safeXlsxInline(input.bytes).slice(0, Math.max(0, MAX_PANDOC_OUTPUT - output.length)) : "";
-        finish(code === 0
-        ? { ok: true, text: inline ? `${output}\n${inline}` : output, kind: kind! }
-        : { ok: false, reason: "Document conversion failed" }); });
+      child.on("close", async (code) => {
+        release();
+        try {
+          const output = Buffer.concat(parts).toString("utf8");
+          const inline = code === 0 && kind === "xlsx" ? (await safeXlsxInline(input.bytes)).slice(0, Math.max(0, MAX_PANDOC_OUTPUT - output.length)) : "";
+          finish(code === 0
+            ? { ok: true, text: inline ? `${output}\n${inline}` : output, kind: kind! }
+            : { ok: false, reason: "Document conversion failed" });
+        } catch {
+          finish({ ok: false, reason: "Document conversion failed" });
+        }
+      });
       child.stdin.end(input.bytes);
     } catch (error) {
       release();

@@ -47,6 +47,18 @@ describe("Memory", () => {
     await waitFor(() => expect(document.body.textContent).toContain("Imported 5 as pending, 1 duplicate skipped, 2 invalid"));
     expect(mock.import).toHaveBeenCalledWith("company-1", { format: "json", text: '[{"title":"Example","body":"Details"}]' });
   });
+  it("shows import failures inside the open dialog and preserves the text", async () => {
+    mock.import.mockRejectedValueOnce(new Error("Import failed from API"));
+    await render(); await click("Import");
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    const textarea = dialog.querySelector("textarea")!;
+    await act(async () => change(textarea, "preserve this import"));
+    await act(async () => [...dialog.querySelectorAll("button")].find((el) => el.textContent === "Import")!.click());
+    await waitFor(() => expect(dialog.querySelector('[role="alert"]')?.textContent).toBe("Import failed from API"));
+    expect(document.body.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.body.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!.value).toBe("preserve this import");
+    expect(document.body.querySelectorAll('[role="alert"]')).toHaveLength(1);
+  });
   it("ignores stale file reads and rejects oversized files", async () => {
     await render(); await click("Import");
     const input = document.body.querySelector<HTMLInputElement>('[role="dialog"] input[type="file"]')!;
@@ -68,7 +80,7 @@ describe("Memory", () => {
     expect(document.body.querySelector('[role="dialog"]')?.contains(document.activeElement)).toBe(true);
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     await waitFor(() => expect(document.body.querySelector('[role="dialog"]')).toBeNull());
-    expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
   it("shows related entries and selects a related title", async () => {
     const second = entry({ id: "2", title: "Launch plan" });
