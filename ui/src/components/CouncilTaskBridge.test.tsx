@@ -199,7 +199,7 @@ describe("CouncilTaskBridge", () => {
       mocks.create.mockResolvedValue({ id: "issue-43", identifier: "PAP-43", status: "todo" });
       const root = renderChecklist();
       await flush();
-      expect(container.textContent).toContain("Tick the actions you want, then press Create selected. Nothing is created until then.");
+      expect(container.textContent).toContain("Tick the actions you want and press Create selected, or press Create task on a single action. Nothing is created until you press one of them.");
 
       const select = container.querySelector('[aria-label="Assignee for Draft pricing memo"]') as HTMLSelectElement;
       act(() => {

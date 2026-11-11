@@ -51,6 +51,17 @@ suite("memory lifecycle", () => {
     expect((await request(app).post(`/api/companies/${other}/memory/merge`).send({ ids: [first.id, second.id], title: "No", body: "x" })).status).toBe(404);
     expect((await request(app).get(`${path}/tidy`).query({ staleDays: 6 })).status).toBe(400);
   });
+  it("keeps a merge pending when any input is pending and preserves links and pins", async () => {
+    const { memoryService } = await import("../services/memory.js");
+    const memory = memoryService(db);
+    const active = await memory.create(company, { kind: "preference", title: "Active merge", pinned: true });
+    const pending = await memory.create(company, { kind: "preference", title: "Pending merge", originKind: "agent" });
+    const merged = await memory.merge(company, { ids: [active.id, pending.id], title: "Merged review", body: "Combined" });
+    expect(merged).toMatchObject({ status: "pending", pinned: true, supersedesId: active.id });
+    expect(await memory.get(company, active.id)).toMatchObject({ status: "withdrawn", supersededById: merged.id });
+    expect(await memory.get(company, pending.id)).toMatchObject({ status: "withdrawn", supersededById: merged.id });
+    expect((await memory.history(company, merged.id)).map((entry) => entry.id)).toEqual([merged.id, active.id]);
+  });
   it("budgets context and records only included entries", async () => {
     const pinned = (await request(app).post(path).send({ kind: "fact", title: "Budget pinned", body: "p".repeat(200), pinned: true })).body;
     const otherEntry = (await request(app).post(path).send({ kind: "fact", title: "Budget second", body: "s".repeat(200) })).body;

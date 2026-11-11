@@ -9,6 +9,24 @@ type AskRoomModel = ReturnType<typeof councilChatService>["askRoomModel"];
 const unavailable = "Open this chat as a Council room with a model seat to learn from it";
 const kinds = ["lesson", "decision", "preference", "fact"] as const;
 type Kind = typeof kinds[number];
+const extractionLocks = new Map<string, Promise<void>>();
+async function serializeExtraction<T>(companyId: string, work: () => Promise<T>): Promise<T> {
+  const previous = extractionLocks.get(companyId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  extractionLocks.set(companyId, current);
+  await previous;
+  try { return await work(); }
+  finally {
+    release();
+    if (extractionLocks.get(companyId) === current) extractionLocks.delete(companyId);
+  }
+}
+const negations = (text: string) => new Set(text.toLowerCase().replace(/’/g, "'").match(/\b(?:not|never|no|don't|avoid|without|cannot)\b/g) ?? []);
+function sameNegations(a: string, b: string) {
+  const left = negations(a), right = negations(b);
+  return left.size === right.size && [...left].every((word) => right.has(word));
+}
 
 export function memoryLessonsService(db: Db, deps: { askRoomModel?: AskRoomModel } = {}) {
   const ask = deps.askRoomModel ?? councilChatService(db).askRoomModel;
@@ -62,28 +80,30 @@ export function memoryLessonsService(db: Db, deps: { askRoomModel?: AskRoomModel
       let parsed: unknown;
       try { parsed = JSON.parse(answer.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")); } catch { return { created: [], skipped: 0, autoApproved: 0 }; }
       if (!Array.isArray(parsed)) return { created: [], skipped: 0, autoApproved: 0 };
-      const existing = await db.select({ kind: memoryEntries.kind, title: memoryEntries.title, body: memoryEntries.body, createdByLabel: memoryEntries.createdByLabel }).from(memoryEntries)
-        .where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.status, ["active", "pending"])));
-      const key = (kind: string, title: string) => `${kind}:${title.trim().toLowerCase()}`;
-      const seen = new Set(existing.map((entry) => key(entry.kind, entry.title)));
-      const comparable = existing.filter((entry) => entry.kind === "lesson" || entry.createdByLabel.startsWith("Lesson extractor"));
-      const created: (typeof memoryEntries.$inferSelect)[] = [];
-      let skipped = 0, skippedSimilar = 0, autoApproved = 0;
-      const settings = await memory.getSettings(companyId);
-      for (const item of parsed) {
-        if (created.length >= maxLessons) break;
-        if (!item || typeof item !== "object" || !kinds.includes(item.kind as Kind) || typeof item.title !== "string" || typeof item.body !== "string" || !Array.isArray(item.tags)) continue;
-        const title = item.title.trim(), body = item.body.trim();
-        if (!title || title.length > 120 || !body || body.length > 600 || /ignore\s+previous|you\s+must|system\s+prompt/i.test(title) || item.tags.length > 4 || item.tags.some((tag: unknown) => typeof tag !== "string" || !tag.trim() || tag.trim().length > 32)) continue;
-        const id = key(item.kind, title);
-        if (seen.has(id) || comparable.some((entry) => lessonSimilarity(entry, { title, body }) >= 0.6)) { skipped++; skippedSimilar++; continue; }
-        const confidence = confidenceOf(item.confidence);
-        const shouldApprove = settings.autoApprove && confidence >= MEMORY_AUTO_APPROVE_THRESHOLD;
-        let entry = await memory.create(companyId, { kind: item.kind as Kind, title, body, tags: item.tags.map((tag: string) => tag.trim().toLowerCase()), originKind: "council", originRef: issueId, createdByLabel: shouldApprove ? `Lesson extractor (auto-approved, ${confidence}%)` : "Lesson extractor", sourceLabel: `Chat: ${issue.title}`.slice(0, 160) });
-        if (shouldApprove) { entry = await memory.approve(companyId, entry.id); autoApproved++; }
-        created.push(entry); seen.add(id); comparable.push(entry);
-      }
-      return { created, skipped, skippedSimilar, autoApproved };
+      return serializeExtraction(companyId, async () => {
+        const existing = await db.select({ kind: memoryEntries.kind, title: memoryEntries.title, body: memoryEntries.body }).from(memoryEntries)
+          .where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.status, ["active", "pending"])));
+        const comparable = [...existing];
+        const created: (typeof memoryEntries.$inferSelect)[] = [];
+        let skipped = 0, skippedSimilar = 0, autoApproved = 0;
+        const settings = await memory.getSettings(companyId);
+        for (const item of parsed) {
+          if (created.length >= maxLessons) break;
+          if (!item || typeof item !== "object" || !kinds.includes(item.kind as Kind) || typeof item.title !== "string" || typeof item.body !== "string" || !Array.isArray(item.tags)) continue;
+          const title = item.title.trim(), body = item.body.trim();
+          if (!title || title.length > 120 || !body || body.length > 600 || /ignore\s+previous|you\s+must|system\s+prompt/i.test(title) || item.tags.length > 4 || item.tags.some((tag: unknown) => typeof tag !== "string" || !tag.trim() || tag.trim().length > 32)) continue;
+          const matches = comparable.filter((entry) => entry.kind === item.kind)
+            .map((entry) => ({ entry, similarity: lessonSimilarity(entry, { title, body }) }));
+          if (matches.some(({ entry, similarity }) => similarity >= 0.85 && sameNegations(`${entry.title} ${entry.body}`, `${title} ${body}`))) { skipped++; skippedSimilar++; continue; }
+          const similar = matches.filter(({ similarity }) => similarity >= 0.6).sort((a, b) => b.similarity - a.similarity)[0];
+          const confidence = confidenceOf(item.confidence);
+          const shouldApprove = !similar && settings.autoApprove && confidence >= MEMORY_AUTO_APPROVE_THRESHOLD;
+          let entry = await memory.create(companyId, { kind: item.kind as Kind, title, body: similar ? `${body}\n\nSimilar to: ${similar.entry.title}` : body, tags: item.tags.map((tag: string) => tag.trim().toLowerCase()), originKind: "council", originRef: issueId, createdByLabel: shouldApprove ? `Lesson extractor (auto-approved, ${confidence}%)` : "Lesson extractor", sourceLabel: `Chat: ${issue.title}`.slice(0, 160) });
+          if (shouldApprove) { entry = await memory.approve(companyId, entry.id); autoApproved++; }
+          created.push(entry); comparable.push({ kind: entry.kind, title, body });
+        }
+        return { created, skipped, skippedSimilar, autoApproved };
+      });
     },
   };
 }

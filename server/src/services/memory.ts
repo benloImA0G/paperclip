@@ -156,7 +156,7 @@ export function memoryService(db: Db) {
         const now = new Date();
         await tx.update(memoryEntries).set({ status: "withdrawn", withdrawnReason: "merged", withdrawnAt: now, updatedAt: now }).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, input.ids)));
         const first = ordered[0]!;
-        const [entry] = await tx.insert(memoryEntries).values({ companyId, kind: first.kind, title: input.title, body: input.body, tags: [...new Set([...ordered.flatMap((row) => row.tags), ...(input.tags ?? [])])], pinned: ordered.some((row) => row.pinned), originKind: first.originKind, originRef: first.originRef, createdByLabel: first.createdByLabel, supersedesId: first.id }).returning();
+        const [entry] = await tx.insert(memoryEntries).values({ companyId, kind: first.kind, title: input.title, body: input.body, tags: [...new Set([...ordered.flatMap((row) => row.tags), ...(input.tags ?? [])])], pinned: ordered.some((row) => row.pinned), status: ordered.some((row) => row.status === "pending") ? "pending" : "active", originKind: first.originKind, originRef: first.originRef, createdByLabel: first.createdByLabel, supersedesId: first.id }).returning();
         await tx.update(memoryEntries).set({ supersededById: entry!.id }).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, input.ids)));
         return entry!;
       });

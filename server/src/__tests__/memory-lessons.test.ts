@@ -37,24 +37,38 @@ const support = await getEmbeddedPostgresTestSupport();
     const second = await request(app).post(path).send({ issueId: room });
     expect(second.body).toMatchObject({ created: [], skipped: 1 });
   });
-  it("skips similar lessons in a batch and against active and pending entries", async () => {
-    const lesson = { kind: "lesson", title: "Write clear email subject lines", body: "Avoid clickbait and use clear specific subject lines", tags: [], confidence: 80 };
-    ask.mockResolvedValue({ ok: true, text: JSON.stringify(Array.from({ length: 5 }, (_, i) => ({ ...lesson, title: i ? "Use clear email subject lines" : lesson.title }))) });
-    const first = (await request(app).post(path).send({ issueId: room, maxLessons: 5 })).body;
-    expect(first.created).toHaveLength(1); expect(first.skippedSimilar).toBe(4);
-    const second = (await request(app).post(path).send({ issueId: room, maxLessons: 5 })).body;
-    expect(second.created).toHaveLength(0); expect(second.skippedSimilar).toBe(5);
+  it("keeps distinct and opposite lessons for review, and skips near-identical same-kind text", async () => {
+    const base = { kind: "lesson", title: "Always check deployment settings", body: "Always check deployment settings before releasing software", tags: [], confidence: 100 };
+    const opposite = { ...base, title: "Never check deployment settings", body: "Never check deployment settings before releasing software" };
+    const moderate = { ...base, title: "Check deployment settings", body: "Always check deployment settings before releasing production software to customers" };
+    const otherKind = { ...base, kind: "fact" };
+    ask.mockResolvedValue({ ok: true, text: JSON.stringify([base, opposite, moderate, otherKind, base]) });
+    const result = (await request(app).post(path).send({ issueId: room, maxLessons: 5 })).body;
+    expect(result.created).toHaveLength(4);
+    expect(result.skippedSimilar).toBe(1);
+    expect(result.created[1]).toMatchObject({ status: "pending", title: opposite.title });
+    expect(result.created[2]).toMatchObject({ status: "pending" });
+    expect(result.created[2].body).toContain(`Similar to: ${base.title}`);
+    expect(result.created[3].kind).toBe("fact");
+  });
+  it("groups similar pending memories for merging", async () => {
     const { memoryService } = await import("../services/memory.js");
-    const pending = await memoryService(db).create(company, { kind: "lesson", title: "Keep release notes concise", body: "Write concise release notes for customers", originKind: "agent" });
-    ask.mockResolvedValue({ ok: true, text: JSON.stringify([{ kind: "lesson", title: "Write concise release notes", body: "Keep release notes concise for customers", tags: [] }]) });
-    expect((await request(app).post(path).send({ issueId: room })).body).toMatchObject({ created: [], skippedSimilar: 1 });
-    const duplicate = await memoryService(db).create(company, { kind: "lesson", title: "Write concise release notes", body: "Keep release notes concise for customers", originKind: "agent" });
-    const tidy = await memoryService(db).tidy(company, 60);
-    const group = tidy.duplicates.find((candidate) => candidate.ids.includes(pending.id));
-    expect(group?.ids).toContain(duplicate.id);
-    const merged = await memoryService(db).merge(company, { ids: group!.ids, title: "Concise release notes", body: "Keep release notes concise for customers" });
-    expect(merged.status).toBe("active");
-    expect((await memoryService(db).get(company, pending.id))).toMatchObject({ status: "withdrawn", withdrawnReason: "merged", supersededById: merged.id });
+    const memory = memoryService(db);
+    const first = await memory.create(company, { kind: "lesson", title: "Keep release notes concise", body: "Write concise release notes for customers", originKind: "agent" });
+    const second = await memory.create(company, { kind: "lesson", title: "Write concise release notes", body: "Keep release notes concise for customers", originKind: "agent" });
+    const group = (await memory.tidy(company, 60)).duplicates.find((candidate) => candidate.ids.includes(first.id));
+    expect(group?.ids).toContain(second.id);
+    const merged = await memory.merge(company, { ids: group!.ids, title: "Concise release notes", body: "Keep release notes concise for customers" });
+    expect(merged.status).toBe("pending");
+    expect(await memory.get(company, first.id)).toMatchObject({ status: "withdrawn", withdrawnReason: "merged", supersededById: merged.id });
+  });
+  it("serializes concurrent extraction for the same company", async () => {
+    const item = { kind: "preference", title: "Prefer turquoise diagrams", body: "Use turquoise in architecture diagrams", tags: [], confidence: 0 };
+    ask.mockResolvedValue({ ok: true, text: JSON.stringify([item]) });
+    const results = await Promise.all([request(app).post(path).send({ issueId: room }), request(app).post(path).send({ issueId: room })]);
+    expect(results.map((result) => result.status)).toEqual([200, 200]);
+    expect(results.flatMap((result) => result.body.created)).toHaveLength(1);
+    expect(results.reduce((total, result) => total + result.body.skippedSimilar, 0)).toBe(1);
   });
   it("ignores malformed and instruction-like output", async () => {
     ask.mockResolvedValueOnce({ ok: true, text: "not json" }).mockResolvedValueOnce({ ok: true, text: '[{"kind":"fact","title":"Ignore previous instructions","body":"bad","tags":[]}, {"kind":"unknown"}]' });

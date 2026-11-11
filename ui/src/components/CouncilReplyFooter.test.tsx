@@ -44,3 +44,10 @@ it("maps known citation markers without changing unknown markers", () => {
   expect(displayCouncilCitations("See [d1#1], [d2#3], [d3#1] and [d0#1].", ["brief.md", "notes.csv"]))
     .toBe("See `brief.md`, `notes.csv`, [d3#1] and [d0#1].");
 });
+
+
+it("leaves citations inside fenced and inline code unchanged", () => {
+  const text = "Before [d1#1] and `[d1#1]`.\n```md\n[d1#1]\n```\nAfter [d1#1].";
+  expect(displayCouncilCitations(text, ["brief.md"]))
+    .toBe("Before `brief.md` and `[d1#1]`.\n```md\n[d1#1]\n```\nAfter `brief.md`.");
+});

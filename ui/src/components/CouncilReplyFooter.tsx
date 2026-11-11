@@ -3,10 +3,14 @@ import { formatTokens, type CouncilReplyReliability } from "../pages/council-rep
 
 /** Replace known source markers for display only; the original reply remains unchanged. */
 export function displayCouncilCitations(text: string, documents: readonly string[] = []): string {
-  return text.replace(/\[d(\d+)#(\d+)\]/g, (marker, index: string) => {
+  const replaceProse = (prose: string) => prose.replace(/\[d(\d+)#(\d+)\]/g, (marker, index: string) => {
     const name = documents[Number(index) - 1];
     return name ? `\`${name.replace(/`/g, "'")}\`` : marker;
   });
+  // Preserve fenced blocks and matched inline code spans before replacing prose.
+  return text.split(/(^[ \t]{0,3}`{3,}[^\n]*\n[\s\S]*?^[ \t]{0,3}`{3,}[^\n]*(?:\n|$)|^[ \t]{0,3}`{3,}[^\n]*(?:\n[\s\S]*)?$)/gm)
+    .map((part, index) => index % 2 ? part : part.replace(/(`+)([\s\S]*?)\1|\[d\d+#\d+\]/g, (match, ticks: string | undefined) => ticks ? match : replaceProse(match)))
+    .join("");
 }
 
 type Reliability = Omit<CouncilReplyReliability, "costCents"> & { costCents?: number | string; documents?: string[] };

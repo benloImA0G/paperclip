@@ -299,6 +299,7 @@ export function Council() {
   const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const moreTriggerRef = useRef<HTMLButtonElement | null>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const messageActionsRef = useRef<HTMLDivElement | null>(null);
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const [summarySeatId, setSummarySeatId] = useState("");
   const [progress, setProgress] = useState("");
@@ -337,22 +338,24 @@ export function Council() {
     try { window.localStorage.setItem("paperclip:council:mode", advancedMode ? "advanced" : "simple"); } catch { /* unavailable storage is fine */ }
   }, [advancedMode]);
   useEffect(() => {
-    if (!moreOpen && !optionsOpen && !settingsOpen) return;
+    if (!moreOpen && !optionsOpen && !settingsOpen && !messageActions) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (moreOpen) { setMoreOpen(false); moreTriggerRef.current?.focus(); }
       if (optionsOpen) { setOptionsOpen(false); optionsTriggerRef.current?.focus(); }
       if (settingsOpen) { setSettingsOpen(false); settingsTriggerRef.current?.focus(); }
+      if (messageActions) { setMessageActions(null); messageActionsRef.current?.querySelector<HTMLButtonElement>('button[aria-label="Message actions"]')?.focus(); }
     };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (moreOpen && !moreTriggerRef.current?.parentElement?.contains(target)) { setMoreOpen(false); moreTriggerRef.current?.focus(); }
       if (optionsOpen && !optionsTriggerRef.current?.parentElement?.contains(target)) setOptionsOpen(false);
+      if (messageActions && !messageActionsRef.current?.contains(target)) setMessageActions(null);
     };
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     return () => { document.removeEventListener("keydown", onKeyDown); document.removeEventListener("pointerdown", onPointerDown); };
-  }, [moreOpen, optionsOpen, settingsOpen]);
+  }, [moreOpen, optionsOpen, settingsOpen, messageActions]);
   const companyId = selectedCompanyId ?? "";
 
   const rooms = useQuery({ queryKey: ["council", companyId, "rooms"], queryFn: () => councilApi.listRooms(companyId), enabled: !!companyId });
@@ -1017,6 +1020,8 @@ export function Council() {
           {(rooms.data ?? []).map((r) => (
             <button
               key={r.id}
+              data-council-room-chip
+              aria-pressed={r.id === roomId}
               disabled={running}
               onClick={() => {
                 setRoomId(r.id);
@@ -1309,7 +1314,7 @@ export function Council() {
                       </section>
                     ) : <MarkdownBody className="council-citation-body min-w-0 text-sm [overflow-wrap:anywhere] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">{displayCouncilCitations(cleanMarkdownForDisplay(c.body), (c.metadata as { councilReliability?: { documents?: string[] }; documents?: string[] } | null)?.councilReliability?.documents ?? (c.metadata as { documents?: string[] } | null)?.documents)}</MarkdownBody>}
                     <CouncilReplyFooter metadata={c.metadata as { councilReliability?: CouncilReplyReliability } | null} memory={{ companyId, issueId: roomId!, roomTitle: room?.title ?? "Council room", seatName: name, body: c.body, decision: seat?.role === "moderator" }} />
-                    <div className="mt-1 text-right text-(length:--text-nano) text-muted-foreground">
+                    <div ref={messageActions === c.id ? messageActionsRef : undefined} className="mt-1 text-right text-(length:--text-nano) text-muted-foreground">
                       <button type="button" className="rounded-md px-2 py-1 sm:hidden" aria-label="Message actions" aria-expanded={messageActions === c.id} onClick={() => setMessageActions(messageActions === c.id ? null : c.id)}>…</button>
                       <div className={`${messageActions === c.id ? "flex" : "hidden"} flex-wrap justify-end gap-2 sm:flex`}>
                       <Button type="button" variant="ghost" size="sm" className="h-6 px-1 text-(length:--text-nano)" onClick={async () => {
@@ -1549,8 +1554,7 @@ export function Council() {
               </div>
             ) : null}
             <div className="relative flex flex-wrap items-center gap-2 text-xs">
-              <Button type="button" variant="outline" size="sm" className="self-start sm:hidden" aria-expanded={optionsOpen} aria-controls="council-options-popover" onClick={() => setOptionsOpen((open) => !open)}>Options</Button>
-              <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="council-options-trigger max-sm:min-h-11" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /><span>Options</span></Button>
+              <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="max-sm:min-h-11" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 className="max-sm:hidden" /><span>Options</span></Button>
               <Button type="button" variant="outline" size="sm" className="shrink-0 max-sm:min-h-11" aria-label={`Documents, ${documentCount} attached`} onClick={openDocuments}><FileText /><span className="max-sm:hidden">Documents{documentCount ? ` (${documentCount})` : ""}</span><span className="sm:hidden">{documentCount}</span></Button>
               {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg max-sm:max-h-(--council-thread-min-height-mobile) border bg-popover p-2 shadow-lg">
               <div className="mb-2 sm:hidden"><CouncilStyleSwitch value={answerStyle === "chain" ? "chain" : discussionStyle === "challenge" ? "challenge" : "collaborate"} onChange={setQuickStyle} /></div>

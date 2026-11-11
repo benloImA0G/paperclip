@@ -132,7 +132,7 @@ export function ActionItemsChecklist({ companyId, roomIdentifier, decision, room
           Create selected{pending.length > 0 ? ` (${pending.length})` : ""}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Tick the actions you want, then press Create selected. Nothing is created until then.</p>
+      <p className="text-xs text-muted-foreground">Tick the actions you want and press Create selected, or press Create task on a single action. Nothing is created until you press one of them.</p>
       {summary ? <p role="status" className="text-xs text-muted-foreground">{summary}</p> : null}
       <ul className="space-y-2">
         {items.map((item, index) => {

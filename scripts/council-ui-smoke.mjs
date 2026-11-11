@@ -1,7 +1,9 @@
-import { chromium } from "/home/super/council-test/codex/node_modules/playwright/index.mjs";
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE_PATH || "/home/super/council-test/codex/node_modules/playwright/index.mjs");
 
 const baseUrl = "http://127.0.0.1:3100";
-const executablePath = "/home/super/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome";
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || "/home/super/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome";
+const selfTest = process.argv.includes("--self-test");
+const violations = [];
 const viewports = [
   { name: "desktop", width: 1280, height: 800 },
   { name: "phone", width: 375, height: 812 },
@@ -29,6 +31,12 @@ const browser = await chromium.launch({ headless: true, executablePath });
 try {
   for (const viewport of viewports) {
     const page = await browser.newPage({ viewport: { width: viewport.width, height: viewport.height } });
+    await page.route("**/api/**", (route) => {
+      const request = route.request();
+      if (["GET", "HEAD", "OPTIONS"].includes(request.method())) return route.continue();
+      violations.push(`${request.method()} ${request.url()}`);
+      return route.abort();
+    });
     page.on("console", (message) => {
       const locationUrl = message.location().url;
       if (message.type() === "error" && isModelsEndpoint(locationUrl) && /422|unprocessable entity/i.test(message.text())) {
@@ -40,7 +48,7 @@ try {
       if (message.type() === "error" && !isIgnoredUrl(message.text())) consoleErrors.push(`${viewport.name}: ${message.text()}`);
     });
     page.on("requestfailed", (request) => {
-      if (!isIgnoredUrl(request.url())) failedRequests.push(`${viewport.name}: ${request.url()} (${request.failure()?.errorText ?? "failed"})`);
+      if (!isIgnoredUrl(request.url()) && !violations.includes(`${request.method()} ${request.url()}`)) failedRequests.push(`${viewport.name}: ${request.url()} (${request.failure()?.errorText ?? "failed"})`);
     });
     page.on("response", (response) => {
       if (response.status() === 422 && isModelsEndpoint(response.url())) {
@@ -53,15 +61,15 @@ try {
     });
 
     await page.goto(`${baseUrl}/BEN/council`, { waitUntil: "domcontentloaded" });
+    if (selfTest) await page.evaluate(() => fetch("/api/council-smoke-self-test", { method: "POST" }).catch(() => {}));
     await page.locator(".council-rooms").waitFor({ state: "visible", timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(1200);
-    const roomButtons = page.locator(".council-rooms button");
+    const roomButtons = page.locator(".council-rooms button[data-council-room-chip]");
     const roomCount = await roomButtons.count();
     let selectedRoom = false;
     if (roomCount) {
       let target = roomButtons.first();
-      await target.click().catch(() => {});
-      selectedRoom = true;
+      selectedRoom = await target.click().then(() => target.getAttribute("aria-pressed")).then((value) => value === "true").catch(() => false);
       await page.waitForTimeout(500);
     }
     report(`${viewport.name} Council existing room available/opened`, selectedRoom, `room buttons: ${roomCount}`);
@@ -73,7 +81,7 @@ try {
     report(`${viewport.name} Council composer textarea exists`, textareaExists);
     report(`${viewport.name} Council Options button exists`, optionsExists);
     if (viewport.name.startsWith("phone") && optionsExists) {
-      await page.getByRole("button", { name: "Options", exact: true }).first().click().catch(() => {});
+      await optionsButton.first().click().catch(() => {});
     }
 
     const documents = page.locator('button[aria-label^="Documents"]:visible');
@@ -149,6 +157,8 @@ try {
   await browser.close();
 }
 
+for (const violation of violations) report(`attempted a write: ${violation}`, false);
+console.log(`Attempted writes: ${violations.length}`);
 for (const request of failedRequests) console.log(`FAILED REQUEST ${request}`);
 for (const error of consoleErrors.slice(0, 10)) console.log(`CONSOLE ERROR ${error}`);
 console.log(`SUMMARY ${results.filter((result) => result.passed).length} passed, ${results.filter((result) => !result.passed).length} failed`);

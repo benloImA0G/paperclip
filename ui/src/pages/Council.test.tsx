@@ -111,6 +111,12 @@ describe("Council page", () => {
     await act(async () => menu.click());
     expect(menu.getAttribute("aria-expanded")).toBe("true");
     expect(container.querySelectorAll('select[aria-label="Download reply as"]')).toHaveLength(1);
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(menu);
+    await act(async () => menu.click());
+    await act(async () => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
   });
   it("shows supported document count and opens the documents heading", async () => {
     api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }, { id: "b", originalFilename: "image.png", byteSize: 42 }, { id: "c", originalFilename: "large.md", byteSize: 600000 }]);
