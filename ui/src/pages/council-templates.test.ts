@@ -6,7 +6,7 @@ describe("council room templates", () => {
     expect(Object.fromEntries(COUNCIL_TEMPLATES.map(({ id, kind }) => [id, kind]))).toEqual({
       "quick-check": "quick-fact", "balanced-debate": "brainstorm", decision: "decision", "red-team": "review",
       "blind-best-of-n": "brainstorm", "debate-to-agreement": "decision", "fresh-angles": "brainstorm",
-      "get-it-done": "plan-and-do", "builder-reviewer": "review", "research-build-review": "plan-and-do",
+      "get-it-done": "plan-and-do", "review-document": "review", "builder-reviewer": "review", "research-build-review": "plan-and-do",
     });
   });
 
@@ -46,6 +46,8 @@ describe("council room templates", () => {
     expect(byId("blind-best-of-n")).toMatchObject({ panelSize: 4, peerRanking: true, jury: true, discussion: false, rounds: 1, autoSummary: true });
     expect(byId("debate-to-agreement")).toMatchObject({ discussion: true, depth: "agree" });
     expect(byId("fresh-angles")).toMatchObject({ panelSize: 3, discussion: false, rounds: 1, autoSummary: true });
+    expect(byId("review-document")).toMatchObject({ kind: "review", discussion: false, rounds: 1, peerRanking: false, autoSummary: true, prompt: "Review the attached document. List the biggest gaps, risks and contradictions, cite the source marker (like [d1#2]) for each, and suggest one concrete fix per point." });
+    expect(byId("review-document")?.panelSize ?? 0).toBe(0);
     expect(byId("get-it-done")).toMatchObject({ workMode: "plan-first", askFirst: true, juryChecks: true, draftTasks: true });
   });
 

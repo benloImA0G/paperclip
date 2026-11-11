@@ -498,6 +498,7 @@ export function Council() {
   const applyTemplate = (id: CouncilTemplateId) => {
     const template = COUNCIL_TEMPLATES.find((candidate) => candidate.id === id)!;
     setSelectedTemplate(id);
+    if (template.prompt) setMessage((current) => current.trim() ? current : template.prompt!);
     const previousTitle = COUNCIL_TEMPLATES.find((candidate) => candidate.id === selectedTemplate)?.title;
     setNewTitle((title) => !title.trim() || title === previousTitle ? template.title : title);
     setDiscussion(template.discussion);

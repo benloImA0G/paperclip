@@ -79,6 +79,20 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 
 describe("Council page", () => {
+  it.each(["", "My existing draft"])("fills the review prompt only for an empty composer: %s", async (draft) => {
+    await renderPage();
+    const input = container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement;
+    if (draft) await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, draft);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="New war room"]')!.click(); });
+    const preset = [...container.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find((el) => el.textContent?.includes("Review a document"))!;
+    await act(async () => { preset.click(); });
+    await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Cancel new war room"]')!.click(); });
+    expect((container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement).value).toBe(draft || "Review the attached document. List the biggest gaps, risks and contradictions, cite the source marker (like [d1#2]) for each, and suggest one concrete fix per point.");
+    expect(api.runRound).not.toHaveBeenCalled();
+  });
   it("toggles the mobile room options disclosure", async () => {
     await renderPage();
     const disclosure = button("Options");

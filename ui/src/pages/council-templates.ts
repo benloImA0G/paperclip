@@ -1,6 +1,6 @@
 import type { CouncilKind, CouncilSeatRole } from "../api/council";
 
-export type CouncilTemplateId = "quick-check" | "balanced-debate" | "decision" | "red-team" | "blind-best-of-n" | "debate-to-agreement" | "fresh-angles" | "get-it-done" | "builder-reviewer" | "research-build-review";
+export type CouncilTemplateId = "quick-check" | "balanced-debate" | "decision" | "red-team" | "blind-best-of-n" | "debate-to-agreement" | "fresh-angles" | "get-it-done" | "review-document" | "builder-reviewer" | "research-build-review";
 
 export type CouncilTemplate = {
   id: CouncilTemplateId;
@@ -23,6 +23,7 @@ export type CouncilTemplate = {
   juryChecks?: boolean;
   draftTasks?: boolean;
   answerStyle?: "side-by-side" | "chain";
+  prompt?: string;
 };
 
 export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
@@ -34,6 +35,7 @@ export const COUNCIL_TEMPLATES: readonly CouncilTemplate[] = [
   { id: "debate-to-agreement", kind: "decision", name: "Debate to agreement", whatHappens: "The seats debate toward agreement, with a dissent check when they agree too quickly.", title: "Debate to agreement", discussion: true, depth: "agree", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 4 },
   { id: "fresh-angles", kind: "brainstorm", name: "Fresh angles", whatHappens: "Three seats with different perspectives answer once and produce a summary.", title: "Fresh angles", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, panelSize: 3 },
   { id: "get-it-done", kind: "plan-and-do", name: "Get it done", whatHappens: "The chair can ask questions, plan the work, have a jury check each step, and draft tasks for approval.", title: "Get it done", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, workMode: "plan-first", askFirst: true, juryChecks: true, draftTasks: true },
+  { id: "review-document", kind: "review", name: "Review a document", whatHappens: "Every seat critiques the attached document: gaps, risks, contradictions, with citations", title: "Review a document", discussion: false, depth: "low", autoSummary: true, requireApproval: false, orchestrator: null, roles: {}, rounds: 1, peerRanking: false, prompt: "Review the attached document. List the biggest gaps, risks and contradictions, cite the source marker (like [d1#2]) for each, and suggest one concrete fix per point." },
   { id: "builder-reviewer", kind: "review", name: "Builder then reviewer (chain)", whatHappens: "A builder drafts an answer, then a critic reviews it.", title: "Builder then reviewer", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "builder", Techie: "critic" }, rounds: 1, answerStyle: "chain" },
   { id: "research-build-review", kind: "plan-and-do", name: "Research, build, review", whatHappens: "A researcher gathers facts, a builder drafts an answer, and a reviewer checks it.", title: "Research, build, review", discussion: false, depth: "low", autoSummary: false, requireApproval: false, orchestrator: null, roles: { Creative: "researcher", Techie: "builder", CodeBot: "critic" }, rounds: 1, answerStyle: "chain" },
 ];
