@@ -24,6 +24,61 @@ const PANDOC_FORMATS: Record<string, string> = { docx: "docx", odt: "odt", rtf: 
 const MAX_PANDOC_INPUT = 5 * 1024 * 1024;
 const MAX_PANDOC_OUTPUT = 4 * 1024 * 1024;
 
+const MAX_ZIP_UNCOMPRESSED = 50 * 1024 * 1024;
+
+// Reject unsupported ZIP64, split, malformed, and oversized archives before Pandoc reads them.
+function validDocumentZip(bytes: Uint8Array): boolean {
+  const zip = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let end = zip.length - 22; end >= Math.max(0, zip.length - 22 - 0xffff); end--) {
+    if (zip.readUInt32LE(end) !== 0x06054b50 || end + 22 + zip.readUInt16LE(end + 20) !== zip.length) continue;
+    const count = zip.readUInt16LE(end + 10);
+    const length = zip.readUInt32LE(end + 12);
+    const offset = zip.readUInt32LE(end + 16);
+    if (zip.readUInt16LE(end + 4) || zip.readUInt16LE(end + 6) || zip.readUInt16LE(end + 8) !== count || count === 0xffff || offset + length !== end) return false;
+    let pos = offset, total = 0;
+    for (let i = 0; i < count; i++) {
+      if (pos + 46 > end || zip.readUInt32LE(pos) !== 0x02014b50) return false;
+      const size = zip.readUInt32LE(pos + 24);
+      if (size === 0xffffffff || zip.readUInt32LE(pos + 20) === 0xffffffff || zip.readUInt32LE(pos + 42) === 0xffffffff || zip.readUInt16LE(pos + 34) !== 0) return false;
+      const local = zip.readUInt32LE(pos + 42);
+      if (local + 30 > offset || zip.readUInt32LE(local) !== 0x04034b50) return false;
+      const dataStart = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+      if (dataStart + zip.readUInt32LE(pos + 20) > offset) return false;
+      total += size;
+      if (total > MAX_ZIP_UNCOMPRESSED) return false;
+      pos += 46 + zip.readUInt16LE(pos + 28) + zip.readUInt16LE(pos + 30) + zip.readUInt16LE(pos + 32);
+      if (pos > end) return false;
+    }
+    return pos === end;
+  }
+  return false;
+}
+
+let activeConversions = 0;
+const conversionQueue: Array<() => void> = [];
+function acquireConversion(): Promise<(() => void) | null> {
+  return new Promise((resolve) => {
+    const acquire = () => {
+      activeConversions++;
+      let released = false;
+      resolve(() => {
+        if (released) return;
+        released = true;
+        activeConversions--;
+        conversionQueue.shift()?.();
+      });
+    };
+    if (activeConversions < 2) return acquire();
+    const timer = setTimeout(() => {
+      const index = conversionQueue.indexOf(waiter);
+      if (index !== -1) conversionQueue.splice(index, 1);
+      resolve(null);
+    }, 20_000);
+    const waiter = () => { clearTimeout(timer); acquire(); };
+    conversionQueue.push(waiter);
+  });
+}
+
 type ExtractResult = ReturnType<typeof extractDocText>;
 
 export async function extractDocTextAsync(input: {
@@ -37,6 +92,14 @@ export async function extractDocTextAsync(input: {
   if (!format) return extractDocText(input);
   if (input.bytes.byteLength > MAX_PANDOC_INPUT) return { ok: false, reason: "Document exceeds 5 MB" };
 
+  if (kind === "docx" || kind === "odt") {
+    const raw = Buffer.from(input.bytes.buffer, input.bytes.byteOffset, input.bytes.byteLength);
+    if (/vbaproject\.bin|macroenabled/i.test(raw.toString("latin1"))) return { ok: false, reason: "Macro-enabled documents are not supported" };
+    if (!validDocumentZip(input.bytes)) return { ok: false, reason: "Invalid or oversized document archive" };
+  }
+  const release = await acquireConversion();
+  if (!release) return { ok: false, reason: "Document converter is busy" };
+
   return new Promise<ExtractResult>((resolve) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -47,29 +110,33 @@ export async function extractDocTextAsync(input: {
       resolve(result);
     };
     try {
-      const child = spawn(input.pandocPath || process.env.PANDOC_PATH || "pandoc", ["--sandbox", "--from", format, "--to", "markdown", "--wrap=none"], { stdio: ["pipe", "pipe", "pipe"] });
+      const child = spawn(input.pandocPath || process.env.PANDOC_PATH || "pandoc", ["+RTS", "-M512m", "-RTS", "--sandbox", "--from", format, "--to", "markdown", "--wrap=none"], { stdio: ["pipe", "pipe", "pipe"], detached: true });
+      const killGroup = () => {
+        try { if (child.pid) process.kill(-child.pid, "SIGKILL"); } catch { /* Process already exited. */ }
+      };
       const parts: Buffer[] = [];
       let size = 0;
       timer = setTimeout(() => {
-        child.kill("SIGKILL");
+        killGroup();
         finish({ ok: false, reason: "Document conversion timed out" });
       }, 15_000);
       child.stdout.on("data", (chunk: Buffer) => {
         if (settled) return;
         size += chunk.length;
         if (size > MAX_PANDOC_OUTPUT) {
-          child.kill("SIGKILL");
+          killGroup();
           finish({ ok: false, reason: "Converted document exceeds 4 MB" });
         } else parts.push(chunk);
       });
       child.stderr.resume();
       child.stdin.on("error", () => {});
-      child.on("error", (error: NodeJS.ErrnoException) => finish({ ok: false, reason: error.code === "ENOENT" ? "Word files need Pandoc on the server" : "Document conversion failed" }));
-      child.on("close", (code) => finish(code === 0
+      child.on("error", (error: NodeJS.ErrnoException) => { release(); finish({ ok: false, reason: error.code === "ENOENT" ? "Word files need Pandoc on the server" : "Document conversion failed" }); });
+      child.on("close", (code) => { release(); finish(code === 0
         ? { ok: true, text: Buffer.concat(parts).toString("utf8"), kind: kind! }
-        : { ok: false, reason: "Document conversion failed" }));
+        : { ok: false, reason: "Document conversion failed" }); });
       child.stdin.end(input.bytes);
     } catch (error) {
+      release();
       finish({ ok: false, reason: (error as NodeJS.ErrnoException).code === "ENOENT" ? "Word files need Pandoc on the server" : "Document conversion failed" });
     }
   });
@@ -113,7 +180,7 @@ export function buildDocContext(docs: { label: string; text: string }[], { maxCh
     const lines: string[] = [];
     for (const chunk of chunks[index]) {
       if (remaining <= 0) { truncated = true; break; }
-      const excerpt = chunk.text.slice(0, remaining);
+      const excerpt = chunk.text.slice(0, remaining).replace(/\[d(\d+)#(\d+)\]/gi, "(d$1#$2)");
       lines.push(`[${chunk.id}] ${excerpt}`);
       remaining -= excerpt.length;
       if (excerpt.length < chunk.text.length) { truncated = true; break; }
