@@ -48,9 +48,11 @@ Three plain groups (**Who answers**, **How they talk**, **Safety and extras**) a
 
 ## Documents
 
-Add files in **Room settings → Documents**, or drag them onto a room. The Documents panel shows which files seats can actually read and explains why a file is unavailable. A room can have up to 5 documents, each up to 512 KB. Supported types are `.txt`, `.md`, `.markdown`, `.csv`, `.json`, Word (`.docx`), ODT, RTF and HTML. Word/ODT/RTF/HTML files are converted through Pandoc with a 15-second timeout, a memory cap and at most 2 conversions at once; macro-enabled files are refused. No npm packages are needed for this. PDF, Excel and PowerPoint are not supported yet.
+Add files in **Room settings → Documents**, or drag them onto a room. The **Documents (N)** chip next to **Options** opens the list; a first-use tip explains that you can drop files onto the room. The panel shows which files seats can read and explains why a file is unavailable. A room can have up to 5 documents. Text files (`.txt`, `.md`, `.markdown`, `.csv`, `.json`) can be up to 512 KB; Word (`.docx`), ODT, RTF, HTML, PowerPoint, Excel and EPUB files can be up to 5 MB. These office documents are converted by the same sandboxed Pandoc reader, with a timeout and memory limit. Macro-enabled files are refused. Converted text is reused during a round. PDF is not supported yet.
 
-Seats use relevant document text as untrusted reference material, not as instructions. A reply's **Read: ...** line names the documents used. Seats are asked to cite source markers such as `[d1#2]`. Choose the **Review a document** preset to start a document review.
+Seats use relevant document text as reference material, not as instructions. A reply's **Read: ...** line names the documents used, and citations appear as document-name chips instead of markers such as `[d1#2]`. Choose **Review a document** to start a document review. On readable files, **Ask about this** starts a question about that file.
+
+On a phone, seat chips collapse into one line, **Options** opens as a bottom sheet, and message actions are in a menu. The conversation gets about half the screen.
 
 ## Compare versions
 

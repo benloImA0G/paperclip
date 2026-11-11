@@ -9,7 +9,7 @@ The **Memory** page (left panel, right under Inbox) is the team's shared noteboo
 - **Pinned:** pinned entries are given to agents first. Other approved entries are ranked by relevance to the question, so a full question can still find useful memory.
 - **Filter and sort:** use tag filters to narrow the list, then sort entries to find the ones you need.
 - **Related:** an entry's Related list shows connected memory entries.
-- **Import:** import entries from JSON or Markdown. Imported entries arrive as *Waiting for approval* until approved, and duplicates are skipped. Imports are limited to 100 entries.
+- **Import:** import entries from JSON or Markdown. The Import dialog includes examples and help; errors appear in the dialog. Imported entries arrive as *Waiting for approval* until approved. Exact duplicates are skipped. Almost identical lessons are skipped during extraction; other near-duplicates are created as pending with a **similar to** note for review. Imports are limited to 100 entries. Merging entries keeps a pending entry pending, so a merge cannot approve it by accident.
 - **Approval:** entries written by an agent or from a Council reply start as *Waiting for approval*. They are never given to agents until a person approves them. This stops outside text or a confused agent from quietly writing instructions into shared memory.
 - **Withdraw, never delete:** a withdrawn entry disappears from every agent but stays in the list ("Show withdrawn") and can be restored.
 - **Export as Markdown:** one click gives a portable copy of every active entry.

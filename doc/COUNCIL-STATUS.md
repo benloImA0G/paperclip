@@ -24,9 +24,11 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 
 ## Known gaps / decisions for Ben
 
-- Pandoc must be installed on VPS2 / any deployment host (`PANDOC_PATH`).
+- PDF reading needs a new dependency or a system tool such as Poppler, and Ben's OK. Pandoc is not in the Docker image yet: VPS2 cannot read Word, PowerPoint or Excel, or export Word/PowerPoint, until the Dockerfile patch is approved.
+- Room and mode naming ("WAR ROOMS", mode cards with call estimates) is jargon-heavy for beginners; this needs a product decision.
+- The full server test suite takes hours and is partly load-sensitive. Only Council/Memory server tests and the UI suite were run overnight.
+- Memory auto-approve can create near-duplicates; this has been reduced.
 - Dashboard onboarding is disabled on this fork (earlier commit), shared issue comment metadata/validators gained optional Council fields, and migration 0434 plus a deleted old 0429 snapshot touch shared DB files: all likely upstream merge conflicts.
-- Mobile thread is still fairly short on small phones because of the composer.
 - Not built (see `COUNCIL-PROPOSALS.md`): document upload and review, durable replayable runs, cheap-first spend estimates, guarded self-improvement proposals.
 - Open decisions: cloud-doc toggle, default writer seat, template/logo needs, reviewer file visibility, local-first vs cloud.
 
@@ -58,10 +60,12 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 
 ## Added 2026-11-11 (night shift)
 - **Documents:** attach `.txt`, `.md`, `.markdown`, `.csv` or `.json` files to a room in **Room settings → Documents**. Seats read relevant parts as untrusted reference text with source markers. A room can have up to 5 documents, each up to 512 KB. The service is in `server/src/services/council-docs.ts` and is wired into `council-chat.ts`'s `runRound`.
-- Word, ODT, RTF and HTML documents are also read through Pandoc. Conversion runs in a sandbox with a 15-second timeout, a memory cap and at most 2 conversions at once; macro-enabled files are refused. This adds no npm packages. PDF, Excel and PowerPoint are still unsupported (milestone O4).
-- Replies show a **Read: ...** line naming the documents used. Seats are asked to cite source markers such as `[d1#2]`. Use the **Review a document** preset for document review.
-- Files can be dragged onto a room. The **Documents** panel shows which files seats can actually read and why others are unavailable. The Artifacts panel can compare versions with a line diff.
-- The phone composer is more compact and its extra controls are under **Options**.
-- Live smoke scripts: `scripts/council-docs-smoke.py`, `scripts/council-docs-smoke-docx.py` and `scripts/council-memory-smoke.py`. They use free vendors and clean up after themselves.
+- Word, ODT, RTF, HTML, PowerPoint, Excel and EPUB documents are read through the same sandboxed Pandoc reader. Excel cells stored as inline strings are recovered separately with size and time budgets. Converted text is cached for the round.
+- Work sessions, final review and review-and-revise critiques receive room documents and ranked Memory too. The automatic summary is always written by the orchestrator.
+- At most 2 model calls per connection run at once (FIFO; `COUNCIL_MAX_CONCURRENT_PER_CONNECTION` can set 1-8) to avoid free-tier rate limits.
+- The **Documents (N)** chip is next to Options. There is a first-use tip, drag-and-drop, and **Ask about this** for readable files. Citation markers such as `[d1#1]` display as document-name chips.
+- New-room form fixes: the name field starts empty, selected mode is visible, and the chip has a badge. On phones, seat chips collapse, Options opens as a bottom sheet, message actions are in a menu, and the thread gets about half the screen.
+- Memory import has help and examples; errors appear inside the dialog. Near-duplicate lessons are skipped or sent for review during extraction. Merging pending entries keeps them pending.
+- Checks: read-only Playwright UI smoke `node scripts/council-ui-smoke.mjs` (35 checks; writes are aborted); live smokes: `scripts/council-live-smoke.py --full`, `scripts/council-docs-smoke.py`, `scripts/council-docs-smoke-docx.py`, `scripts/council-docs-smoke-office.py`, `scripts/council-work-docs-smoke.py` and `scripts/council-memory-smoke.py`.
 - **Memory context:** shared memory is now ranked by relevance to the question, with pinned entries first. Previously, a full question could match nothing.
-- **Known gaps:** PDF, Excel and PowerPoint documents are not supported yet (milestone O4 in `COUNCIL-OUTPUTS-ROADMAP.md`).
+- **Known gaps:** see "Known gaps / decisions for Ben" above.
