@@ -226,6 +226,7 @@ export function Council() {
   const [mentionIndex, setMentionIndex] = useState(0);
   const messageRef = useRef<HTMLTextAreaElement>(null);
   const toast = useOptionalToastActions();
+  const [documentDrag, setDocumentDrag] = useState(false);
   const [brief, setBrief] = useState("");
   const [briefOpen, setBriefOpen] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
@@ -848,6 +849,30 @@ export function Council() {
     targetedSeatIds, answerStyle, debateRounds: discussion && activeSeats.length > 1 ? DEPTHS[depth].rounds : 0,
   });
   const canSend = !ask.isPending && !!message.trim() && activeSeats.length > 0;
+  const hasDocumentDrag = (transfer: DataTransfer) => {
+    const items = Array.from(transfer.items ?? []).filter((item) => item.kind === "file");
+    return items.length ? items.some((item) => !item.type.startsWith("image/")) : Array.from(transfer.types ?? []).includes("Files");
+  };
+  const addDroppedDocuments = async (files: File[], targetRoomId: string) => {
+    let added = 0;
+    for (const [index, file] of files.filter((item) => !item.type.startsWith("image/")).entries()) {
+      const textType = /\.(txt|md|markdown|csv|json)$/i.test(file.name);
+      const wordLike = /\.(docx|odt|rtf|html|htm)$/i.test(file.name);
+      let reason = !textType && !wordLike ? "unsupported type" : file.size > (textType ? 512 * 1024 : 5 * 1024 * 1024) ? "file too large" : index >= 5 ? "maximum 5 files per drop" : null;
+      if (!reason) {
+        try { await issuesApi.uploadAttachment(companyId, targetRoomId, file); added++; }
+        catch { reason = "upload failed"; }
+      }
+      if (reason) {
+        const title = `Skipped ${file.name}: ${reason}`;
+        if (toast) toast.pushToast({ tone: "error", title }); else setError(title);
+      }
+    }
+    if (added) {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.issues.attachments(targetRoomId) });
+      toast?.pushToast({ tone: "success", title: `Added ${added} document${added === 1 ? "" : "s"}` });
+    }
+  };
   const room = rooms.data?.find((r) => r.id === roomId);
   const trackedProgress = running && roundTracking?.roomId === roomId ? seatProgress({ activeSeats, targetedSeatIds: roundTracking.targetIds, comments: comments.data ?? [], roundStartedAt: roundTracking.startedAt, now: roundNow }) : null;
   const waitingSeats = trackedProgress?.seats.filter((seat) => seat.status === "waiting") ?? [];
@@ -1147,7 +1172,11 @@ export function Council() {
             </div>
           ) : null}
 
-          <div className="council-thread-shell flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+          <div className={`council-thread-shell flex min-h-0 min-w-0 flex-1 flex-col gap-2 ${documentDrag ? "rounded-md outline outline-2 outline-dashed outline-primary" : ""}`}
+            onDragOver={(event) => { if (hasDocumentDrag(event.dataTransfer)) { event.preventDefault(); setDocumentDrag(true); } }}
+            onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDocumentDrag(false); }}
+            onDrop={(event) => { setDocumentDrag(false); const files = Array.from(event.dataTransfer.files); if (!files.some((file) => !file.type.startsWith("image/"))) return; event.preventDefault(); void addDroppedDocuments(files, roomId); }}>
+            {documentDrag ? <p className="rounded-md border border-dashed border-primary p-2 text-center text-sm">Drop to add as room document</p> : null}
           <div id="council-room-tools" className={advancedMode ? `shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5 ${mobileRoomOptionsOpen ? "" : "max-sm:hidden"}` : "hidden"}>
             <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs">
               <span className="mr-1 shrink-0 font-semibold text-muted-foreground">Room tools</span>

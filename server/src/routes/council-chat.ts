@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import { COUNCIL_ROUND_ORDERS, COUNCIL_ROUND_STYLES } from "@paperclipai/shared";
 import { issueService } from "../services/index.js";
-import { COUNCIL_ORIGIN_KIND, councilChatService, roomMetadata } from "../services/council-chat.js";
+import { COUNCIL_ORIGIN_KIND, councilChatService, loadCouncilDocuments, roomMetadata } from "../services/council-chat.js";
 import { badRequest, conflict, forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
@@ -174,6 +174,16 @@ export function councilChatRoutes(db: Db) {
     assertCompanyAccess(req, companyId);
     boardUserId(req);
     res.json(await council.getBrief(companyId, req.params.issueId as string));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:issueId/documents/status", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    const issueId = req.params.issueId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    await council.getRoom(companyId, issueId);
+    const { documents, maxDocuments } = await loadCouncilDocuments(db, companyId, issueId);
+    res.json({ documents, maxDocuments });
   });
 
   router.get("/companies/:companyId/council/rooms/:issueId/stats", async (req, res) => {

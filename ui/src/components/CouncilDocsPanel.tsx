@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { councilApi } from "../api/council";
 import { issuesApi } from "../api/issues";
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "./ui/button";
@@ -10,6 +11,7 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false }: { com
   const queryClient = useQueryClient();
   const queryKey = queryKeys.issues.attachments(issueId);
   const attachments = useQuery({ queryKey, queryFn: () => issuesApi.listAttachments(issueId), enabled: Boolean(issueId) });
+  const status = useQuery({ queryKey: ["council-document-status", companyId, issueId, attachments.dataUpdatedAt], queryFn: () => councilApi.documentStatus(companyId, issueId), enabled: Boolean(issueId) && attachments.isSuccess, retry: false });
   const refresh = () => queryClient.invalidateQueries({ queryKey });
   const upload = useMutation({ mutationFn: (file: File) => issuesApi.uploadAttachment(companyId, issueId, file), onSuccess: refresh });
   const remove = useMutation({ mutationFn: (id: string) => issuesApi.deleteAttachment(id), onSuccess: refresh });
@@ -51,7 +53,10 @@ export function CouncilDocsPanel({ companyId, issueId, disabled = false }: { com
     {attachments.isError ? <p role="alert" className="text-xs text-destructive">Couldn't load documents. <button type="button" className="underline" onClick={() => void attachments.refetch()}>Retry</button></p> : null}
     {!attachments.isLoading && !attachments.isError && attachments.data?.length === 0 ? <p className="text-xs text-muted-foreground">No documents yet.</p> : null}
     {attachments.data?.length ? <ul className="space-y-2">{attachments.data.map((attachment) => <li key={attachment.id} className="flex min-w-0 items-center gap-2 rounded-md border border-border p-2">
-      <span className="min-w-0 flex-1 text-sm"><span className="block truncate">{attachment.originalFilename ?? "Untitled document"}</span><span className="text-xs text-muted-foreground">{attachment.byteSize.toLocaleString()} bytes</span>{supported.findIndex((item) => item.id === attachment.id) >= 5 && <span className="block text-xs text-muted-foreground">Not read</span>}</span>
+      <span className="min-w-0 flex-1 text-sm"><span className="block truncate">{attachment.originalFilename ?? "Untitled document"}</span><span className="text-xs text-muted-foreground">{attachment.byteSize.toLocaleString()} bytes</span>{status.data?.documents.find((item) => item.attachmentId === attachment.id) ? (() => {
+        const item = status.data.documents.find((entry) => entry.attachmentId === attachment.id)!;
+        return <span className="block text-xs text-muted-foreground">{item.readable ? `Seats can read this (${(item.characters ?? 0).toLocaleString()} characters)` : item.reason}</span>;
+      })() : !status.data && supported.findIndex((item) => item.id === attachment.id) >= 5 && <span className="block text-xs text-muted-foreground">Not read</span>}</span>
       <Button type="button" variant="outline" size="sm" disabled={disabled || remove.isPending} aria-label={`Remove ${attachment.originalFilename ?? "document"}`} onClick={() => { setError(null); void remove.mutateAsync(attachment.id).catch(() => setError("Couldn't remove document. Please try again.")); }}>Remove</Button>
     </li>)}</ul> : null}
     <label htmlFor={inputId} className="block text-sm font-medium">Add document</label>

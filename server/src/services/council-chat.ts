@@ -346,6 +346,54 @@ export interface CouncilChatServiceDependencies {
   agentTurnService?: Pick<ReturnType<typeof createCouncilAgentTurnService>, "runAgentTurn">;
 }
 
+export async function loadCouncilDocuments(db: Db, companyId: string, issueId: string, query = "") {
+  const attachments = (await issueService(db).listAttachments(issueId)).filter((a) => a.companyId === companyId && a.issueId === issueId);
+  const chunks: Array<{ id: string; text: string; label: string }> = [];
+  const documents: Array<{ attachmentId: string; filename: string; byteSize: number; readable: boolean; reason?: string; characters?: number }> = [];
+  let eligible = 0;
+  for (const attachment of attachments) {
+    const filename = attachment.originalFilename ?? "";
+    const status = { attachmentId: attachment.id, filename, byteSize: attachment.byteSize, readable: false };
+    const wordLike = /\.(docx|odt|rtf|html|htm)$/i.test(filename);
+    const supported = wordLike || /\.(txt|md|markdown|csv|json)$/i.test(filename);
+    if (!supported) {
+      documents.push({ ...status, reason: /\.(docm|dotm|xlsm)$/i.test(filename) ? "Macro-enabled documents are not supported" : "Not supported" });
+      continue;
+    }
+    const limit = wordLike ? 5 * 1024 * 1024 : 512 * 1024;
+    if (attachment.byteSize > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
+    if (eligible++ >= 5) { documents.push({ ...status, reason: "Not read: only the first 5 are used" }); continue; }
+    try {
+      const object = await getStorageService().getObject(companyId, attachment.objectKey);
+      const parts: Buffer[] = [];
+      let size = 0;
+      for await (const part of object.stream) {
+        const bytes = Buffer.isBuffer(part) ? part : Buffer.from(part);
+        size += bytes.length;
+        if (size > limit) { object.stream.destroy(); break; }
+        parts.push(bytes);
+      }
+      if (size > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
+      const extracted = await extractDocTextAsync({ filename, contentType: attachment.contentType, bytes: Buffer.concat(parts) });
+      if (!extracted.ok) { documents.push({ ...status, reason: extracted.reason }); continue; }
+      documents.push({ ...status, readable: true, characters: extracted.text.length });
+      chunks.push(...chunkDoc(extracted.text).map((chunk) => ({ ...chunk, label: filename })));
+    } catch {
+      documents.push({ ...status, reason: "Could not read document" });
+    }
+  }
+  const selected = pickRelevantChunks(chunks, query, 8);
+  const docs = new Map<string, string[]>();
+  for (const chunk of selected) {
+    const label = (chunk as typeof chunks[number]).label;
+    const excerpts = docs.get(label) ?? [];
+    excerpts.push(chunk.text);
+    docs.set(label, excerpts);
+  }
+  const docContext = buildDocContext([...docs].map(([label, excerpts]) => ({ label, text: excerpts.join("\n\n") })));
+  return { documents, maxDocuments: 5, docContext, documentNames: docContext ? [...docs.keys()].slice(0, 5).map((label) => label.trim().slice(0, 120)) : [] };
+}
+
 export function councilChatService(db: Db, deps: CouncilChatServiceDependencies = {}) {
   const issueSvc = issueService(db);
   const documents = documentService(db);
@@ -1511,42 +1559,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     let docContext = "";
     let documents: string[] = [];
     try {
-      const attachments = await issueSvc.listAttachments(issueId);
-      const candidates = attachments.filter((attachment) =>
-        attachment.companyId === companyId && attachment.issueId === issueId &&
-        /\.(txt|md|markdown|csv|json|docx|odt|rtf|html|htm)$/i.test(attachment.originalFilename ?? "") &&
-        attachment.byteSize <= (/\.(docx|odt|rtf|html|htm)$/i.test(attachment.originalFilename ?? "") ? 5 * 1024 * 1024 : 512 * 1024),
-      ).slice(0, 5);
-      const chunks: Array<{ id: string; text: string; label: string }> = [];
-      for (const attachment of candidates) {
-        try {
-          const object = await getStorageService().getObject(companyId, attachment.objectKey);
-          const limit = /\.(docx|odt|rtf|html|htm)$/i.test(attachment.originalFilename!) ? 5 * 1024 * 1024 : 512 * 1024;
-          const parts: Buffer[] = [];
-          let size = 0;
-          for await (const part of object.stream) {
-            const bytes = Buffer.isBuffer(part) ? part : Buffer.from(part);
-            size += bytes.length;
-            if (size > limit) { object.stream.destroy(); break; }
-            parts.push(bytes);
-          }
-          if (size > limit) continue;
-          const extracted = await extractDocTextAsync({ filename: attachment.originalFilename!, contentType: attachment.contentType, bytes: Buffer.concat(parts) });
-          if (extracted.ok) chunks.push(...chunkDoc(extracted.text).map((chunk) => ({ ...chunk, label: attachment.originalFilename! })));
-        } catch {
-          // Individual attachments are optional.
-        }
-      }
-      const selected = pickRelevantChunks(chunks, query, 8);
-      const docs = new Map<string, string[]>();
-      for (const chunk of selected) {
-        const label = (chunk as typeof chunks[number]).label;
-        const excerpts = docs.get(label) ?? [];
-        excerpts.push(chunk.text);
-        docs.set(label, excerpts);
-      }
-      docContext = buildDocContext([...docs].map(([label, excerpts]) => ({ label, text: excerpts.join("\n\n") })));
-      if (docContext) documents = [...docs.keys()].slice(0, 5).map((label) => label.trim().slice(0, 120));
+      const loaded = await loadCouncilDocuments(db, companyId, issueId, query);
+      docContext = loaded.docContext;
+      documents = loaded.documentNames;
     } catch {
       // Documents are optional context and must not prevent a round from running.
     }

@@ -11,8 +11,9 @@ import { Council } from "./Council";
 
 const api = vi.hoisted(() => ({
   comments: {} as Record<string, unknown[]>,
-  runRound: vi.fn(), forkRoom: vi.fn(), listRooms: vi.fn(), listAttachments: vi.fn(), listArtifacts: vi.fn(), getArtifact: vi.fn(),
+  runRound: vi.fn(), forkRoom: vi.fn(), listRooms: vi.fn(), listAttachments: vi.fn(), uploadAttachment: vi.fn(), pushToast: vi.fn(), listArtifacts: vi.fn(), getArtifact: vi.fn(),
 }));
+vi.mock("../context/ToastContext", () => ({ useOptionalToastActions: () => ({ pushToast: api.pushToast }) }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }), useOptionalCompany: () => null }));
 vi.mock("../api/council", () => ({ councilApi: {
   listRooms: api.listRooms,
@@ -31,7 +32,7 @@ vi.mock("../api/ai-connections", () => ({ aiConnectionsApi: { list: vi.fn(async 
   { id: "conn-2", grantId: "grant-2", name: "Cloud Two", provider: "openai", routing: { kind: "cloud" } },
 ] })) } }));
 vi.mock("../api/issues", () => ({ issuesApi: {
-  listAttachments: api.listAttachments,
+  listAttachments: api.listAttachments, uploadAttachment: api.uploadAttachment,
   get: vi.fn(async () => ({})), listComments: vi.fn(async (room: string) => api.comments[room] ?? []),
 } }));
 
@@ -70,6 +71,8 @@ beforeEach(() => {
   api.comments = { "room-1": [question, reply], "room-2": [question, { ...reply, id: "reply-2", body: "Second room answer" }] };
   api.listRooms.mockReset().mockResolvedValue([{ id: "room-1", title: "First room" }, { id: "room-2", title: "Second room" }]);
   api.listAttachments.mockReset().mockResolvedValue([]);
+  api.uploadAttachment.mockReset().mockResolvedValue({});
+  api.pushToast.mockReset();
   api.listArtifacts.mockReset().mockResolvedValue([]);
   api.getArtifact.mockReset();
   api.runRound.mockReset().mockResolvedValue({ results: [] });
@@ -138,6 +141,31 @@ describe("Council page", () => {
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");
     expect(container.querySelector("#council-options-popover")).toBeNull();
     await waitFor(() => expect(api.runRound).toHaveBeenCalled());
+  });
+  it("uploads dropped documents and invalidates room attachments", async () => {
+    await renderPage();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const file = new File(["notes"], "notes.md", { type: "text/markdown" });
+    const shell = container.querySelector(".council-thread-shell")!;
+    await act(async () => { const event = new Event("drop", { bubbles: true, cancelable: true }); Object.defineProperty(event, "dataTransfer", { value: { files: [file] } }); shell.dispatchEvent(event); });
+    await waitFor(() => expect(api.uploadAttachment).toHaveBeenCalledWith("company-1", "room-1", file));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["issues", "attachments", "room-1"] }));
+  });
+  it("reports unsupported dropped files", async () => {
+    await renderPage();
+    const shell = container.querySelector(".council-thread-shell")!;
+    await act(async () => { const event = new Event("drop", { bubbles: true, cancelable: true }); Object.defineProperty(event, "dataTransfer", { value: { files: [new File(["x"], "notes.exe")] } }); shell.dispatchEvent(event); });
+    expect(api.uploadAttachment).not.toHaveBeenCalled();
+    expect(api.pushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Skipped notes.exe: unsupported type" }));
+  });
+  it("ignores text drags", async () => {
+    await renderPage();
+    const shell = container.querySelector(".council-thread-shell")!;
+    const event = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { items: [{ kind: "string", type: "text/plain" }], types: ["text/plain"] } });
+    await act(async () => { shell.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(false);
+    expect(container.textContent).not.toContain("Drop to add as room document");
   });
   it("shows documents for the open room in settings", async () => {
     await renderPage();

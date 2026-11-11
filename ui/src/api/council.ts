@@ -122,7 +122,10 @@ export interface CouncilEstimate {
   seats: Array<{ seatId: string; label: string; kind: "model" | "agent"; calls: number; estimatedCostCents: number | null; basis: "history" | "none" }>;
 }
 
+export interface CouncilDocumentStatus { attachmentId: string; filename: string; byteSize: number; readable: boolean; reason?: string; characters?: number }
+
 export const councilApi = {
+  documentStatus: (companyId: string, issueId: string) => api.get<{ documents: CouncilDocumentStatus[]; maxDocuments: number }>(`/companies/${companyId}/council/rooms/${issueId}/documents/status`),
   getBrief: (companyId: string, issueId: string) => api.get<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`),
   getReliability: (companyId: string, issueId: string) => api.get<CouncilReliability>(`/companies/${companyId}/council/rooms/${issueId}/stats`),
   /** Suggest how to run a question (heuristic, no model call, no cost). */

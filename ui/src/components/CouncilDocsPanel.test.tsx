@@ -7,6 +7,8 @@ import { CouncilDocsPanel } from "./CouncilDocsPanel";
 
 const api = vi.hoisted(() => ({ listAttachments: vi.fn(), uploadAttachment: vi.fn(), deleteAttachment: vi.fn() }));
 vi.mock("../api/issues", () => ({ issuesApi: api }));
+const status = vi.hoisted(() => vi.fn());
+vi.mock("../api/council", () => ({ councilApi: { documentStatus: status } }));
 
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -24,6 +26,7 @@ async function selectFile(file: File) {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  status.mockRejectedValue(new Error("unavailable"));
   api.listAttachments.mockResolvedValue([]);
   api.uploadAttachment.mockResolvedValue({});
   api.deleteAttachment.mockResolvedValue({ ok: true });
@@ -95,4 +98,15 @@ it("allows adding when fewer than five documents are supported", async () => {
   await render();
   expect(container.querySelector<HTMLInputElement>('input[type="file"]')!.disabled).toBe(false);
   expect(container.textContent).not.toContain("Not read");
+});
+
+it("shows readability and extraction reasons, and refreshes after attachments change", async () => {
+  api.listAttachments.mockResolvedValue([{ id: "a", originalFilename: "notes.md", byteSize: 42 }, { id: "b", originalFilename: "macro.docx", byteSize: 10 }]);
+  status.mockResolvedValue({ documents: [{ attachmentId: "a", readable: true, characters: 12340 }, { attachmentId: "b", readable: false, reason: "Macro-enabled documents are not supported" }], maxDocuments: 5 });
+  await render();
+  expect(container.textContent).toContain("Seats can read this (12,340 characters)");
+  expect(container.textContent).toContain("Macro-enabled documents are not supported");
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Remove notes.md"]')!.click());
+  await flush();
+  expect(status.mock.calls.length).toBeGreaterThan(1);
 });
