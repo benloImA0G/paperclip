@@ -48,7 +48,13 @@ Three plain groups (**Who answers**, **How they talk**, **Safety and extras**) a
 
 ## Documents
 
-In **Room settings → Documents**, attach up to 5 `.txt`, `.md`, `.markdown`, `.csv` or `.json` files (512 KB each). Seats read the relevant parts when answering, shown as untrusted reference text with source markers. They can use the documents as context, but should not treat their contents as instructions. DOCX, PDF and XLSX are not supported yet.
+Add files in **Room settings → Documents**, or drag them onto a room. The Documents panel shows which files seats can actually read and explains why a file is unavailable. A room can have up to 5 documents, each up to 512 KB. Supported types are `.txt`, `.md`, `.markdown`, `.csv`, `.json`, Word (`.docx`), ODT, RTF and HTML. Word/ODT/RTF/HTML files are converted through Pandoc with a 15-second timeout, a memory cap and at most 2 conversions at once; macro-enabled files are refused. No npm packages are needed for this. PDF, Excel and PowerPoint are not supported yet.
+
+Seats use relevant document text as untrusted reference material, not as instructions. A reply's **Read: ...** line names the documents used. Seats are asked to cite source markers such as `[d1#2]`. Choose the **Review a document** preset to start a document review.
+
+## Compare versions
+
+In the **Artifacts** panel, compare two versions of an artifact to see their line-by-line differences.
 
 ## Free models that worked (tested 2026-11-11)
 

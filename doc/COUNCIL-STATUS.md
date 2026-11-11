@@ -58,5 +58,10 @@ Checks at this point: 73 council vitest tests; live suites in `~/council-test/co
 
 ## Added 2026-11-11 (night shift)
 - **Documents:** attach `.txt`, `.md`, `.markdown`, `.csv` or `.json` files to a room in **Room settings → Documents**. Seats read relevant parts as untrusted reference text with source markers. A room can have up to 5 documents, each up to 512 KB. The service is in `server/src/services/council-docs.ts` and is wired into `council-chat.ts`'s `runRound`.
+- Word, ODT, RTF and HTML documents are also read through Pandoc. Conversion runs in a sandbox with a 15-second timeout, a memory cap and at most 2 conversions at once; macro-enabled files are refused. This adds no npm packages. PDF, Excel and PowerPoint are still unsupported (milestone O4).
+- Replies show a **Read: ...** line naming the documents used. Seats are asked to cite source markers such as `[d1#2]`. Use the **Review a document** preset for document review.
+- Files can be dragged onto a room. The **Documents** panel shows which files seats can actually read and why others are unavailable. The Artifacts panel can compare versions with a line diff.
+- The phone composer is more compact and its extra controls are under **Options**.
+- Live smoke scripts: `scripts/council-docs-smoke.py`, `scripts/council-docs-smoke-docx.py` and `scripts/council-memory-smoke.py`. They use free vendors and clean up after themselves.
 - **Memory context:** shared memory is now ranked by relevance to the question, with pinned entries first. Previously, a full question could match nothing.
-- **Known gaps:** DOCX, PDF and XLSX are not supported yet (milestone O4 in `COUNCIL-OUTPUTS-ROADMAP.md`).
+- **Known gaps:** PDF, Excel and PowerPoint documents are not supported yet (milestone O4 in `COUNCIL-OUTPUTS-ROADMAP.md`).

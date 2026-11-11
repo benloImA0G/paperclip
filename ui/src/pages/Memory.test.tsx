@@ -19,7 +19,7 @@ async function click(text: string) { await act(async () => button(text).click())
 function change(el: HTMLInputElement | HTMLTextAreaElement, value: string) { const setter = Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")?.set; setter?.call(el, value); el.dispatchEvent(new Event("input", { bubbles: true })); }
 async function render() { await act(async () => root.render(<QueryClientProvider client={client}><Memory /></QueryClientProvider>)); await waitFor(() => expect(mock.list).toHaveBeenCalled()); }
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); mock.entries = []; vi.clearAllMocks();
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); localStorage.clear(); mock.entries = []; vi.clearAllMocks();
   mock.import.mockResolvedValue({ created: 5, skippedDuplicates: 1, skippedInvalid: [{ index: 0, reason: "bad" }, { index: 1, reason: "bad" }] });
   mock.getSettings.mockResolvedValue({ autoApprove: true });
   mock.setSettings.mockImplementation(async (_company, autoApprove) => ({ autoApprove }));
@@ -80,7 +80,7 @@ describe("Memory", () => {
   it("merges duplicates and withdraws stale entries", async () => {
     mock.entries = [entry(), entry({ id: "2", title: "Similar" })];
     mock.tidy.mockResolvedValue({ duplicates: [{ ids: ["1", "2"], reason: "Similar notes", suggestedTitle: "Combined", suggestedBody: "Both" }], stale: [entry()] });
-    await render(); await waitFor(() => expect(button("Tidy up2")).toBeTruthy()); await click("Tidy up2"); await waitFor(() => expect(container.textContent).toContain("Similar notes"));
+    await render(); await waitFor(() => expect(button("Find duplicates and merge2")).toBeTruthy()); await click("Find duplicates and merge2"); await waitFor(() => expect(container.textContent).toContain("Similar notes"));
     await click("Merge into one"); await waitFor(() => expect(mock.merge).toHaveBeenCalledWith("company-1", { ids: ["1", "2"], title: "Combined", body: "Both" }));
     const panel = [...container.querySelectorAll("section")].find((el) => el.textContent?.includes("Not used for 60 days"))!;
     await act(async () => [...panel.querySelectorAll("button")].find((el) => el.textContent === "Withdraw")!.click());
@@ -93,9 +93,19 @@ describe("Memory", () => {
     await click("Replace with new version"); await click("Save"); await waitFor(() => expect(mock.supersede).toHaveBeenCalledWith("company-1", "1", expect.objectContaining({ title: "Launch checklist" })));
   });
   it("previews agent context for the search", async () => {
-    await render(); await click("What agents see"); await waitFor(() => expect(container.textContent).toContain("13 of 1,800 characters"));
+    await render(); await click("Preview what seats receive"); await waitFor(() => expect(container.textContent).toContain("13 of 1,800 characters"));
     await act(async () => change(container.querySelector('input[aria-label="Search memory"]')!, "launch"));
     await waitFor(() => expect(mock.context).toHaveBeenCalledWith("company-1", "launch"));
+  });
+  it("remembers the last import format", async () => {
+    await render(); await click("Import");
+    const select = container.querySelector('[role="dialog"] select')!;
+    await act(async () => { select.value = "markdown"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await waitFor(() => expect(localStorage.getItem("paperclip.memory.importFormat")).toBe("markdown"));
+    const dialog = container.querySelector('[role="dialog"]')!;
+    await act(async () => [...dialog.querySelectorAll("button")].find((el) => el.textContent === "Close")!.click());
+    await click("Import");
+    expect((container.querySelector('[role="dialog"] select') as HTMLSelectElement).value).toBe("markdown");
   });
   it("filters loaded entries by tags and clears the selection", async () => {
     mock.entries = [entry({ title: "Alpha", tags: ["shared", "alpha"] }), entry({ id: "2", title: "Beta", tags: ["shared", "beta"] })];

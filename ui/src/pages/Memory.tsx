@@ -14,6 +14,15 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useOptionalToastActions } from "../context/ToastContext";
 
 const kinds: MemoryKind[] = ["fact", "decision", "preference", "reference", "lesson", "note"];
+const importFormatStorageKey = "paperclip.memory.importFormat";
+function readImportFormat(): "json" | "markdown" {
+  try {
+    const value = localStorage.getItem(importFormatStorageKey);
+    return value === "markdown" ? "markdown" : "json";
+  } catch {
+    return "json";
+  }
+}
 const label = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);
 const blank = (): MemoryInput => ({ kind: "reference", title: "", body: "", sourceUrl: null, sourceLabel: null, tags: [], pinned: false });
 
@@ -44,7 +53,7 @@ export function Memory() {
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const [importFormat, setImportFormat] = useState<"json" | "markdown">("json");
+  const [importFormat, setImportFormat] = useState<"json" | "markdown">(readImportFormat);
   const [importText, setImportText] = useState("");
   const [importResult, setImportResult] = useState("");
   const [adding, setAdding] = useState(false);
@@ -59,6 +68,7 @@ export function Memory() {
   const [showWithdrawn, setShowWithdrawn] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => setBreadcrumbs([{ label: "Memory" }]), [setBreadcrumbs]);
+  useEffect(() => { try { localStorage.setItem(importFormatStorageKey, importFormat); } catch { /* Storage can be unavailable. */ } }, [importFormat]);
   useEffect(() => { const timer = setTimeout(() => setQuery(search), 250); return () => clearTimeout(timer); }, [search]);
   const entries = useQuery({ queryKey: ["memory", companyId, query, kind, showWithdrawn], queryFn: () => memoryApi.list(companyId, { query, kind, status: showWithdrawn ? "all" : "active" }), enabled: !!companyId });
   const settings = useQuery({ queryKey: ["memory-settings", companyId], queryFn: () => memoryApi.getSettings(companyId), enabled: !!companyId });
@@ -84,9 +94,9 @@ export function Memory() {
     return Number(b.pinned) - Number(a.pinned) || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
   return <div className="mx-auto max-w-4xl space-y-5 p-6">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">Memory</h1><p className="text-sm text-muted-foreground">Notes, decisions and links your whole team and every agent can reuse. Mark one Pinned and agents see it every time.</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setTidying(!tidying)}>Tidy up{(tidy.data?.duplicates.length ?? 0) + (tidy.data?.stale.length ?? 0) > 0 && <span className="ml-1 rounded-full bg-muted px-2">{(tidy.data?.duplicates.length ?? 0) + (tidy.data?.stale.length ?? 0)}</span>}</Button><Button variant="outline" onClick={() => { setImporting(true); setImportResult(""); }}>Import</Button><Button variant="outline" onClick={() => void download()}>Export as Markdown</Button><Button onClick={() => setAdding(!adding)}>+ Add to memory</Button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">Memory</h1><p className="text-sm text-muted-foreground">Notes, decisions and links your whole team and every agent can reuse. Mark one Pinned and agents see it every time.</p></div><div className="flex gap-2"><Button variant="outline" title="Find duplicate memories and merge them; review suggestions before merging." onClick={() => setTidying(!tidying)}>Find duplicates and merge{(tidy.data?.duplicates.length ?? 0) + (tidy.data?.stale.length ?? 0) > 0 && <span className="ml-1 rounded-full bg-muted px-2">{(tidy.data?.duplicates.length ?? 0) + (tidy.data?.stale.length ?? 0)}</span>}</Button><Button variant="outline" onClick={() => { setImporting(true); setImportResult(""); }}>Import</Button><Button variant="outline" onClick={() => void download()}>Export as Markdown</Button><Button onClick={() => setAdding(!adding)}>+ Add to memory</Button></div></div>
     <div className="space-y-1"><Button variant="outline" size="sm" disabled={!settings.data || settingMutation.isPending} aria-pressed={settings.data?.autoApprove ?? false} onClick={() => settingMutation.mutate(!settings.data!.autoApprove)}>Auto-approve: {settings.data?.autoApprove ? "On" : "Off"}</Button><p className="text-sm text-muted-foreground">The console approves memories it is 75%+ sure about; the rest wait for you</p>{settings.isError && <p role="alert" className="text-sm text-destructive">Could not load memory settings.</p>}</div>
-    <div><Button variant="ghost" size="sm" aria-expanded={preview} onClick={() => setPreview(!preview)}>What agents see</Button>{preview && <div className="space-y-2 rounded-md border p-3">{context.isLoading ? <p>Loading preview…</p> : context.isError ? <p role="alert">Could not load preview.</p> : <><p className="text-sm text-muted-foreground">{(context.data?.text.length ?? 0).toLocaleString()} of 1,800 characters</p><pre className="whitespace-pre-wrap text-sm">{context.data?.text}</pre></>}</div>}</div>
+    <div><Button variant="ghost" size="sm" aria-expanded={preview} onClick={() => setPreview(!preview)}>Preview what seats receive</Button><p className="text-sm text-muted-foreground">See the memory context included for agent seats, based on the current search.</p>{preview && <div className="space-y-2 rounded-md border p-3">{context.isLoading ? <p>Loading preview…</p> : context.isError ? <p role="alert">Could not load preview.</p> : <><p className="text-sm text-muted-foreground">{(context.data?.text.length ?? 0).toLocaleString()} of 1,800 characters</p><pre className="whitespace-pre-wrap text-sm">{context.data?.text}</pre></>}</div>}</div>
     <div hidden={!tidying}>{tidy.isLoading ? <p>Loading suggestions…</p> : tidy.isError ? <p role="alert">Could not load suggestions.</p> : <TidyPanel duplicates={tidy.data?.duplicates ?? []} stale={tidy.data?.stale ?? []} entries={tagsQuery.data?.entries ?? []} merge={(ids, title, body) => { void mutate.mutateAsync(() => memoryApi.merge(companyId, { ids, title, body })).then(() => toast?.pushToast({ tone: "success", title: `Merged ${ids.length} entries - the originals are kept under Show withdrawn` })).catch(() => {}); }} withdraw={(id) => act(() => memoryApi.withdraw(companyId, id))} />}</div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {pending.isError && <p role="alert" className="text-sm text-destructive">Could not load entries waiting for approval.</p>}
