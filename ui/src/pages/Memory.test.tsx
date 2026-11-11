@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Memory } from "./Memory";
 import type { MemoryEntry } from "../api/memory";
 
-const mock = vi.hoisted(() => ({ entries: [] as import("../api/memory").MemoryEntry[], list: vi.fn(), create: vi.fn(), update: vi.fn(), withdraw: vi.fn(), restore: vi.fn(), approve: vi.fn(), tidy: vi.fn(), context: vi.fn(), merge: vi.fn(), supersede: vi.fn(), history: vi.fn(), pushToast: vi.fn() }));
+const mock = vi.hoisted(() => ({ entries: [] as import("../api/memory").MemoryEntry[], list: vi.fn(), getSettings: vi.fn(), setSettings: vi.fn(), create: vi.fn(), update: vi.fn(), withdraw: vi.fn(), restore: vi.fn(), approve: vi.fn(), tidy: vi.fn(), context: vi.fn(), merge: vi.fn(), supersede: vi.fn(), history: vi.fn(), pushToast: vi.fn() }));
 vi.mock("../context/CompanyContext", () => ({ useCompany: () => ({ selectedCompanyId: "company-1" }) }));
 vi.mock("../context/BreadcrumbContext", () => ({ useBreadcrumbs: () => ({ setBreadcrumbs: vi.fn() }) }));
 vi.mock("../context/ToastContext", () => ({ useOptionalToastActions: () => ({ pushToast: mock.pushToast }) }));
@@ -20,6 +20,8 @@ function change(el: HTMLInputElement | HTMLTextAreaElement, value: string) { con
 async function render() { await act(async () => root.render(<QueryClientProvider client={client}><Memory /></QueryClientProvider>)); await waitFor(() => expect(mock.list).toHaveBeenCalled()); }
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true); mock.entries = []; vi.clearAllMocks();
+  mock.getSettings.mockResolvedValue({ autoApprove: true });
+  mock.setSettings.mockImplementation(async (_company, autoApprove) => ({ autoApprove }));
   mock.tidy.mockResolvedValue({ duplicates: [], stale: [] });
   mock.context.mockResolvedValue({ text: "Agent context", entries: [] });
   mock.history.mockResolvedValue({ entries: [entry({ id: "old", title: "Old version" })] });
@@ -35,6 +37,12 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); client.clear(); container.remove(); vi.unstubAllGlobals(); });
 describe("Memory", () => {
+  it("toggles automatic approval", async () => {
+    await render(); await waitFor(() => expect(button("Auto-approve: On").disabled).toBe(false));
+    await click("Auto-approve: On");
+    await waitFor(() => expect(button("Auto-approve: Off")).toBeTruthy());
+    expect(mock.setSettings).toHaveBeenCalledWith("company-1", false);
+  });
   it("merges duplicates and withdraws stale entries", async () => {
     mock.entries = [entry(), entry({ id: "2", title: "Similar" })];
     mock.tidy.mockResolvedValue({ duplicates: [{ ids: ["1", "2"], reason: "Similar notes", suggestedTitle: "Combined", suggestedBody: "Both" }], stale: [entry()] });

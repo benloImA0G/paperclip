@@ -36,3 +36,7 @@ export type MergeMemoryInput = z.infer<typeof mergeMemorySchema>;
 export type CreateMemoryInput = z.infer<typeof createMemorySchema>;
 export type UpdateMemoryInput = z.infer<typeof updateMemorySchema>;
 export type ListMemoryInput = z.infer<typeof listMemorySchema>;
+
+export const MEMORY_AUTO_APPROVE_THRESHOLD = 75;
+export const memorySettingsSchema = z.object({ autoApprove: z.boolean() }).strict();
+export const reviewPendingMemorySchema = z.object({ issueId: z.string().uuid().optional() }).strict();

@@ -282,3 +282,5 @@ export * from "./council_round_claims.js";
 export * from "./council_work_sessions.js";
 
 export * from "./memory_entries.js";
+
+export * from "./memory_settings.js";

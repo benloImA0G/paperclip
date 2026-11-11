@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { createMemorySchema, updateMemorySchema, withdrawMemorySchema, listMemorySchema, memoryContextSchema, supersedeMemorySchema, mergeMemorySchema, tidyMemorySchema } from "@paperclipai/shared";
+import { createMemorySchema, updateMemorySchema, withdrawMemorySchema, listMemorySchema, memoryContextSchema, supersedeMemorySchema, mergeMemorySchema, tidyMemorySchema, memorySettingsSchema } from "@paperclipai/shared";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
@@ -11,6 +11,19 @@ export function memoryRoutes(db: Db) {
   const router = Router();
   const memory = memoryService(db);
   const base = "/companies/:companyId/memory";
+  router.get(`${base}/settings`, async (req, res) => {
+    const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
+    if (getActorInfo(req).actorType !== "user") throw forbidden("Only board users can manage memory settings");
+    res.json(await memory.getSettings(companyId));
+  });
+  router.put(`${base}/settings`, validate(memorySettingsSchema), async (req, res) => {
+    const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
+    const actor = getActorInfo(req);
+    if (actor.actorType !== "user") throw forbidden("Only board users can manage memory settings");
+    const settings = await memory.setSettings(companyId, req.body.autoApprove);
+    await logActivity(db, { companyId, actorType: actor.actorType, actorId: actor.actorId, action: "memory.settings_updated", entityType: "company", entityId: companyId });
+    res.json(settings);
+  });
   router.get(base, async (req, res) => {
     const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
     res.json({ entries: await memory.list(companyId, listMemorySchema.parse(req.query)) });

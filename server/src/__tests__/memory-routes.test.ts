@@ -24,6 +24,13 @@ suite("memory routes", () => {
     app.use((err: Error & { status?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => res.status(err instanceof ZodError ? 400 : err.status ?? 500).json({ error: err.message }));
   }, 60_000);
   afterAll(async () => { await tempDb?.cleanup(); });
+  it("defaults settings on and updates them per company", async () => {
+    expect((await request(app).get(`${path}/settings`)).body).toEqual({ autoApprove: true });
+    expect((await request(app).put(`${path}/settings`).send({ autoApprove: false })).body).toEqual({ autoApprove: false });
+    expect((await request(app).get(`${path}/settings`)).body).toEqual({ autoApprove: false });
+    expect((await request(app).get(`/api/companies/${other}/memory/settings`)).body).toEqual({ autoApprove: true });
+    expect((await request(app).put(`${path}/settings`).send({ autoApprove: "yes" })).status).toBe(400);
+  });
   it("creates, validates, detects duplicates, filters and ranks", async () => {
     const first = await request(app).post(path).send({ kind: "fact", title: "Alpha project", body: "beta", tags: ["WORK"] });
     expect(first.status).toBe(201); expect(first.body.tags).toEqual(["work"]);

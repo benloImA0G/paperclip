@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { memoryEntries, type Db } from "@paperclipai/db";
+import { memoryEntries, memorySettings, type Db } from "@paperclipai/db";
 import type { CreateMemoryInput, ListMemoryInput, UpdateMemoryInput, SupersedeMemoryInput, MergeMemoryInput } from "@paperclipai/shared";
 import { conflict, notFound } from "../errors.js";
 
@@ -57,6 +57,14 @@ export function memoryService(db: Db) {
   }
   return {
     get,
+    async getSettings(companyId: string) {
+      const [row] = await db.select().from(memorySettings).where(eq(memorySettings.companyId, companyId));
+      return { autoApprove: row?.autoApprove ?? true };
+    },
+    async setSettings(companyId: string, autoApprove: boolean) {
+      const [row] = await db.insert(memorySettings).values({ companyId, autoApprove }).onConflictDoUpdate({ target: memorySettings.companyId, set: { autoApprove, updatedAt: new Date() } }).returning();
+      return { autoApprove: row!.autoApprove };
+    },
     async list(companyId: string, filters: ListMemoryInput) {
       const conditions = [eq(memoryEntries.companyId, companyId)];
       if (filters.status !== "all") conditions.push(eq(memoryEntries.status, filters.status));
