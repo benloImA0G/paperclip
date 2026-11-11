@@ -35,6 +35,7 @@ import { CouncilMentionPicker, mentionToken, startsWithSeatMention } from "../co
 import { useOptionalToastActions } from "../context/ToastContext";
 import { CouncilEmptyState } from "../components/CouncilEmptyState";
 import { CouncilRoomStats, formatCouncilMarkdown } from "../components/CouncilRoomStats";
+import { CouncilLessonsButton } from "../components/CouncilLessonsButton";
 import { CouncilReplyFooter } from "../components/CouncilReplyFooter";
 import { CouncilStyleSwitch, type CouncilQuickStyle } from "../components/CouncilStyleSwitch";
 import { CouncilEgressBanner } from "../components/CouncilEgressBanner";
@@ -926,6 +927,7 @@ export function Council() {
 
       <div className="flex min-w-0 items-center gap-2 rounded-lg border p-2">
         <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">War rooms</span>
+        {roomId && <CouncilLessonsButton companyId={companyId} issueId={roomId} />}
         <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto overscroll-x-contain">
           <QueryState label="rooms" loading={rooms.isLoading} error={rooms.isError} onRetry={() => void rooms.refetch()} />
           {(rooms.data ?? []).map((r) => (

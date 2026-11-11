@@ -1,4 +1,4 @@
-import { boolean, index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { companies } from "./companies.js";
 
@@ -17,6 +17,10 @@ export const memoryEntries = pgTable("memory_entries", {
   originRef: text("origin_ref"),
   createdByLabel: text("created_by_label").notNull(),
   withdrawnReason: text("withdrawn_reason"),
+  supersedesId: uuid("supersedes_id"),
+  supersededById: uuid("superseded_by_id"),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  useCount: integer("use_count").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),

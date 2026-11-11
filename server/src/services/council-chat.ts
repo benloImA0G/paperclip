@@ -2174,5 +2174,16 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     return { results: rows.map((seat) => done.get(seat.id)!) };
   }
 
-  return { checkSeats, getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, forkRoom, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
+  async function askRoomModel(input: { companyId: string; issueId: string; userId: string; prompt: string; maxOutputTokens: number; signal?: AbortSignal }): Promise<{ ok: boolean; text: string }> {
+    const rows = await db.select().from(councilSeats)
+      .where(and(eq(councilSeats.companyId, input.companyId), eq(councilSeats.issueId, input.issueId), eq(councilSeats.active, true)))
+      .orderBy(asc(councilSeats.position), asc(councilSeats.createdAt));
+    const usable = rows.filter((seat) => seat.seatKind !== "agent" && seat.connectionId && seat.grantId && seat.model);
+    const seat = usable.find((candidate) => seatConfig(candidate.fallbacks).role === "moderator") ?? usable[0];
+    if (!seat) return { ok: false, text: "" };
+    const result = await runSeatTurn({ ...input, roundId: `lessons-${randomUUID()}`, seat, persistComment: false });
+    return { ok: result.status === "ok", text: result.text ?? "" };
+  }
+
+  return { askRoomModel, checkSeats, getRoom, getBrief, updateBrief, updateKind, listArtifacts, getArtifact, saveArtifact, reviewArtifact, getExportSetting, updateExportSetting, listSeats, createRoom, addSeat, updateSeat, removeSeat, runRound, stopRound, startWork, getWork, stopWork, consolidateForExport, clearMessages, forkRoom, __test__invalidateRoomGeneration, listArchivedRooms, listModels };
 }

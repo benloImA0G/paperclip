@@ -7,6 +7,7 @@ export interface MemoryEntry {
   status: "active" | "withdrawn" | "pending"; originKind: "manual" | "council" | "agent";
   originRef: string | null; createdByLabel: string; withdrawnReason: string | null;
   createdAt: string; updatedAt: string; withdrawnAt: string | null;
+  supersedesId: string | null; supersededById: string | null; lastUsedAt: string | null; useCount: number;
 }
 export type MemoryInput = Pick<MemoryEntry, "kind" | "title" | "body" | "sourceUrl" | "sourceLabel" | "tags" | "pinned">;
 export const memoryApi = {
@@ -20,5 +21,11 @@ export const memoryApi = {
   withdraw: (companyId: string, id: string, reason?: string) => api.post<MemoryEntry>(`/companies/${companyId}/memory/${id}/withdraw`, { reason }),
   restore: (companyId: string, id: string) => api.post<MemoryEntry>(`/companies/${companyId}/memory/${id}/restore`, {}),
   approve: (companyId: string, id: string) => api.post<MemoryEntry>(`/companies/${companyId}/memory/${id}/approve`, {}),
+  supersede: (companyId: string, id: string, input: Partial<Omit<MemoryInput, "pinned">>) => api.post<MemoryEntry>(`/companies/${companyId}/memory/${id}/supersede`, input),
+  history: (companyId: string, id: string) => api.get<{ entries: MemoryEntry[] }>(`/companies/${companyId}/memory/${id}/history`),
+  context: (companyId: string, query: string, maxChars = 1800) => api.get<{ text: string; entries: MemoryEntry[] }>(`/companies/${companyId}/memory/context?${new URLSearchParams({ query, maxChars: String(maxChars) })}`),
+  tidy: (companyId: string) => api.get<{ duplicates: { ids: string[]; reason: string; suggestedTitle: string; suggestedBody: string }[]; stale: MemoryEntry[] }>(`/companies/${companyId}/memory/tidy?staleDays=60`),
+  merge: (companyId: string, input: { ids: string[]; title: string; body: string; tags?: string[] }) => api.post<MemoryEntry>(`/companies/${companyId}/memory/merge`, input),
+  extractLessons: (companyId: string, issueId: string) => api.post<{ created: MemoryEntry[]; skipped: number; reason?: string }>(`/companies/${companyId}/memory/lessons/extract`, { issueId }),
   export: async (companyId: string) => (await requestResponse(`/companies/${companyId}/memory/export`)).blob(),
 };

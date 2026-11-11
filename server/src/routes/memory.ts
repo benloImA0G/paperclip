@@ -1,11 +1,11 @@
 import { Router } from "express";
 import type { Db } from "@paperclipai/db";
-import { createMemorySchema, updateMemorySchema, withdrawMemorySchema, listMemorySchema, memoryContextSchema } from "@paperclipai/shared";
+import { createMemorySchema, updateMemorySchema, withdrawMemorySchema, listMemorySchema, memoryContextSchema, supersedeMemorySchema, mergeMemorySchema, tidyMemorySchema } from "@paperclipai/shared";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { logActivity } from "../services/activity-log.js";
-import { memoryContext, MemoryDuplicateError, memoryService } from "../services/memory.js";
+import { MemoryDuplicateError, memoryService } from "../services/memory.js";
 
 export function memoryRoutes(db: Db) {
   const router = Router();
@@ -18,8 +18,16 @@ export function memoryRoutes(db: Db) {
   router.get(`${base}/context`, async (req, res) => {
     const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
     const filters = memoryContextSchema.parse(req.query);
-    const entries = await memory.list(companyId, { ...filters, status: "active" });
-    res.json({ text: memoryContext(entries), entries });
+    const entries = await memory.list(companyId, { query: filters.query, limit: filters.limit, status: "active" });
+    res.json(await memory.context(companyId, entries, { maxChars: filters.maxChars }));
+  });
+  router.get(`${base}/tidy`, async (req, res) => {
+    const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
+    res.json(await memory.tidy(companyId, tidyMemorySchema.parse(req.query).staleDays));
+  });
+  router.get(`${base}/:id/history`, async (req, res) => {
+    const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
+    res.json({ entries: await memory.history(companyId, req.params.id as string) });
   });
   router.get(`${base}/export`, async (req, res) => {
     const companyId = req.params.companyId as string; assertCompanyAccess(req, companyId);
@@ -37,6 +45,8 @@ export function memoryRoutes(db: Db) {
       res.status(status).json(entry);
     } catch (error) {
       if (error instanceof MemoryDuplicateError) { res.status(409).json({ existingId: error.existingId }); return; }
+      const cause = error as { code?: string; cause?: { code?: string } };
+      if (cause.code === "23505" || cause.cause?.code === "23505") { res.status(409).json({ error: "An active memory with this kind and title already exists" }); return; }
       throw error;
     }
   }
@@ -44,6 +54,8 @@ export function memoryRoutes(db: Db) {
     const actor = getActorInfo(req);
     return memory.create(req.params.companyId as string, actor.actorType === "agent" ? { ...req.body, originKind: "agent" } : req.body);
   }, 201));
+  router.post(`${base}/merge`, validate(mergeMemorySchema), async (req, res) => mutate(req, res, "merged", () => memory.merge(req.params.companyId as string, req.body), 201));
+  router.post(`${base}/:id/supersede`, validate(supersedeMemorySchema), async (req, res) => mutate(req, res, "superseded", () => memory.supersede(req.params.companyId as string, req.params.id as string, req.body), 201));
   router.patch(`${base}/:id`, validate(updateMemorySchema), async (req, res) => mutate(req, res, "updated", () => memory.patch(req.params.companyId as string, req.params.id as string, req.body)));
   router.post(`${base}/:id/withdraw`, validate(withdrawMemorySchema), async (req, res) => mutate(req, res, "withdrawn", () => memory.withdraw(req.params.companyId as string, req.params.id as string, req.body.reason)));
   router.post(`${base}/:id/restore`, async (req, res) => mutate(req, res, "restored", () => memory.restore(req.params.companyId as string, req.params.id as string)));

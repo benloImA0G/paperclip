@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { memoryEntries, type Db } from "@paperclipai/db";
-import type { CreateMemoryInput, ListMemoryInput, UpdateMemoryInput } from "@paperclipai/shared";
+import type { CreateMemoryInput, ListMemoryInput, UpdateMemoryInput, SupersedeMemoryInput, MergeMemoryInput } from "@paperclipai/shared";
 import { conflict, notFound } from "../errors.js";
 
 type Entry = typeof memoryEntries.$inferSelect;
@@ -15,9 +15,20 @@ export function rankMemory(entries: Entry[], query?: string) {
     return { entry, matches: words.every((word) => haystack.includes(word)), score: words.filter((word) => title.includes(word)).length };
   }).filter((item) => item.matches).sort((a, b) => Number(b.entry.pinned) - Number(a.entry.pinned) || b.score - a.score || b.entry.updatedAt.getTime() - a.entry.updatedAt.getTime()).map((item) => item.entry);
 }
-export function memoryContext(entries: Entry[]) {
-  if (!entries.length) return "";
-  return "MEMORY (reference, may be out of date):\n" + entries.map((entry) => `- [${entry.kind}] ${entry.title}: ${entry.body.slice(0, 300)} (source: ${entry.sourceLabel || entry.sourceUrl || "unknown"}; by ${entry.createdByLabel})`).join("\n");
+const contextHeader = "MEMORY (reference, may be out of date):\n";
+export function selectMemoryContext(entries: Entry[], { maxChars = 1800 }: { maxChars?: number } = {}) {
+  const ordered = [...entries].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const included: Entry[] = [];
+  const lines: string[] = [];
+  for (const entry of ordered) {
+    const line = `- [${entry.kind}] ${entry.title}: ${entry.body.slice(0, 300)} (source: ${entry.sourceLabel || entry.sourceUrl || "unknown"}; by ${entry.createdByLabel})`;
+    if (included.length && contextHeader.length + lines.join("\n").length + 1 + line.length > maxChars) break;
+    included.push(entry); lines.push(line);
+  }
+  return { text: lines.length ? contextHeader + lines.join("\n") : "", entries: included };
+}
+export function memoryContext(entries: Entry[], options?: { maxChars?: number }) {
+  return selectMemoryContext(entries, options).text;
 }
 export function memoryService(db: Db) {
   async function get(companyId: string, id: string) {
@@ -60,6 +71,65 @@ export function memoryService(db: Db) {
       if (status === "active") await duplicate(companyId, input.kind, input.title);
       const [row] = await withDuplicateCheck(companyId, input.kind, input.title, () => db.insert(memoryEntries).values({ ...input, companyId, status, createdByLabel: input.createdByLabel || "Board" }).returning());
       return row!;
+    },
+    async context(companyId: string, entries: Entry[], options?: { maxChars?: number }) {
+      const selected = selectMemoryContext(entries, options);
+      if (selected.entries.length) {
+        try {
+          await db.update(memoryEntries).set({ lastUsedAt: new Date(), useCount: sql`${memoryEntries.useCount} + 1` })
+            .where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, selected.entries.map((entry) => entry.id))));
+        } catch { /* Context remains available when usage accounting fails. */ }
+      }
+      return selected;
+    },
+    async history(companyId: string, id: string) {
+      const entries: Entry[] = []; const seen = new Set<string>();
+      let next: string | null = id;
+      while (next && !seen.has(next)) { seen.add(next); const entry = await get(companyId, next); entries.push(entry); next = entry.supersedesId; }
+      return entries;
+    },
+    async supersede(companyId: string, id: string, input: SupersedeMemoryInput) {
+      return db.transaction(async (tx) => {
+        const [old] = await tx.select().from(memoryEntries).where(and(eq(memoryEntries.companyId, companyId), eq(memoryEntries.id, id))).for("update");
+        if (!old) throw notFound("Memory entry not found");
+        if (old.status !== "active") throw conflict("Only active memories can be superseded");
+        const now = new Date();
+        await tx.update(memoryEntries).set({ status: "withdrawn", withdrawnReason: "superseded", withdrawnAt: now, updatedAt: now }).where(eq(memoryEntries.id, id));
+        const [entry] = await tx.insert(memoryEntries).values({ companyId, kind: input.kind ?? old.kind, title: input.title ?? old.title, body: input.body ?? old.body, sourceUrl: input.sourceUrl === undefined ? old.sourceUrl : input.sourceUrl, sourceLabel: input.sourceLabel === undefined ? old.sourceLabel : input.sourceLabel, tags: input.tags ?? old.tags, pinned: old.pinned, originKind: old.originKind, originRef: old.originRef, createdByLabel: old.createdByLabel, supersedesId: old.id }).returning();
+        await tx.update(memoryEntries).set({ supersededById: entry!.id }).where(eq(memoryEntries.id, id));
+        return entry!;
+      });
+    },
+    async merge(companyId: string, input: MergeMemoryInput) {
+      return db.transaction(async (tx) => {
+        const rows = await tx.select().from(memoryEntries).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, input.ids))).orderBy(memoryEntries.id).for("update");
+        if (rows.length !== input.ids.length) throw notFound("Memory entry not found");
+        const ordered = input.ids.map((id) => rows.find((row) => row.id === id)!);
+        if (ordered.some((row) => row.status !== "active" || row.kind !== ordered[0]!.kind)) throw conflict("Memories must be active and of the same kind");
+        const now = new Date();
+        await tx.update(memoryEntries).set({ status: "withdrawn", withdrawnReason: "merged", withdrawnAt: now, updatedAt: now }).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, input.ids)));
+        const first = ordered[0]!;
+        const [entry] = await tx.insert(memoryEntries).values({ companyId, kind: first.kind, title: input.title, body: input.body, tags: [...new Set([...ordered.flatMap((row) => row.tags), ...(input.tags ?? [])])], pinned: ordered.some((row) => row.pinned), originKind: first.originKind, originRef: first.originRef, createdByLabel: first.createdByLabel, supersedesId: first.id }).returning();
+        await tx.update(memoryEntries).set({ supersededById: entry!.id }).where(and(eq(memoryEntries.companyId, companyId), inArray(memoryEntries.id, input.ids)));
+        return entry!;
+      });
+    },
+    async tidy(companyId: string, staleDays: number) {
+      const rows = await db.select().from(memoryEntries).where(and(eq(memoryEntries.companyId, companyId), eq(memoryEntries.status, "active")));
+      const normalize = (title: string) => title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim().replace(/\s+/g, " ");
+      const parent = rows.map((_, i) => i);
+      const root = (i: number): number => parent[i] === i ? i : (parent[i] = root(parent[i]!));
+      for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+        if (rows[i]!.kind !== rows[j]!.kind) continue;
+        const a = normalize(rows[i]!.title), b = normalize(rows[j]!.title);
+        const x = new Set(a.split(" ").filter(Boolean)), y = new Set(b.split(" ").filter(Boolean));
+        const union = new Set([...x, ...y]);
+        if (a === b || (union.size > 0 && [...x].filter((word) => y.has(word)).length / union.size >= 0.7)) parent[root(j)] = root(i);
+      }
+      const groups = new Map<number, Entry[]>(); rows.forEach((row, i) => { const key = root(i); groups.set(key, [...(groups.get(key) ?? []), row]); });
+      const duplicates = [...groups.values()].filter((group) => group.length > 1).map((group) => ({ ids: group.map((row) => row.id), reason: "Similar titles", suggestedTitle: group.reduce((a, b) => a.title.length <= b.title.length ? a : b).title, suggestedBody: [...new Set(group.flatMap((row) => row.body.split("\n")).map((line) => line.trim()).filter(Boolean))].join("\n\n").slice(0, 2000) }));
+      const cutoff = Date.now() - staleDays * 86400000;
+      return { duplicates, stale: rows.filter((row) => !row.pinned && (row.lastUsedAt ?? row.createdAt).getTime() < cutoff) };
     },
     patch: (companyId: string, id: string, input: UpdateMemoryInput) => update(companyId, id, input),
     async withdraw(companyId: string, id: string, reason?: string) {
