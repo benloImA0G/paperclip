@@ -1437,7 +1437,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
    * "ask": post the user's message, then active seats answer blind in dispatch order.
    * "discuss": no new question needed (an optional focus note is allowed); every seat reads the
    * others' earlier answers in the thread and reacts to them in dispatch order.
-   * "summarize": one seat (`seatId`, default the first active) writes a short summary of the thread.
+   * "summarize": one seat (`seatId`, default the moderator) writes a short summary of the thread.
    * In "ask" and "discuss", `@Name` (the seat's name or its first word) or `@all` in the message
    * limits the round to the mentioned seats.
    */
@@ -1510,9 +1510,9 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
     const allSeatNames = activeSeats.map((s) => s.name);
     let directOrchestratorMention = false;
     if (summarize) {
-      const writer = input.seatId ? seats.find((s) => s.id === input.seatId) : seats[0];
+      const writer = input.seatId ? seats.find((s) => s.id === input.seatId) : seats.find((s) => s.role === "moderator") ?? seats[0];
       if (!writer) throw unprocessable("Summary seat not found");
-      seats = [writer];
+      seats = !input.seatId && writer.role !== "moderator" ? seats : [writer];
     } else {
       const lower = message.toLowerCase();
       const mentioned = lower.includes("@all") ? [] : matchMentionedSeats(lower, seats);
@@ -1627,7 +1627,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       });
     };
     const results: CouncilSeatTurnResult[] = [];
-    const dispatchedSeats = activeSeats.length === 1 || directOrchestratorMention
+    const dispatchedSeats = summarize ? seats : activeSeats.length === 1 || directOrchestratorMention
       ? seats.filter((candidate) => activeSeats.length === 1 || candidate.role !== "moderator" || directOrchestratorMention)
       : orderSeats(seats, input.order);
     // Chain: seats answer one after another, each handed the earlier answers to build on or review.
@@ -1650,6 +1650,7 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       const result = await dispatch(seat, roundId, persona ? `${seatPrompt}\n\n${personaInstruction(persona)}` : seatPrompt);
       results.push(result);
       if (result.status === "cancelled") break;
+      if (summarize && result.status === "ok" && result.text?.trim()) break;
     }
 
     if (discuss && input.stance) {
