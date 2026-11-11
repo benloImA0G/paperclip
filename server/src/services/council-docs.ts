@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { untrusted } from "./council-untrusted.js";
 
 const MAX_BYTES = 512 * 1024;
@@ -17,6 +18,61 @@ export function extractDocText({ filename, contentType: _contentType, bytes }: {
   } catch {
     return { ok: false, reason: "Document is not valid UTF-8" };
   }
+}
+
+const PANDOC_FORMATS: Record<string, string> = { docx: "docx", odt: "odt", rtf: "rtf", html: "html", htm: "html" };
+const MAX_PANDOC_INPUT = 5 * 1024 * 1024;
+const MAX_PANDOC_OUTPUT = 4 * 1024 * 1024;
+
+type ExtractResult = ReturnType<typeof extractDocText>;
+
+export async function extractDocTextAsync(input: {
+  filename: string; contentType?: string; bytes: Uint8Array; pandocPath?: string;
+}): Promise<ExtractResult> {
+  const kind = input.filename.toLowerCase().match(/\.([^.\/\\]+)$/)?.[1];
+  if (/macroenabled/i.test(input.contentType ?? "") || (kind && /^(docm|dotm|xlsm|xltm|xlam|pptm|potm|ppsm|ppam|sldm)$/.test(kind))) {
+    return { ok: false, reason: "Macro-enabled documents are not supported" };
+  }
+  const format = kind && PANDOC_FORMATS[kind];
+  if (!format) return extractDocText(input);
+  if (input.bytes.byteLength > MAX_PANDOC_INPUT) return { ok: false, reason: "Document exceeds 5 MB" };
+
+  return new Promise<ExtractResult>((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (result: ExtractResult) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+    try {
+      const child = spawn(input.pandocPath || process.env.PANDOC_PATH || "pandoc", ["--sandbox", "--from", format, "--to", "markdown", "--wrap=none"], { stdio: ["pipe", "pipe", "pipe"] });
+      const parts: Buffer[] = [];
+      let size = 0;
+      timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        finish({ ok: false, reason: "Document conversion timed out" });
+      }, 15_000);
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        size += chunk.length;
+        if (size > MAX_PANDOC_OUTPUT) {
+          child.kill("SIGKILL");
+          finish({ ok: false, reason: "Converted document exceeds 4 MB" });
+        } else parts.push(chunk);
+      });
+      child.stderr.resume();
+      child.stdin.on("error", () => {});
+      child.on("error", (error: NodeJS.ErrnoException) => finish({ ok: false, reason: error.code === "ENOENT" ? "Word files need Pandoc on the server" : "Document conversion failed" }));
+      child.on("close", (code) => finish(code === 0
+        ? { ok: true, text: Buffer.concat(parts).toString("utf8"), kind: kind! }
+        : { ok: false, reason: "Document conversion failed" }));
+      child.stdin.end(input.bytes);
+    } catch (error) {
+      finish({ ok: false, reason: (error as NodeJS.ErrnoException).code === "ENOENT" ? "Word files need Pandoc on the server" : "Document conversion failed" });
+    }
+  });
 }
 
 export type DocChunk = { id: string; text: string; label?: string };

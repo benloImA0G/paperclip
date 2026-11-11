@@ -270,6 +270,14 @@ export function Council() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [mobileRoomOptionsOpen, setMobileRoomOptionsOpen] = useState(false);
+  const [compactComposer, setCompactComposer] = useState(() => window.matchMedia?.("(max-width: 639px)").matches ?? false);
+  useEffect(() => {
+    const media = window.matchMedia?.("(max-width: 639px)");
+    if (!media) return;
+    const update = () => setCompactComposer(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [advancedMode, setAdvancedMode] = useState(false);
   const settingsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -1397,6 +1405,7 @@ export function Council() {
               e.preventDefault();
               if (!canSend) return;
               setOptionsOpen(false);
+              setMobileRoomOptionsOpen(false);
               if (planFirst && workStatus !== "running" && targetedSeatIds === undefined) {
                 startWork.mutate({ companyId, roomId: roomId!, vars: { goal: message.trim(), postGoal: true, ...(workTasks ? { createTasks: true } : {}), ...(askFirst ? { clarifyFirst: true } : {}), ...(juryChecks ? { juryChecks: true } : {}), ...(finalReview ? { finalReview: true } : {}) } }, { onSuccess: () => setMessage("") });
                 return;
@@ -1415,7 +1424,7 @@ export function Council() {
               aria-label="Message the council"
               onChange={(e) => { setMessage(e.target.value); setMentionCursor(e.target.selectionStart); setMentionClosed(false); setMentionIndex(0); }}
               onSelect={(e) => { setMentionCursor(e.currentTarget.selectionStart); }}
-              placeholder={`Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a seat"}`}
+              placeholder={compactComposer ? "Ask the council" : `Ask the council… type detailed instructions, paste code, or tag ${activeSeats.slice(0, 3).map(mentionOf).join(", ") || "a seat"}`}
               rows={1}
               onInput={(e) => { e.currentTarget.style.height = "auto"; e.currentTarget.style.height = `${Math.min(e.currentTarget.scrollHeight, 144)}px`; }}
               className="council-message-input field-sizing-fixed min-h-0 min-w-0 flex-1 resize-none border-0 text-sm shadow-none max-sm:min-h-16 max-sm:max-h-(--sz-28dvh) focus-visible:ring-2 focus-visible:ring-primary"
@@ -1450,8 +1459,8 @@ export function Council() {
               </div>
             ) : null}
             <div className="relative flex flex-wrap items-center gap-2 text-xs">
-              <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="council-options-trigger" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /><span>Options</span></Button>
-              {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg border bg-popover p-2 shadow-lg">
+              <Button ref={optionsTriggerRef} type="button" variant="outline" size="sm" className="max-sm:min-h-11" onClick={() => setOptionsOpen((v) => !v)} aria-label="Message options" title="Message options" aria-expanded={optionsOpen} aria-controls="council-options-popover"><Settings2 /><span>Options</span></Button>
+              {optionsOpen ? <div id="council-options-popover" className="council-options-popover absolute bottom-full left-0 z-20 mb-2 max-h-72 w-full overflow-y-auto rounded-lg max-sm:max-h-(--council-thread-min-height-mobile) border bg-popover p-2 shadow-lg">
               <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-muted-foreground hover:bg-accent">
                 <ImagePlus className="h-3.5 w-3.5" /> upload
                 <input
@@ -1471,6 +1480,7 @@ export function Council() {
                   }}
                 />
               </label>
+              <div className="max-sm:mt-2 max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-1 sm:contents">
               <span className="text-muted-foreground">Tag:</span>
               {activeSeats.map((s) => (
                 <button
@@ -1486,6 +1496,7 @@ export function Council() {
               <button type="button" onClick={() => addToMessage("@all")} className="rounded-full border border-primary px-2 py-0.5 text-primary hover:bg-accent">
                 @Council (All)
               </button>
+              </div>
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-foreground">Response options</span>

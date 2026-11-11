@@ -11,7 +11,7 @@ import { createCostEventInTransaction } from "./costs.js";
 import { fastResponseModel } from "./fast-response-provider.js";
 import { issueService } from "./issues.js";
 import { memoryContext, memoryService } from "./memory.js";
-import { buildDocContext, chunkDoc, extractDocText, pickRelevantChunks } from "./council-docs.js";
+import { buildDocContext, chunkDoc, extractDocTextAsync, pickRelevantChunks } from "./council-docs.js";
 import { untrusted } from "./council-untrusted.js";
 import { getStorageService } from "../storage/index.js";
 import { documentService } from "./documents.js";
@@ -1514,23 +1514,24 @@ export function councilChatService(db: Db, deps: CouncilChatServiceDependencies 
       const attachments = await issueSvc.listAttachments(issueId);
       const candidates = attachments.filter((attachment) =>
         attachment.companyId === companyId && attachment.issueId === issueId &&
-        /\.(txt|md|markdown|csv|json)$/i.test(attachment.originalFilename ?? "") &&
-        attachment.byteSize <= 512 * 1024,
+        /\.(txt|md|markdown|csv|json|docx|odt|rtf|html|htm)$/i.test(attachment.originalFilename ?? "") &&
+        attachment.byteSize <= (/\.(docx|odt|rtf|html|htm)$/i.test(attachment.originalFilename ?? "") ? 5 * 1024 * 1024 : 512 * 1024),
       ).slice(0, 5);
       const chunks: Array<{ id: string; text: string; label: string }> = [];
       for (const attachment of candidates) {
         try {
           const object = await getStorageService().getObject(companyId, attachment.objectKey);
+          const limit = /\.(docx|odt|rtf|html|htm)$/i.test(attachment.originalFilename!) ? 5 * 1024 * 1024 : 512 * 1024;
           const parts: Buffer[] = [];
           let size = 0;
           for await (const part of object.stream) {
             const bytes = Buffer.isBuffer(part) ? part : Buffer.from(part);
             size += bytes.length;
-            if (size > 512 * 1024) { object.stream.destroy(); break; }
+            if (size > limit) { object.stream.destroy(); break; }
             parts.push(bytes);
           }
-          if (size > 512 * 1024) continue;
-          const extracted = extractDocText({ filename: attachment.originalFilename!, contentType: attachment.contentType, bytes: Buffer.concat(parts) });
+          if (size > limit) continue;
+          const extracted = await extractDocTextAsync({ filename: attachment.originalFilename!, contentType: attachment.contentType, bytes: Buffer.concat(parts) });
           if (extracted.ok) chunks.push(...chunkDoc(extracted.text).map((chunk) => ({ ...chunk, label: attachment.originalFilename! })));
         } catch {
           // Individual attachments are optional.

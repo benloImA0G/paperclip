@@ -88,6 +88,24 @@ describe("Council page", () => {
     await act(async () => { disclosure.click(); });
     expect(disclosure.getAttribute("aria-expanded")).toBe("false");
   });
+  it("shows and closes composer options when sending", async () => {
+    await renderPage();
+    const disclosure = container.querySelector<HTMLButtonElement>('button[aria-label="Message options"]')!;
+    expect(disclosure.textContent?.trim()).toBe("Options");
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => { disclosure.click(); });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector(`#${disclosure.getAttribute("aria-controls")}`)).toBeTruthy();
+    const input = container.querySelector('textarea[aria-label="Message the council"]') as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Hello council");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("Send");
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector("#council-options-popover")).toBeNull();
+    await waitFor(() => expect(api.runRound).toHaveBeenCalled());
+  });
   it("shows documents for the open room in settings", async () => {
     await renderPage();
     await act(async () => { container.querySelector<HTMLButtonElement>('button[aria-label="Room settings"]')!.click(); });

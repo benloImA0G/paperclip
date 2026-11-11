@@ -53,13 +53,26 @@ it("uploads an allowed document", async () => {
   await selectFile(file);
   expect(api.uploadAttachment).toHaveBeenCalledWith("company", "room", file);
 });
-it("rejects unsupported and oversized files", async () => {
+it("rejects unsupported, macro-enabled, and oversized files with the applicable limit", async () => {
   await render();
   await selectFile(new File(["x"], "image.png"));
-  expect(container.textContent).toContain("Choose a text, Markdown, CSV or JSON file.");
+  expect(container.textContent).toContain("Choose a text, Markdown, CSV, JSON or Word-like document.");
+  await selectFile(new File(["x"], "macro.docm"));
+  expect(container.textContent).toContain("Macro-enabled files are not supported");
   await selectFile(new File([new Uint8Array(512 * 1024 + 1)], "large.txt"));
-  expect(container.textContent).toContain("Documents must be 512 KB or smaller.");
+  expect(container.textContent).toContain("Text documents must be 512 KB or smaller.");
+  await selectFile(new File([new Uint8Array(5 * 1024 * 1024 + 1)], "large.docx"));
+  expect(container.textContent).toContain("Word-like documents must be 5 MB or smaller.");
   expect(api.uploadAttachment).not.toHaveBeenCalled();
+});
+
+it("accepts Word-like document extensions and advertises the expanded list", async () => {
+  await render();
+  expect(container.textContent).toContain("Seats read these as untrusted reference text. Text, Markdown, CSV, JSON and Word (.docx) files; up to 5 documents.");
+  expect(container.querySelector<HTMLInputElement>('input[type="file"]')!.accept).toBe(".txt,.md,.markdown,.csv,.json,.docx,.odt,.rtf,.html,.htm");
+  const file = new File(["word-like"], "reference.odt");
+  await selectFile(file);
+  expect(api.uploadAttachment).toHaveBeenCalledWith("company", "room", file);
 });
 
 it("limits supported documents and marks those beyond the fifth as not read", async () => {
