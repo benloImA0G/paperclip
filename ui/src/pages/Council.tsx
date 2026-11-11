@@ -855,10 +855,17 @@ export function Council() {
   };
   const addDroppedDocuments = async (files: File[], targetRoomId: string) => {
     let added = 0;
-    for (const [index, file] of files.filter((item) => !item.type.startsWith("image/")).entries()) {
+    let attachments;
+    try { attachments = await queryClient.fetchQuery({ queryKey: queryKeys.issues.attachments(targetRoomId), queryFn: () => issuesApi.listAttachments(targetRoomId) }); }
+    catch { const title = "Could not load room documents"; if (toast) toast.pushToast({ tone: "error", title }); else setError(title); return; }
+    const existing = attachments.filter((attachment) => {
+      const name = attachment.originalFilename ?? "";
+      return /\.(txt|md|markdown|csv|json)$/i.test(name) ? attachment.byteSize <= 512 * 1024 : /\.(docx|odt|rtf|html|htm)$/i.test(name) && attachment.byteSize <= 5 * 1024 * 1024;
+    }).length;
+    for (const file of files) {
       const textType = /\.(txt|md|markdown|csv|json)$/i.test(file.name);
       const wordLike = /\.(docx|odt|rtf|html|htm)$/i.test(file.name);
-      let reason = !textType && !wordLike ? "unsupported type" : file.size > (textType ? 512 * 1024 : 5 * 1024 * 1024) ? "file too large" : index >= 5 ? "maximum 5 files per drop" : null;
+      let reason = file.type.startsWith("image/") ? "images must be added in the composer" : !textType && !wordLike ? "unsupported type" : file.size > (textType ? 512 * 1024 : 5 * 1024 * 1024) ? "file too large" : existing + added >= 5 ? "room already has 5 documents" : null;
       if (!reason) {
         try { await issuesApi.uploadAttachment(companyId, targetRoomId, file); added++; }
         catch { reason = "upload failed"; }
@@ -1173,9 +1180,9 @@ export function Council() {
           ) : null}
 
           <div className={`council-thread-shell flex min-h-0 min-w-0 flex-1 flex-col gap-2 ${documentDrag ? "rounded-md outline outline-2 outline-dashed outline-primary" : ""}`}
-            onDragOver={(event) => { if (hasDocumentDrag(event.dataTransfer)) { event.preventDefault(); setDocumentDrag(true); } }}
+            onDragOver={(event) => { if (Array.from(event.dataTransfer.types ?? []).includes("Files") || Array.from(event.dataTransfer.items ?? []).some((item) => item.kind === "file")) { event.preventDefault(); if (hasDocumentDrag(event.dataTransfer)) setDocumentDrag(true); } }}
             onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDocumentDrag(false); }}
-            onDrop={(event) => { setDocumentDrag(false); const files = Array.from(event.dataTransfer.files); if (!files.some((file) => !file.type.startsWith("image/"))) return; event.preventDefault(); void addDroppedDocuments(files, roomId); }}>
+            onDrop={(event) => { setDocumentDrag(false); const files = Array.from(event.dataTransfer.files); if (!files.length) return; event.preventDefault(); void addDroppedDocuments(files, roomId); }}>
             {documentDrag ? <p className="rounded-md border border-dashed border-primary p-2 text-center text-sm">Drop to add as room document</p> : null}
           <div id="council-room-tools" className={advancedMode ? `shrink-0 rounded-lg border bg-muted/10 px-2 py-1.5 ${mobileRoomOptionsOpen ? "" : "max-sm:hidden"}` : "hidden"}>
             <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs">

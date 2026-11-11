@@ -41,11 +41,34 @@ afterEach(async () => { await act(async () => root.unmount()); client.clear(); c
 describe("Memory", () => {
   it("imports text and shows the result", async () => {
     await render(); await click("Import");
-    await act(async () => change(container.querySelector('textarea')!, '[{"title":"Example","body":"Details"}]'));
-    const dialog = container.querySelector('[role="dialog"]')!;
+    await act(async () => change(document.body.querySelector('[role="dialog"] textarea')!, '[{"title":"Example","body":"Details"}]'));
+    const dialog = document.body.querySelector('[role="dialog"]')!;
     await act(async () => [...dialog.querySelectorAll("button")].find((el) => el.textContent === "Import")!.click());
-    await waitFor(() => expect(container.textContent).toContain("Imported 5 as pending, 1 duplicate skipped, 2 invalid"));
+    await waitFor(() => expect(document.body.textContent).toContain("Imported 5 as pending, 1 duplicate skipped, 2 invalid"));
     expect(mock.import).toHaveBeenCalledWith("company-1", { format: "json", text: '[{"title":"Example","body":"Details"}]' });
+  });
+  it("ignores stale file reads and rejects oversized files", async () => {
+    await render(); await click("Import");
+    const input = document.body.querySelector<HTMLInputElement>('[role="dialog"] input[type="file"]')!;
+    let resolveFirst!: (text: string) => void;
+    const first = new File(["first"], "first.json");
+    Object.defineProperty(first, "text", { value: () => new Promise<string>((resolve) => { resolveFirst = resolve; }) });
+    const second = new File(["second"], "second.md");
+    Object.defineProperty(second, "text", { value: () => Promise.resolve("newer") });
+    const select = async (file: File) => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); await act(async () => input.dispatchEvent(new Event("change", { bubbles: true }))); };
+    await select(first); await select(second); await act(async () => resolveFirst("older"));
+    expect(document.body.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!.value).toBe("newer");
+    const large = new File([new Uint8Array(200 * 1024 + 1)], "large.json");
+    const read = vi.fn(); Object.defineProperty(large, "text", { value: read });
+    await select(large); expect(read).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("File must be 200 KB or smaller.");
+  });
+  it("closes on Escape and returns focus to Import", async () => {
+    await render(); const trigger = button("Import"); trigger.focus(); await click("Import");
+    expect(document.body.querySelector('[role="dialog"]')?.contains(document.activeElement)).toBe(true);
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await waitFor(() => expect(document.body.querySelector('[role="dialog"]')).toBeNull());
+    expect(document.activeElement).toBe(trigger);
   });
   it("shows related entries and selects a related title", async () => {
     const second = entry({ id: "2", title: "Launch plan" });
@@ -99,13 +122,13 @@ describe("Memory", () => {
   });
   it("remembers the last import format", async () => {
     await render(); await click("Import");
-    const select = container.querySelector('[role="dialog"] select')!;
+    const select = document.body.querySelector<HTMLSelectElement>('[role="dialog"] select')!;
     await act(async () => { select.value = "markdown"; select.dispatchEvent(new Event("change", { bubbles: true })); });
     await waitFor(() => expect(localStorage.getItem("paperclip.memory.importFormat")).toBe("markdown"));
-    const dialog = container.querySelector('[role="dialog"]')!;
+    const dialog = document.body.querySelector('[role="dialog"]')!;
     await act(async () => [...dialog.querySelectorAll("button")].find((el) => el.textContent === "Close")!.click());
     await click("Import");
-    expect((container.querySelector('[role="dialog"] select') as HTMLSelectElement).value).toBe("markdown");
+    expect((document.body.querySelector('[role="dialog"] select') as HTMLSelectElement).value).toBe("markdown");
   });
   it("filters loaded entries by tags and clears the selection", async () => {
     mock.entries = [entry({ title: "Alpha", tags: ["shared", "alpha"] }), entry({ id: "2", title: "Beta", tags: ["shared", "beta"] })];

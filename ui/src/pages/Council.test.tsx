@@ -158,6 +158,23 @@ describe("Council page", () => {
     expect(api.uploadAttachment).not.toHaveBeenCalled();
     expect(api.pushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Skipped notes.exe: unsupported type" }));
   });
+  it("counts existing supported documents before uploading", async () => {
+    api.listAttachments.mockResolvedValue([...Array.from({ length: 4 }, (_, i) => ({ id: String(i), originalFilename: `${i}.md`, byteSize: 10 })), { id: "ignored", originalFilename: "image.png", byteSize: 10 }]);
+    await renderPage(); const shell = container.querySelector(".council-thread-shell")!;
+    const files = [new File(["a"], "a.md"), new File(["b"], "b.md")];
+    await act(async () => { const event = new Event("drop", { bubbles: true, cancelable: true }); Object.defineProperty(event, "dataTransfer", { value: { files } }); shell.dispatchEvent(event); });
+    await waitFor(() => expect(api.pushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Skipped b.md: room already has 5 documents" })));
+    expect(api.uploadAttachment).toHaveBeenCalledTimes(1);
+    expect(api.uploadAttachment).toHaveBeenCalledWith("company-1", "room-1", files[0]);
+  });
+  it("prevents image drops and reports ignored images in mixed drops", async () => {
+    await renderPage(); const shell = container.querySelector(".council-thread-shell")!;
+    for (const files of [[new File(["x"], "image.png", { type: "image/png" })], [new File(["x"], "mixed.png", { type: "image/png" }), new File(["x"], "notes.md")]]) {
+      const event = new Event("drop", { bubbles: true, cancelable: true }); Object.defineProperty(event, "dataTransfer", { value: { files } });
+      await act(async () => { shell.dispatchEvent(event); }); expect(event.defaultPrevented).toBe(true);
+      await waitFor(() => expect(api.pushToast).toHaveBeenCalledWith(expect.objectContaining({ title: `Skipped ${files[0].name}: images must be added in the composer` })));
+    }
+  });
   it("ignores text drags", async () => {
     await renderPage();
     const shell = container.querySelector(".council-thread-shell")!;

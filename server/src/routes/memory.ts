@@ -87,15 +87,39 @@ export function memoryRoutes(db: Db) {
       if (!Array.isArray(parsed)) throw badRequest("JSON must be an array");
       entries = parsed;
     } else {
-      const sections = text.split(/^## /m);
-      entries = sections.slice(1).map((section: string) => {
-        const lines = section.replace(/\r/g, "").split("\n");
-        const title = lines.shift() ?? "";
-        while (lines.length && !lines[lines.length - 1]!.trim()) lines.pop();
-        const last = lines[lines.length - 1];
-        const tags = last?.startsWith("Tags:") ? lines.pop()!.slice(5).split(",").map((tag) => tag.trim()).filter(Boolean) : [];
-        return { title, body: lines.join("\n").trim(), tags };
+      const sections: { title: string; lines: { text: string; fenced: boolean }[] }[] = [];
+      let fence: { marker: string; length: number } | undefined;
+      for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
+        const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+        const inFence = !!fence;
+        if (fenceMatch) {
+          const marker = fenceMatch[1]!;
+          if (!fence) fence = { marker: marker[0]!, length: marker.length };
+          else if (marker[0] === fence.marker && marker.length >= fence.length && !fenceMatch[2]!.trim()) fence = undefined;
+        }
+        const heading = !inFence && !fenceMatch ? line.match(/^##[ \t]+(.+)$/) : null;
+        if (heading) sections.push({ title: heading[1]!.trim(), lines: [] });
+        else sections.at(-1)?.lines.push({ text: line, fenced: inFence || !!fenceMatch });
+      }
+      entries = sections.map(({ title: heading, lines }) => {
+        const taggedTitle = heading.match(/^\[([^\]]+)\]\s+(.+)$/);
+        const metadata: Record<string, string> = {};
+        while (lines.length) {
+          const last = lines[lines.length - 1]!;
+          if (!last.text.trim()) { lines.pop(); continue; }
+          const match = !last.fenced && last.text.match(/^(Source|Tags|Pinned|Date|Created(?: At)?|Updated(?: At)?):\s*(.*)$/i);
+          if (!match) break;
+          metadata[match[1]!.toLowerCase()] = match[2]!;
+          lines.pop();
+        }
+        return {
+          kind: taggedTitle?.[1], title: taggedTitle?.[2] ?? heading,
+          body: lines.map((line) => line.text).join("\n").trim(),
+          tags: metadata.tags?.split(",").map((tag) => tag.trim()).filter(Boolean) ?? [],
+          ...(metadata.source && metadata.source !== "unknown" ? { sourceLabel: metadata.source } : {}),
+        };
       });
+      if (!entries.length) throw badRequest("No entries found: start each entry with a '## Title' line");
     }
     const existing = await memory.list(companyId, { status: "all" });
     const keys = new Set(existing.filter((entry) => entry.status === "active" || entry.status === "pending").map((entry) => JSON.stringify([entry.kind, entry.title])));

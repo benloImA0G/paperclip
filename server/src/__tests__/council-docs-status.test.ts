@@ -28,6 +28,21 @@ it("reports extraction results without returning document text", async () => {
   ]);
 }, 60_000);
 
+it("reuses extraction on a repeated status request and refreshes changed attachments", async () => {
+  const docs = await import("../services/council-docs.js");
+  const extract = vi.spyOn(docs, "extractDocTextAsync");
+  mocks.listAttachments.mockResolvedValue([{ ...attachment("cache-test", "cache.md"), createdAt: new Date("2026-01-01") }]);
+  const { loadCouncilDocuments } = await import("../services/council-chat.js");
+  await loadCouncilDocuments({} as never, companyId, issueId);
+  await loadCouncilDocuments({} as never, companyId, issueId);
+  expect(extract).toHaveBeenCalledTimes(1);
+  expect(mocks.getObject).toHaveBeenCalledTimes(1);
+  mocks.listAttachments.mockResolvedValue([{ ...attachment("cache-test", "cache.md"), byteSize: 11, createdAt: new Date("2026-01-01") }]);
+  await loadCouncilDocuments({} as never, companyId, issueId);
+  expect(extract).toHaveBeenCalledTimes(2);
+  extract.mockRestore();
+});
+
 it("counts only eligible files towards the five document limit", async () => {
   mocks.listAttachments.mockResolvedValue([attachment("unsupported", "image.png"), { ...attachment("large", "large.md"), byteSize: 524289 }, ...Array.from({ length: 6 }, (_, i) => attachment(String(i), `${i}.md`))]);
   const { loadCouncilDocuments } = await import("../services/council-chat.js");

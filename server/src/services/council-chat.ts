@@ -346,6 +346,8 @@ export interface CouncilChatServiceDependencies {
   agentTurnService?: Pick<ReturnType<typeof createCouncilAgentTurnService>, "runAgentTurn">;
 }
 
+const councilDocumentCache = new Map<string, { expiresAt: number; result: Awaited<ReturnType<typeof extractDocTextAsync>> }>();
+
 export async function loadCouncilDocuments(db: Db, companyId: string, issueId: string, query = "") {
   const attachments = (await issueService(db).listAttachments(issueId)).filter((a) => a.companyId === companyId && a.issueId === issueId);
   const chunks: Array<{ id: string; text: string; label: string }> = [];
@@ -364,17 +366,28 @@ export async function loadCouncilDocuments(db: Db, companyId: string, issueId: s
     if (attachment.byteSize > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
     if (eligible++ >= 5) { documents.push({ ...status, reason: "Not read: only the first 5 are used" }); continue; }
     try {
-      const object = await getStorageService().getObject(companyId, attachment.objectKey);
-      const parts: Buffer[] = [];
-      let size = 0;
-      for await (const part of object.stream) {
-        const bytes = Buffer.isBuffer(part) ? part : Buffer.from(part);
-        size += bytes.length;
-        if (size > limit) { object.stream.destroy(); break; }
-        parts.push(bytes);
+      const key = JSON.stringify([companyId, attachment.id, attachment.byteSize, attachment.createdAt]);
+      const cacheable = !!attachment.id && !!attachment.createdAt;
+      const cached = cacheable ? councilDocumentCache.get(key) : undefined;
+      let extracted = cached && cached.expiresAt > Date.now() ? cached.result : undefined;
+      if (!extracted) {
+        const object = await getStorageService().getObject(companyId, attachment.objectKey);
+        const parts: Buffer[] = [];
+        let size = 0;
+        for await (const part of object.stream) {
+          const bytes = Buffer.isBuffer(part) ? part : Buffer.from(part);
+          size += bytes.length;
+          if (size > limit) { object.stream.destroy(); break; }
+          parts.push(bytes);
+        }
+        if (size > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
+        extracted = await extractDocTextAsync({ filename, contentType: attachment.contentType, bytes: Buffer.concat(parts) });
+        if (cacheable) {
+          councilDocumentCache.delete(key);
+          councilDocumentCache.set(key, { expiresAt: Date.now() + 10 * 60_000, result: extracted });
+          if (councilDocumentCache.size > 100) councilDocumentCache.delete(councilDocumentCache.keys().next().value!);
+        }
       }
-      if (size > limit) { documents.push({ ...status, reason: "Too large" }); continue; }
-      const extracted = await extractDocTextAsync({ filename, contentType: attachment.contentType, bytes: Buffer.concat(parts) });
       if (!extracted.ok) { documents.push({ ...status, reason: extracted.reason }); continue; }
       documents.push({ ...status, readable: true, characters: extracted.text.length });
       chunks.push(...chunkDoc(extracted.text).map((chunk) => ({ ...chunk, label: filename })));

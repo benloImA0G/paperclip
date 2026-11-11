@@ -37,6 +37,27 @@ const support = await getEmbeddedPostgresTestSupport();
     const entries = (await request(app).get(path).query({ status: "pending" })).body.entries;
     expect(entries.find((e: { title: string }) => e.title === "First")).toMatchObject({ kind: "note", body: "Body one", tags: ["a", "b"], sourceLabel: expect.stringMatching(/^Imported \d{4}-\d\d-\d\d$/) });
   });
+  it("ignores headings inside both kinds of fenced code and rejects text without entries", async () => {
+    const text = "## Fenced example\n\n```md\n## Not an entry\n```\n\n~~~md\n## Also not an entry\n~~~\n\n## Real entry\nDone";
+    const result = await request(app).post(`${path}/import`).send({ format: "markdown", text });
+    expect(result.body.created).toBe(2);
+    const entries = (await request(app).get(path).query({ status: "pending" })).body.entries;
+    expect(entries.find((entry: { title: string }) => entry.title === "Fenced example").body).toContain("## Not an entry");
+    const empty = await request(app).post(`${path}/import`).send({ format: "markdown", text: "```\n## Hidden\n```" });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toBe("No entries found: start each entry with a '## Title' line");
+  });
+  it("round-trips the real Markdown export", async () => {
+    const sourcePath = `/api/companies/${other}/memory`;
+    await request(app).post(sourcePath).send({ kind: "fact", title: "Exported fact", body: "First body", tags: ["alpha", "beta"], sourceLabel: "Research" });
+    await request(app).post(sourcePath).send({ kind: "decision", title: "Exported decision", body: "Second body", tags: ["gamma"] });
+    const exported = await request(app).get(`${sourcePath}/export`);
+    const imported = await request(app).post(`${path}/import`).send({ format: "markdown", text: exported.text });
+    expect(imported.body.created).toBe(2);
+    const entries = (await request(app).get(path).query({ status: "pending" })).body.entries;
+    expect(entries.find((entry: { title: string }) => entry.title === "Exported fact")).toMatchObject({ kind: "fact", body: "First body", tags: ["alpha", "beta"], sourceLabel: "Research" });
+    expect(entries.find((entry: { title: string }) => entry.title === "Exported decision")).toMatchObject({ kind: "decision", body: "Second body", tags: ["gamma"] });
+  });
   it("reports limits and rejects invalid JSON and oversized payloads", async () => {
     const entries = [{ title: "x".repeat(201), body: "a" }, { title: "large", body: "x".repeat(4001) }, ...Array.from({ length: 99 }, (_, i) => ({ title: `cap ${i}`, body: "ok" }))];
     const result = await request(app).post(`${path}/import`).send({ format: "json", text: JSON.stringify(entries) });
