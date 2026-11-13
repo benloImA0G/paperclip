@@ -1,5 +1,7 @@
 # Council Chat: ranked next improvements
 
+Note 2026-11-13: priorities are now tracked in `COUNCIL-ROADMAP.md`. This list is kept as background detail.
+
 1. **Durable, replayable council runs with a real Stop button**
    - Why: makes war rooms trustworthy—Ben can see exactly what ran, recover after refresh/restart, and avoid duplicate or “ghost” vendor replies.
    - Effort: L

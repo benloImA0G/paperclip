@@ -1,4 +1,5 @@
 import { notifyDeliveryWork, DELIVERY_QUEUES } from "./delivery-work-notifications.js";
+import { COUNCIL_SEAT_AUTHOR_PREFIX } from "./council-chat.js";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { and, asc, desc, eq, getTableColumns, gte, isNull, lte, ne, or } from "drizzle-orm";
@@ -823,7 +824,8 @@ async function resolveFeedbackTarget(
     if (targetComment.deletedAt) {
       throw notFound("Feedback target not found");
     }
-    if (!targetComment.authorAgentId) {
+    const isCouncilSeatComment = !!targetComment.authorUserId?.startsWith(COUNCIL_SEAT_AUTHOR_PREFIX);
+    if (!targetComment.authorAgentId && !isCouncilSeatComment) {
       throw unprocessable("Feedback voting is only available on agent-authored issue comments");
     }
 

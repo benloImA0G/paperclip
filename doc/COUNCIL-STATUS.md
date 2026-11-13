@@ -1,5 +1,7 @@
 # Council Chat status (updated 2026-11-05 05:10 WIB, autonomous overnight run)
 
+Current priorities and tracking: see `COUNCIL-ROADMAP.md` (single tracker, updated 2026-11-13).
+
 Branch: `feat/council-chat` (private fork), everything below is committed and pushed.
 Checks at this point: 73 council vitest tests; live suites in `~/council-test/codex`: `regress.mjs`, `e2e-orchestrator.mjs`, `e2e-templates.mjs`, `e2e-stop.mjs`, `e2e-review.mjs` (real free vendors); server/UI typechecks and `pnpm check:token-gates` clean. Live-model suites can be flaky; rerun once before assuming a regression.
 

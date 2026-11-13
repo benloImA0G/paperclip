@@ -9,6 +9,7 @@ import { Link } from "../lib/router";
 import { Button } from "./ui/button";
 import { NativeSelect } from "./ui/select";
 import { IssueStatusBadge } from "./StatusBadge";
+import { CouncilFollowUp } from "./CouncilFollowUp";
 
 export type CreateTaskFromDecisionButtonProps = {
   roomId: string;
@@ -227,6 +228,7 @@ export function LinkedTasksPanel({ roomId, companyId, onAskInRoom }: { roomId: s
           ))}
         </ul>
       ) : null}
+      {companyId && !tasks.isLoading && !tasks.isError && linkedTasks.length > 0 ? <CouncilFollowUp companyId={companyId} roomId={roomId} /> : null}
     </details>
   );
 }

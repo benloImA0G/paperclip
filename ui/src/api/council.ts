@@ -124,7 +124,11 @@ export interface CouncilEstimate {
 
 export interface CouncilDocumentStatus { attachmentId: string; filename: string; byteSize: number; readable: boolean; reason?: string; characters?: number }
 
+export interface CouncilFollowUpItem { id: string; identifier: string | null; title: string; status: string; assigneeName: string | null; updatedAt: string; outcome: string | null; stale: boolean; staleDays: number; }
+export interface CouncilFollowUp { summary: { total: number; done: number; blocked: number; inProgress: number; open: number }; headline: string; items: CouncilFollowUpItem[]; }
+
 export const councilApi = {
+  getFollowUp: (companyId: string, roomId: string) => api.get<CouncilFollowUp>(`/companies/${companyId}/council/rooms/${roomId}/follow-up`),
   documentStatus: (companyId: string, issueId: string) => api.get<{ documents: CouncilDocumentStatus[]; maxDocuments: number }>(`/companies/${companyId}/council/rooms/${issueId}/documents/status`),
   getBrief: (companyId: string, issueId: string) => api.get<{ brief: string }>(`/companies/${companyId}/council/rooms/${issueId}/brief`),
   getReliability: (companyId: string, issueId: string) => api.get<CouncilReliability>(`/companies/${companyId}/council/rooms/${issueId}/stats`),

@@ -10,6 +10,7 @@ import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../services/council-export.js";
 import { getCouncilReliability } from "../services/council-reliability.js";
 import { logActivity } from "../services/activity-log.js";
+import { loadCouncilFollowUp } from "../services/council-followup.js";
 import { getCouncilEstimate } from "../services/council-estimate.js";
 import { suggestCouncilSeats } from "../services/council-autofill.js";
 import { classifyCouncilQuestion } from "../services/council-modes.js";
@@ -192,6 +193,14 @@ export function councilChatRoutes(db: Db) {
     boardUserId(req);
     await council.getRoom(companyId, req.params.issueId as string);
     res.json(await getCouncilReliability(db, companyId, req.params.issueId as string));
+  });
+
+  router.get("/companies/:companyId/council/rooms/:roomId/follow-up", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    boardUserId(req);
+    const room = await council.getRoom(companyId, req.params.roomId as string);
+    res.json(await loadCouncilFollowUp(db, companyId, room.id));
   });
 
   router.get("/companies/:companyId/council/rooms/:roomId/estimate", async (req, res) => {

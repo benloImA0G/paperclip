@@ -1,0 +1,262 @@
+[
+  {
+    "id": "council-01",
+    "kind": "quick-fact",
+    "question": "What does HTTP status 404 mean?",
+    "must_include": [
+      "not found",
+      "resource"
+    ],
+    "must_not": [
+      "success"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-02",
+    "kind": "quick-fact",
+    "question": "What is the purpose of a database index?",
+    "must_include": [
+      "lookup",
+      "faster"
+    ],
+    "must_not": [
+      "always speeds up writes"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-03",
+    "kind": "quick-fact",
+    "question": "What does revenue minus expenses represent?",
+    "must_include": [
+      "profit",
+      "expenses"
+    ],
+    "must_not": [
+      "revenue alone"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-04",
+    "kind": "quick-fact",
+    "question": "What is a software API?",
+    "must_include": [
+      "interface",
+      "software"
+    ],
+    "must_not": [
+      "physical server"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-05",
+    "kind": "decision",
+    "question": "Should a small team use a managed database or operate its own?",
+    "must_include": [
+      "cost",
+      "maintenance",
+      "control"
+    ],
+    "must_not": [
+      "managed databases need no backups"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-06",
+    "kind": "decision",
+    "question": "Should we raise prices or reduce costs to improve margins?",
+    "must_include": [
+      "demand",
+      "cost",
+      "margin"
+    ],
+    "must_not": [
+      "price increases always increase revenue"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-07",
+    "kind": "decision",
+    "question": "Should a startup hire a generalist or a specialist first?",
+    "must_include": [
+      "needs",
+      "budget",
+      "trade"
+    ],
+    "must_not": [
+      "always hire a specialist"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-08",
+    "kind": "decision",
+    "question": "Should we build or buy an internal support tool?",
+    "must_include": [
+      "cost",
+      "requirements",
+      "maintenance"
+    ],
+    "must_not": [
+      "buying eliminates all maintenance"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-09",
+    "kind": "brainstorm",
+    "question": "Brainstorm ways to improve onboarding for a new software customer.",
+    "must_include": [
+      "tutorial",
+      "feedback",
+      "activation"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-10",
+    "kind": "brainstorm",
+    "question": "Suggest ways a small cafe could attract repeat customers.",
+    "must_include": [
+      "loyalty",
+      "service",
+      "community"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-11",
+    "kind": "brainstorm",
+    "question": "Generate ideas for reducing interruptions in a remote team.",
+    "must_include": [
+      "focus",
+      "notifications",
+      "communication"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-12",
+    "kind": "brainstorm",
+    "question": "Suggest experiments to improve a newsletter signup page.",
+    "must_include": [
+      "headline",
+      "form",
+      "test"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-13",
+    "kind": "review",
+    "question": "Review this proposal: deploy every change on Friday without tests or rollback.",
+    "must_include": [
+      "test",
+      "rollback",
+      "risk"
+    ],
+    "must_not": [
+      "no risk"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-14",
+    "kind": "review",
+    "question": "Review this plan: measure sales success using only website visits.",
+    "must_include": [
+      "conversion",
+      "revenue",
+      "visits"
+    ],
+    "must_not": [
+      "visits guarantee sales"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-15",
+    "kind": "review",
+    "question": "Critique this hiring plan: choose candidates based only on years of experience.",
+    "must_include": [
+      "skills",
+      "interview",
+      "bias"
+    ],
+    "must_not": [
+      "experience guarantees performance"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-16",
+    "kind": "review",
+    "question": "Review this backup plan: keep one untested copy on the production server.",
+    "must_include": [
+      "restore",
+      "separate",
+      "test"
+    ],
+    "must_not": [
+      "one copy is sufficient"
+    ],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-17",
+    "kind": "plan-and-do",
+    "question": "Make a practical plan to launch a simple customer feedback survey.",
+    "must_include": [
+      "goal",
+      "questions",
+      "results"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-18",
+    "kind": "plan-and-do",
+    "question": "Plan how to investigate a sudden drop in website conversion.",
+    "must_include": [
+      "data",
+      "funnel",
+      "test"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-19",
+    "kind": "plan-and-do",
+    "question": "Create a plan for a small team to document its release process.",
+    "must_include": [
+      "steps",
+      "owner",
+      "review"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  },
+  {
+    "id": "council-20",
+    "kind": "plan-and-do",
+    "question": "Plan a one-week experiment to reduce support response time.",
+    "must_include": [
+      "baseline",
+      "measure",
+      "results"
+    ],
+    "must_not": [],
+    "max_seconds": 180
+  }
+]
