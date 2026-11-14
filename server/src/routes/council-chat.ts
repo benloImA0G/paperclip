@@ -7,7 +7,8 @@ import { COUNCIL_ORIGIN_KIND, councilChatService, loadCouncilDocuments, roomMeta
 import { badRequest, conflict, forbidden, unprocessable } from "../errors.js";
 import { validate } from "../middleware/validate.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
-import { markdownToDocx, markdownToPptx, PandocUnavailableError } from "../services/council-export.js";
+import { checkExportedFile, ExportCheckError } from "../services/council-export-check.js";
+import { markdownToDocx, markdownToPptx, markdownToXlsx, PandocUnavailableError } from "../services/council-export.js";
 import { getCouncilReliability } from "../services/council-reliability.js";
 import { logActivity } from "../services/activity-log.js";
 import { loadCouncilFollowUp } from "../services/council-followup.js";
@@ -102,11 +103,11 @@ const workSchema = z.object({
   clarifyFirst: z.boolean().optional(),
   answers: z.array(z.object({ question: z.string().max(400), answer: z.string().max(1000) }).strict()).max(3).optional(),
 }).strict().refine((value) => value.resume || value.goal !== undefined, { message: "Goal is required", path: ["goal"] });
-const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional(), consolidate: z.boolean().optional() }).strict();
+const exportSchema = z.object({ roomId: z.string().uuid(), format: z.enum(["docx", "pptx", "xlsx"]), title: z.string().trim().min(1).max(200), markdown: z.string().min(1).max(100_000), approved: z.boolean().optional(), consolidate: z.boolean().optional() }).strict();
 const artifactKeySchema = z.string().regex(/^council-output-[a-z0-9]+(?:-[a-z0-9]+)*$/, "Invalid artifact key");
 const artifactSchema = z.object({ key: artifactKeySchema, title: z.string().trim().min(1).max(200), markdown: z.string().trim().min(1).max(100_000) }).strict();
 
-function exportFilename(title: string, format: "docx" | "pptx") {
+function exportFilename(title: string, format: "docx" | "pptx" | "xlsx") {
   const safe = title.replace(/[^\w. -]+/g, "_").trim().slice(0, 160) || "council-export";
   return `${safe}.${format}`;
 }
@@ -468,7 +469,7 @@ export function councilChatRoutes(db: Db) {
     const source = shouldConsolidate ? await council.consolidateForExport({ companyId, issueId: roomId, userId, markdown, signal: AbortSignal.any([abort.signal, deadline]) }) : { markdown, consolidated: false };
     let bytes: Buffer;
     try {
-      bytes = format === "docx" ? await markdownToDocx(title, source.markdown) : await markdownToPptx(title, source.markdown);
+      bytes = format === "docx" ? await markdownToDocx(title, source.markdown) : format === "xlsx" ? await markdownToXlsx(source.markdown, title) : await markdownToPptx(title, source.markdown);
     } catch (error) {
       if (error instanceof PandocUnavailableError) {
         res.status(503).json({ error: error.message });
@@ -476,7 +477,16 @@ export function councilChatRoutes(db: Db) {
       }
       throw error;
     }
-    res.setHeader("Content-Type", format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    try {
+      checkExportedFile(format, bytes);
+    } catch (error) {
+      if (error instanceof ExportCheckError) {
+        res.status(502).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    res.setHeader("Content-Type", format === "docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : format === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.openxmlformats-officedocument.presentationml.presentation");
     res.setHeader("X-Council-Consolidated", String(source.consolidated));
     res.setHeader("Access-Control-Expose-Headers", "X-Council-Consolidated");
     res.setHeader("Content-Disposition", `attachment; filename="${exportFilename(title, format)}"`);

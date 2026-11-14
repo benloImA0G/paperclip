@@ -235,3 +235,66 @@ export function markdownToDocx(title: string, markdown: string): Promise<Buffer>
 export function markdownToPptx(title: string, markdown: string): Promise<Buffer> {
   return convert(title, markdown, "pptx");
 }
+
+const XLSX_MAX_SHEETS = 20;
+const XLSX_MAX_ROWS = 5000;
+
+function xlsxSafeText(value: string): string {
+  const text = value.trim();
+  // Text cells only; a leading formula character gets a quote prefix so spreadsheets never evaluate it.
+  return /^[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
+const isXlsxTableSeparator = (line: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line);
+
+function splitTableRow(line: string): string[] {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+
+export async function markdownToXlsx(markdown: string, title: string): Promise<Buffer> {
+  const ExcelJS = (await import("exceljs")).default;
+  const workbook = new ExcelJS.Workbook();
+  const used = new Set<string>();
+  const sheetName = (raw: string, fallback: string) => {
+    const base = raw.replace(/[\[\]:*?/\\]/g, "").replace(/^[#\s]+|\s+$/g, "").replace(/^'+|'+$/g, "").slice(0, 31) || fallback;
+    let name = base;
+    for (let n = 2; used.has(name.toLowerCase()); n += 1) name = `${base.slice(0, 31 - String(n).length - 1)} ${n}`;
+    used.add(name.toLowerCase());
+    return name;
+  };
+  const fill = (name: string, rows: string[][], header: boolean) => {
+    const sheet = workbook.addWorksheet(name);
+    rows.slice(0, XLSX_MAX_ROWS).forEach((row) => sheet.addRow(row.map((cell) => xlsxSafeText(cell))));
+    if (header && sheet.rowCount) sheet.getRow(1).font = { bold: true };
+    sheet.columns.forEach((column) => {
+      let width = 8;
+      column.eachCell?.({ includeEmpty: false }, (cell) => {
+        width = Math.max(width, String(cell.value ?? "").length + 2);
+      });
+      column.width = Math.min(60, width);
+    });
+  };
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  let heading = title;
+  let tables = 0;
+  for (let i = 0; i < lines.length && tables < XLSX_MAX_SHEETS; i += 1) {
+    const h = /^\s{0,3}#{1,6}\s+(.*)$/.exec(lines[i]);
+    if (h) {
+      heading = h[1].replace(/[*_`]/g, "");
+      continue;
+    }
+    if (lines[i].includes("|") && i + 1 < lines.length && isXlsxTableSeparator(lines[i + 1])) {
+      const rows = [splitTableRow(lines[i])];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) rows.push(splitTableRow(lines[i++]));
+      i -= 1;
+      fill(sheetName(heading, `Table ${tables + 1}`), rows, true);
+      tables += 1;
+    }
+  }
+  if (!tables) {
+    fill(sheetName("Notes", "Notes"), lines.filter((line) => line.trim()).map((line) => [line]), false);
+  }
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}

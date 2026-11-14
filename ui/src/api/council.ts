@@ -126,6 +126,7 @@ export interface CouncilDocumentStatus { attachmentId: string; filename: string;
 
 export interface CouncilFollowUpItem { id: string; identifier: string | null; title: string; status: string; assigneeName: string | null; updatedAt: string; outcome: string | null; stale: boolean; staleDays: number; }
 export interface CouncilFollowUp { summary: { total: number; done: number; blocked: number; inProgress: number; open: number }; headline: string; items: CouncilFollowUpItem[]; }
+export interface CouncilMinorityItem { seat: string; view: string; reason: "ranked_low_but_disagrees" | "dissent_flagged" | "different_conclusion"; }
 
 export const councilApi = {
   getFollowUp: (companyId: string, roomId: string) => api.get<CouncilFollowUp>(`/companies/${companyId}/council/rooms/${roomId}/follow-up`),

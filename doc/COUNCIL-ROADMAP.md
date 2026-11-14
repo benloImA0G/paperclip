@@ -26,8 +26,8 @@ How to update: change the Status cell and the date, add a link to the commit or 
 | H3 | High | 4 | Risk tiers for actions: read-only runs, reversible runs with undo, external or costly waits for Ben, forbidden is blocked | Built (not committed) | 2026-11-13 | Policy module built with 18 action kinds and 6 tests (doc/COUNCIL-ACTION-POLICY.md). Nothing calls it yet. Next: Ben confirms the kinds list, then wire into task creation, exports and agent seats |
 | H4 | High | 6 | Feedback and a fixed test set: thumbs up or down on answers, plus about 20 real questions to compare before and after any change | Built (not committed) | 2026-11-13 | Test set of 20 questions and a runner built (doc/COUNCIL-EVAL.md); dry run passes, live run not done yet. Server now accepts thumbs votes on Council answers (4 new tests pass). Next: add the thumbs buttons to the reply footer, which is waiting on the other uncommitted work in that file |
 | H5 | High | all | Decisions for Ben: (a) document privacy switch, off by default, before document text goes to cloud seats; (b) beginner wording for "WAR ROOMS", mode cards, "Start the work"; (c) long-term home: Paperclip fork or own Jarvis Core | Needs Ben | 2026-11-13 | Recommendation for (c): stay on the fork, reuse Core's ledger and approval ideas as patterns |
-| M1 | Medium | 5 | Excel output, and a check on every exported file (opens, right sheets or slides) | Not started | 2026-11-13 | |
-| M2 | Medium | 2 | Chair safeguards: always show the minority view next to the summary; a second seat checks the summary | Not started | 2026-11-13 | See karpathy/llm-council issue 3 "Chairman over-influence" |
+| M1 | Medium | 5 | Excel output, and a check on every exported file (opens, right sheets or slides) | Built, not committed: file check (502 on bad file) and Excel export (xlsx, exceljs approved) | 2026-11-13 | |
+| M2 | Medium | 2 | Chair safeguards: always show the minority view next to the summary; a second seat checks the summary | Built (not committed) | 2026-11-13 | council-minority.ts + CouncilMinorityView built and tested; next: call buildMinorityView(round) in council-chat.ts round reply, then render CouncilMinorityView under the summary in Council.tsx (karpathy/llm-council issue 3) |
 | M3 | Medium | 2,6 | Measure whether a council beats one model; send simple questions to one model | Not started | 2026-11-13 | Uses the H4 test set |
 | M4 | Medium | 2 | One stronger voter seat (Claude or Codex) for important rooms | Not started | 2026-11-13 | A weak free model vetoed good answers in earlier logs |
 | M5 | Medium | 1 | PDF reading (needs Ben's OK for a new tool, Poppler) | Needs Ben | 2026-11-13 | |
@@ -49,7 +49,8 @@ How to update: change the Status cell and the date, add a link to the commit or 
 
 ## 4. Change log
 
-- 2026-11-13: tracker created after a review of the plan against the six-stage flow and outside practice; VPS2 redeploy parked; first slices of H2, H3, H4 built the same evening (uncommitted, waiting for Ben's review).
+- 2026-11-13: tracker created after a review of the plan against the six-stage flow and outside practice; VPS2 redeploy parked; first slices of H2, H3, H4 built the same evening (committed as 3512cf2cd, not pushed).
+- 2026-11-14 (night run, stopped 1 a.m.): M1 file check and M2 minority-view module built and tested (8 server + 2 UI tests), uncommitted. H1 run record NOT built: WSL hung (load 200+, disk 100%) and restarted, which killed the Codex job; brief kept at ~/council-test/cdx/runlog.md. Research: adopt exceljs (needs Ben OK) and try promptfoo for the eval set; build the event table ourselves.
 
 ## 5. Sources used in the 2026-11-13 review
 
