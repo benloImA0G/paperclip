@@ -127,6 +127,7 @@ import { goalRoutes } from "./routes/goals.js";
 import { onboardingSeedRoutes } from "./routes/onboarding-seed.js";
 import { boardChatRoutes } from "./routes/board-chat.js";
 import { councilChatRoutes } from "./routes/council-chat.js";
+import { councilRunEventRoutes } from "./routes/council-run-events.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { memoryLessonRoutes } from "./routes/memory-lessons.js";
 import { approvalRoutes } from "./routes/approvals.js";
@@ -810,6 +811,7 @@ export async function createApp(
   api.use(onboardingSeedRoutes(db));
   api.use(boardChatRoutes(db, { deploymentMode: opts.deploymentMode }));
   api.use(councilChatRoutes(db));
+  api.use(councilRunEventRoutes(db));
   api.use(memoryLessonRoutes(db));
   api.use(memoryRoutes(db));
   api.use(voiceSessionRoutes(db, chatChannels.voice));

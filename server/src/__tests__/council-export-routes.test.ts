@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,8 +48,8 @@ const validRequest = { roomId: "22222222-2222-4222-8222-222222222222", format: "
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getExportSetting.mockResolvedValue({ requireApproval: false });
-  mocks.markdownToDocx.mockResolvedValue(Buffer.from("docx bytes"));
-  mocks.markdownToPptx.mockResolvedValue(Buffer.from("pptx bytes"));
+  mocks.markdownToDocx.mockResolvedValue(readFileSync(new URL("../services/council-reference.docx", import.meta.url)));
+  mocks.markdownToPptx.mockResolvedValue(readFileSync(new URL("../services/council-reference.pptx", import.meta.url)));
 });
 
 describe("POST /companies/:companyId/council/export", () => {

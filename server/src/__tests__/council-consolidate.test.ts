@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,7 +62,7 @@ beforeEach(() => {
   mocks.selectFastResponse.mockResolvedValue({ provider: "openai", connection: { config: { ai: { provider: "openai", method: "api_key" } } } });
   mocks.credential.mockResolvedValue("credential");
   mocks.addComment.mockResolvedValue({ id: "comment" });
-  mocks.markdownToPptx.mockResolvedValue(Buffer.from("pptx"));
+  mocks.markdownToPptx.mockResolvedValue(readFileSync(new URL("../services/council-reference.pptx", import.meta.url)));
   mocks.generateText.mockResolvedValue({ text: deck });
 });
 

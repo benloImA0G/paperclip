@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import request from "supertest";
@@ -8,7 +9,7 @@ import { companies, createDb, issues } from "@paperclipai/db";
 import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
 
 const exportMocks = vi.hoisted(() => ({
-  markdownToDocx: vi.fn().mockResolvedValue(Buffer.from("docx")),
+  markdownToDocx: vi.fn().mockResolvedValue(Buffer.from("x")),
   markdownToPptx: vi.fn().mockResolvedValue(Buffer.from("pptx")),
   PandocUnavailableError: class PandocUnavailableError extends Error {},
 }));
@@ -38,7 +39,8 @@ describe("council route and service isolation", { timeout: 60_000 }, () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    exportMocks.markdownToDocx.mockResolvedValue(Buffer.from("docx"));
+    exportMocks.markdownToDocx.mockResolvedValue(readFileSync(new URL("../services/council-reference.docx", import.meta.url)));
+    exportMocks.markdownToPptx.mockResolvedValue(readFileSync(new URL("../services/council-reference.pptx", import.meta.url)));
   });
 
   afterAll(async () => {
