@@ -34,7 +34,9 @@ export function stripTrailingUnbalancedTags(text: string): string {
   });
 }
 
-export function CouncilWorkStep({ step }: { step: WorkStep }) {
+type WorkStepView = WorkStep & { blockedBy?: number; verification?: "verified" | "check_unavailable" | "revised_unchecked" | "rejected" };
+
+export function CouncilWorkStep({ step }: { step: WorkStepView }) {
   const rejected = step.grade === "fail";
   const reason = step.gradeNote?.replace(/\s+/g, " ").trim().slice(0, 160);
   return (
@@ -42,6 +44,9 @@ export function CouncilWorkStep({ step }: { step: WorkStep }) {
       <span className={rejected ? "text-destructive" : TONE[step.status]}>{rejected ? "✗" : MARK[step.status]} {step.n}. {step.title}</span>
       <span className="text-muted-foreground"> · {step.assignee}</span>
       <div className="pl-5 text-muted-foreground">Produces: {step.expected}</div>
+      {step.verification === "check_unavailable" ? <div className="pl-5 text-muted-foreground">Completed, check unavailable</div> : null}
+      {step.verification === "revised_unchecked" ? <div className="pl-5 text-muted-foreground">Revised, not rechecked</div> : null}
+      {step.status === "done" && !step.verification && !step.grade ? <div className="pl-5 text-muted-foreground">Completed, not checked</div> : null}
       {step.grade || step.attempts === 2 || step.after?.length ? (
         <div className="pl-5 text-muted-foreground">
           {step.grade ? <span title={step.gradeNote}>checked: {step.grade}</span> : null}
@@ -58,7 +63,7 @@ export function CouncilWorkStep({ step }: { step: WorkStep }) {
   );
 }
 
-export function CouncilWorkPanel({ steps, running, summary, status }: { steps: WorkStep[]; running: boolean; summary?: string | null; status?: CouncilWorkState["status"] }) {
+export function CouncilWorkPanel({ steps, running, summary, status }: { steps: WorkStepView[]; running: boolean; summary?: string | null; status?: CouncilWorkState["status"] }) {
   const started = useRef<number | null>(running ? Date.now() : null);
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -71,14 +76,14 @@ export function CouncilWorkPanel({ steps, running, summary, status }: { steps: W
   }, [running]);
   const automaticSummary = summary?.startsWith("## Work summary (automatic)");
   if (!steps.length && !summary) return null;
-  // A finished step without a checker verdict (checks switched off) counts as passed; only an explicit fail does not.
-  const passed = steps.filter((step) => step.status === "done" && step.grade !== "fail").length;
-  const problems = status === "partial" || status === "failed" || status === "cancelled" || steps.some((step) => step.status === "failed" || step.grade === "fail") || (!running && passed < steps.length);
-  const current = steps.find((step) => step.status === "running")?.n ?? Math.min(passed + 1, steps.length);
+  const passed = steps.filter((step) => step.status === "done" && (step.verification === "verified" || (!step.verification && step.grade === "pass"))).length;
+  const completed = steps.filter((step) => step.status === "done" && step.grade !== "fail" && step.verification !== "rejected").length;
+  const problems = status === "partial" || status === "failed" || status === "cancelled" || steps.some((step) => step.status === "failed" || step.grade === "fail") || (!running && completed < steps.length);
+  const current = steps.find((step) => step.status === "running")?.n ?? Math.min(completed + 1, steps.length);
   const duration = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
   const message = running ? `Working: step ${current} of ${steps.length}… (${elapsed}s)` : problems
-    ? `Finished with problems: ${passed} passed, ${steps.length - passed} did not pass the check. Review the red steps before using the result.`
-    : `Finished: all ${steps.length} steps passed the check${started.current !== null ? ` (took ${duration})` : ""}`;
+    ? `Finished with problems: ${passed} verified, ${steps.length - completed} not completed. Review the affected steps before using the result.`
+    : `Finished: ${completed} completed, ${passed} verified${started.current !== null ? ` (took ${duration})` : ""}`;
   return (
     <section aria-label="Council work plan" className="space-y-2 rounded-md border border-border/70 bg-card p-3 text-sm">
       <div className="flex items-baseline justify-between gap-2">

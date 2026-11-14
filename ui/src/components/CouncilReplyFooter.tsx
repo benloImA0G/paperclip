@@ -16,7 +16,12 @@ export function displayCouncilCitations(text: string, documents: readonly string
 type Reliability = Omit<CouncilReplyReliability, "costCents"> & { costCents?: number | string; documents?: string[] };
 const measured = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
-export function CouncilReplyFooter({ metadata, memory }: { metadata?: { councilReliability?: Reliability | null; documents?: string[] } | null; memory?: CouncilMemoryButtonProps }) {
+type Evaluation = {
+  jury?: { unavailable?: boolean; answerSeat?: string; verdict?: string; judges?: number; eligible?: number; counts?: Record<string, number> };
+  ranking?: { unavailable?: boolean; judges?: number; eligible?: number; order?: Array<{ seatName: string }> };
+};
+
+export function CouncilReplyFooter({ metadata, memory }: { metadata?: { councilReliability?: Reliability | null; documents?: string[]; sections?: Array<{ title?: string | null; rows: Array<{ type: string; text?: string }> }> } | null; memory?: CouncilMemoryButtonProps }) {
   const reply = metadata?.councilReliability;
   const parts: string[] = [];
   const unavailable = ["First-token time is not measured yet"];
@@ -33,7 +38,12 @@ export function CouncilReplyFooter({ metadata, memory }: { metadata?: { councilR
   if (reply?.fallbackUsed) parts.push("answered by a backup model");
   parts.push("Not fact-checked");
   const documents = metadata?.councilReliability?.documents ?? metadata?.documents;
+  const evaluationText = metadata?.sections?.find((section) => section.title === "Council evaluation")?.rows.find((row) => row.type === "text")?.text;
+  let evaluation: Evaluation | undefined;
+  try { if (evaluationText) evaluation = JSON.parse(evaluationText) as Evaluation; } catch { /* Older or malformed metadata has no evaluation. */ }
   return <>
+    {evaluation?.jury ? <div className="mt-2 break-words rounded-md border p-2 text-xs"><strong>Jury:</strong> {evaluation.jury.unavailable ? "Unavailable" : <>{evaluation.jury.verdict?.toUpperCase()} on {evaluation.jury.answerSeat} ({evaluation.jury.judges}/{evaluation.jury.eligible} judges); pass {evaluation.jury.counts?.pass}, revise {evaluation.jury.counts?.revise}, fail {evaluation.jury.counts?.fail}</>}</div> : null}
+    {evaluation?.ranking ? <div className="mt-2 break-words rounded-md border p-2 text-xs"><strong>Blind peer ranking:</strong> {evaluation.ranking.unavailable ? "Unavailable" : <>{evaluation.ranking.order?.map((row, i) => `${i + 1}. ${row.seatName}`).join(", ")} ({evaluation.ranking.judges}/{evaluation.ranking.eligible} judges)</>}</div> : null}
     <div className="mt-1 text-(length:--text-nano) text-muted-foreground" title={unavailable.join(" · ")}>{parts.join(" · ")}{memory ? <> · <CouncilMemoryButton {...memory} /></> : null}</div>
     {documents?.length ? <div className="text-(length:--text-nano) text-muted-foreground" title={documents.join(", ")}>Read: {documents.slice(0, 3).join(", ")}{documents.length > 3 ? ` +${documents.length - 3} more` : null}</div> : null}
   </>;

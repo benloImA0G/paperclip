@@ -18,11 +18,11 @@ Proposed words are suggestions; the mode names in the list below are already fai
 | Clear every message in this war room? | Clear every message in this discussion? | ui/src/pages/Council.tsx:966 |
 | Only Hermes gateway agents can join war rooms. | Only Hermes gateway agents can join a discussion. | ui/src/components/CouncilAgentPanel.tsx:57 |
 | Choose a room mode (War room template / modes) | Choose how the AIs should work together | ui/src/components/CouncilTemplates.tsx:6-8 |
-| Mode card "Blind best-of-N" | Anonymous vote | ui/src/pages/council-templates.ts:34 |
+| Mode card "Blind best-of-N" | Anonymous vote (the AI seats vote, not people) | ui/src/pages/council-templates.ts:34 |
 | Mode card "Red-team" | Find the weak spots | ui/src/pages/council-templates.ts:33 |
 | Mode card "Builder then reviewer (chain)" | Draft, then check | ui/src/pages/council-templates.ts:39 |
 | Mode card "Get it done" (text mentions "chair", "jury") | Plan and do it (text: "One AI plans the steps, others check each step") | ui/src/pages/council-templates.ts:37 |
-| "Estimate · about N model calls per question" | About N AI answers per question (this is what costs money or time) | ui/src/components/CouncilTemplates.tsx:~17 |
+| "Estimate · about N model calls per question" | About N AI calls per question (each call costs time or money, and checks and planning count too) | ui/src/components/CouncilTemplates.tsx:~17 |
 | Start the work (button) | Plan and carry out the steps | ui/src/pages/Council.tsx:1474 and :1537 |
 | Resume the work / Stop work | Continue the steps / Stop the steps | ui/src/pages/Council.tsx:1537 |
 | "start the work again with a clearer goal" | "try again with a clearer goal" | ui/src/pages/council-work-step.tsx:60 |
@@ -64,9 +64,13 @@ Recommendation: A, default off, with a clear one-click "turn on for this discuss
 ## Checklist (answer yes or no)
 
 - [ ] Rename "War rooms" to "Discussions" everywhere in the UI?
-- [ ] Use the plain mode names above (Anonymous vote, Find the weak spots, Draft then check, Plan and do it)?
+- [ ] Use the plain mode names above (Anonymous vote (the AI seats vote, not people), Find the weak spots, Draft then check, Plan and do it)?
 - [ ] Rename "Start the work" to "Plan and carry out the steps"?
-- [ ] Show costs as "About N AI answers per question"?
+- [ ] Show costs as "About N AI calls per question"?
 - [ ] Add the document privacy switch, default OFF?
 - [ ] Choose option A (per-seat: local seats still read documents) rather than B (all-or-nothing)?
 - [ ] Stay on the Paperclip fork long term and borrow Jarvis Core's ledger and approvals?
+
+## Codex review note (2026-11-14)
+
+Codex and Claude agree on all 7 answers (yes to each) with two changes: item 4 now says "AI calls" (not "answers"), and item 5/6 must cover every path that carries document text, not only the first seat prompt: artifact review, work planning (`council-chat.ts` near line 772), and local-seat answers, summaries, history and memory that could pass document text on to a cloud seat. Unknown providers count as cloud. Each path needs a test before we promise the switch keeps documents local.

@@ -179,5 +179,40 @@ describe("Memory", () => {
   it("adds an entry", async () => { await render(); await click("+ Add to memory"); const title = [...container.querySelectorAll("label")].find((el) => el.textContent?.startsWith("Title"))!.querySelector("input")!; await act(async () => change(title, "Launch checklist")); await click("Save"); await waitFor(() => expect(container.textContent).toContain("Launch checklist")); expect(mock.create).toHaveBeenCalledOnce(); });
   it("searches after a debounce", async () => { mock.entries = [entry()]; await render(); await waitFor(() => expect(container.textContent).toContain("Launch checklist")); await act(async () => change(container.querySelector('input[aria-label="Search memory"]')!, "missing")); await waitFor(() => expect(mock.list).toHaveBeenCalledWith("company-1", expect.objectContaining({ query: "missing" }))); await waitFor(() => expect(container.textContent).not.toContain("Launch checklist")); });
   it("pins, withdraws and restores an entry", async () => { mock.entries = [entry()]; await render(); await waitFor(() => expect(container.textContent).toContain("Launch checklist")); await click("Pin"); await waitFor(() => expect(button("Unpin")).toBeTruthy()); await click("Withdraw"); await click("Confirm withdrawal"); await waitFor(() => expect(container.textContent).not.toContain("Launch checklist")); const toggle = [...container.querySelectorAll("label")].find((el) => el.textContent?.includes("Show withdrawn"))!.querySelector("input")!; await act(async () => toggle.click()); await waitFor(() => expect(button("Restore")).toBeTruthy()); await click("Restore"); await waitFor(() => expect(button("Unpin")).toBeTruthy()); });
+  it("shows the full pending lesson, source, similarity hint and tags", async () => {
+    mock.entries = [entry({ status: "pending", title: "Lesson", body: "First line\nMore detail\n\nSimilar to: Existing lesson", sourceUrl: "https://example.com/room", sourceLabel: "Chat: Planning", tags: ["planning"] })];
+    await render(); await waitFor(() => expect(container.textContent).toContain("Similar to: Existing lesson"));
+    expect(container.textContent).toContain("More detail");
+    expect(container.textContent).toContain("planning");
+    expect(container.querySelector('a[href="https://example.com/room"]')?.textContent).toBe("Chat: Planning");
+  });
+  it("updates a pending lesson before approving it", async () => {
+    mock.entries = [entry({ status: "pending", title: "Original", body: "Old", tags: ["old"] })];
+    await render(); await waitFor(() => expect(button("Edit and approve")).toBeTruthy()); await click("Edit and approve");
+    const field = (name: string) => [...container.querySelectorAll("label")].find((el) => el.textContent?.startsWith(name))!;
+    await act(async () => { change(field("Title").querySelector("input")!, "Corrected"); change(field("Details").querySelector("textarea")!, "Correct details"); change(field("Tags").querySelector("input")!, "new, review"); });
+    await click("Save and approve");
+    await waitFor(() => expect(mock.approve).toHaveBeenCalledWith("company-1", "1"));
+    expect(mock.update).toHaveBeenCalledWith("company-1", "1", expect.objectContaining({ title: "Corrected", body: "Correct details", tags: ["new", "review"] }));
+    expect(mock.update.mock.invocationCallOrder[0]).toBeLessThan(mock.approve.mock.invocationCallOrder[0]);
+  });
+  it("keeps a lesson pending if saving edits fails", async () => {
+    mock.entries = [entry({ status: "pending" })]; mock.update.mockRejectedValueOnce(new Error("Save failed"));
+    await render(); await waitFor(() => expect(button("Edit and approve")).toBeTruthy()); await click("Edit and approve"); await click("Save and approve");
+    await waitFor(() => expect(container.textContent).toContain("Save failed")); expect(mock.approve).not.toHaveBeenCalled();
+  });
+  it("explains automatic approval as the assistant's estimate", async () => {
+    await render(); await waitFor(() => expect(button("Auto-approve: On")).toBeTruthy());
+    expect(container.textContent).toContain("its own estimate is at least 75%");
+    expect(container.textContent).toContain("not a measured accuracy score");
+    expect(container.textContent).toContain("When off, memories wait for your approval");
+    await click("Auto-approve: On");
+    await waitFor(() => expect(button("Auto-approve: Off").getAttribute("aria-pressed")).toBe("false"));
+    expect(mock.setSettings).toHaveBeenCalledWith("company-1", false);
+  });
+  it("labels a stored confidence as the assistant’s estimate", async () => {
+    mock.entries = [entry({ createdByLabel: "Lesson extractor (auto-approved, 80%)" })];
+    await render(); await waitFor(() => expect(container.textContent).toContain("assistant’s own estimate: 80%"));
+  });
   it("shows and approves pending entries", async () => { mock.entries = [entry({ status: "pending", title: "Agent note", createdByLabel: "Agent" })]; await render(); await waitFor(() => expect(container.textContent).toContain("Waiting for approval")); await click("Approve"); await waitFor(() => expect(container.textContent).not.toContain("Waiting for approval")); expect(container.textContent).toContain("Agent note"); expect(mock.approve).toHaveBeenCalledOnce(); });
 });

@@ -33,9 +33,9 @@ describe("council work steps", () => {
   it("describes running, passed, and rejected work honestly", () => {
     const render = (steps: WorkStep[], running: boolean, status?: "partial") => renderToStaticMarkup(<CouncilWorkPanel steps={steps} running={running} status={status} />);
     expect(render([{ ...step, status: "running" }], true)).toContain("Working: step 3 of 1… (0s)");
-    expect(render([{ ...step, grade: "pass" }], false)).toContain("Finished: all 1 steps passed the check");
+    expect(render([{ ...step, grade: "pass" }], false)).toContain("Finished: 1 completed, 1 verified");
     const rejected = render([{ ...step, grade: "fail", gradeNote: "Needs\nmore detail" }], false);
-    expect(rejected).toContain("Finished with problems: 0 passed, 1 did not pass the check.");
+    expect(rejected).toContain("Finished with problems: 0 verified, 1 not completed.");
     expect(rejected).toContain("The checker said: Needs more detail");
     expect(rejected).toContain("You can ask again, or start the work again with a clearer goal.");
     expect(render([step], false, "partial")).toContain("Finished with problems");

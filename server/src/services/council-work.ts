@@ -12,6 +12,8 @@ export type WorkStep = {
   grade?: "pass" | "fail";
   gradeNote?: string;
   attempts?: number;
+  blockedBy?: number;
+  verification?: "verified" | "check_unavailable" | "revised_unchecked" | "rejected";
 };
 
 type SeatResult = { ok: boolean; text?: string; error?: string };
@@ -124,19 +126,20 @@ export function buildRevisionPrompt({ goal, step, notes }: { goal: string; step:
 
 /** Plain summary built without a model, used only when the chair cannot write one. */
 export function fallbackSummary(goal: string, steps: WorkStep[]): string {
-  const lines = steps.map((step) => `- ${step.n}. ${step.title}: ${step.status === "done" ? "done" : step.status}${step.grade ? ` (checker: ${step.grade})` : ""}`);
-  const last = [...steps].reverse().find((step) => step.status === "done" && step.output);
+  const lines = steps.map((step) => `- ${step.n}. ${step.title}: ${step.blockedBy !== undefined ? `blocked by step ${step.blockedBy}` : step.status === "done" ? "done" : step.status}${step.grade ? ` (checker: ${step.grade})` : ""}`);
+  const last = steps.at(-1);
+  const deliverable = last?.status === "done" && last.output ? last : undefined;
   return [
     "## Work summary (automatic)",
     "The chair could not write the summary, so this list was generated from the steps.",
     `Goal: ${goal.slice(0, 300)}`,
     ...lines,
-    last ? `\nDeliverable (step ${last.n}):\n${last.output!.slice(0, 1500)}` : "",
+    deliverable ? `\nDeliverable (step ${deliverable.n}):\n${deliverable.output!.slice(0, 1500)}` : "",
   ].filter(Boolean).join("\n");
 }
 
 export function buildSummaryPrompt({ goal, steps, finalReview }: { goal: string; steps: WorkStep[]; finalReview?: FinalReview }): string {
-  const work = steps.map((step) => `- ${step.n}. ${step.title}: ${step.output ?? step.error ?? "No output"}`).join("\n");
+  const work = steps.map((step) => `- ${step.n}. ${step.title} (${step.status}${step.verification ? `, ${step.verification}` : ""}): ${step.error ?? step.output ?? "No output"}`).join("\n");
   return [
     "Write a one-page summary of at most 300 words in Markdown.",
     "Include a heading, what was done (one line per step), the result/deliverable, and open items.",
@@ -170,13 +173,17 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
   };
 
   // The chair grades; optional extra checkers vote too. Fail only when most voters fail.
-  const gradeStep = async (step: WorkStep): Promise<{ grade: "pass" | "fail"; note: string } | null> => {
+  const gradeStep = async (step: WorkStep, author: string, maxVoters = 3): Promise<{ grade: "pass" | "fail"; note: string } | null> => {
     const prompt = buildCheckPrompt({ goal: deps.goal, step });
-    const voters = [deps.chairName, ...(deps.extraCheckers ?? []).filter((name) => name !== step.assignee && name !== deps.chairName).slice(0, 2)];
+    const candidates = [...new Set([deps.chairName, ...(deps.extraCheckers ?? []), ...deps.seatNames])];
+    const independent = candidates.filter((name) => name !== author);
+    const voterCount = Math.min(3, 1 + (deps.extraCheckers ?? []).filter((name) => name !== author && name !== deps.chairName).length);
+    const voters = (independent.length ? independent : [author]).slice(0, Math.min(voterCount, maxVoters));
     const votes: Array<{ grade: "pass" | "fail"; note: string }> = [];
     for (const voter of voters) {
       if (cancelled()) break;
-      const parsed = parseGrade((await call(voter, prompt)).text ?? "");
+      const response = await call(voter, prompt);
+      const parsed = response.ok ? parseGrade(response.text ?? "") : null;
       if (parsed) votes.push(parsed);
     }
     if (!votes.length) return null;
@@ -188,11 +195,19 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
 
   if (cancelled() && !deps.resume) return finishCancelled([]);
   const plan = deps.resume ? null : await call(deps.chairName, await withReference(buildPlanPrompt(deps), deps.goal));
-  const steps = deps.resume ? deps.resume.steps.map((step) => {
-    if (step.status === "done" && step.grade !== "fail") return { ...step };
-    const { error, grade, gradeNote, attempts, output, ...rest } = step;
-    return { ...rest, status: "pending" as const };
-  }) : plan?.ok ? parsePlan(plan.text ?? "", deps.seatNames, deps.chairName) : [];
+  const steps: WorkStep[] = deps.resume ? deps.resume.steps.map((step) => ({ ...step })) : plan?.ok ? parsePlan(plan.text ?? "", deps.seatNames, deps.chairName) : [];
+  if (deps.resume) {
+    const parallelPlan = steps.some((step) => step.after !== undefined);
+    const rerun = new Set<number>();
+    for (const [index, step] of steps.entries()) {
+      const dependencies = parallelPlan ? (step.after ?? []) : steps.slice(0, index).map((item) => item.n);
+      if (step.status !== "done" || step.grade === "fail" || step.verification === "rejected" || dependencies.some((n) => rerun.has(n))) {
+        rerun.add(step.n);
+        const { error, grade, gradeNote, attempts, output, blockedBy, verification, ...rest } = step;
+        steps[index] = { ...rest, status: "pending" };
+      }
+    }
+  }
   if (steps.length === 0) steps.push({ n: 1, title: deps.goal, expected: "A complete answer", assignee: deps.chairName, status: "pending" });
   emit("plan", steps);
 
@@ -215,24 +230,28 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     step.attempts = 1;
     if (result.ok && deps.checkSteps) {
       step.output = result.text ?? "";
-      const verdict = await gradeStep(step);
+      const verdict = await gradeStep(step, author);
       if (verdict?.grade === "fail" && !cancelled()) {
         const retryPrompt = `${stepPrompt}\n\n${untrusted("CHECKER FEEDBACK ON YOUR PREVIOUS ATTEMPT", verdict.note)}\nFix the problems named above.`;
-        const retry = await call(step.assignee, retryPrompt);
+        const retry = await call(author, retryPrompt);
         step.attempts = 2;
         if (retry.ok) {
-          author = step.assignee;
           step.output = retry.text ?? step.output;
-          const second = await gradeStep(step);
-          step.grade = second?.grade ?? "fail";
+          const second = await gradeStep(step, author);
+          step.grade = second?.grade;
           step.gradeNote = second?.note ?? verdict.note;
+          step.verification = second ? (second.grade === "pass" ? "verified" : "rejected") : "revised_unchecked";
         } else {
           step.grade = "fail";
           step.gradeNote = verdict.note;
+          step.verification = "rejected";
         }
       } else if (verdict) {
         step.grade = verdict.grade;
         step.gradeNote = verdict.note;
+        step.verification = verdict.grade === "pass" ? "verified" : "rejected";
+      } else {
+        step.verification = "check_unavailable";
       }
     }
     if (result.ok) {
@@ -249,21 +268,37 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
 
   while (steps.some((step) => step.status === "pending")) {
     if (cancelled()) return finishCancelled(steps);
-    const ready = steps.map((step, index) => ({ step, index })).filter(({ step }) =>
-      step.status === "pending" && (!parallel || (step.after ?? []).every((n) => ["done", "failed"].includes(steps[n - 1].status))),
+    for (const [index, step] of steps.entries()) {
+      if (step.status !== "pending") continue;
+      const dependencies = parallel ? (step.after ?? []) : steps.slice(0, index).map((item) => item.n);
+      const blocked = dependencies.find((n) => !steps[n - 1] || steps[n - 1].status === "failed");
+      if (blocked !== undefined) {
+        step.status = "failed";
+        step.blockedBy = blocked;
+        step.error = `Blocked by step ${blocked}`;
+        emit("step", steps);
+      }
+    }
+    const ready = steps.map((step, index) => ({ step, index })).filter(({ step, index }) =>
+      step.status === "pending" && (parallel ? (step.after ?? []).every((n) => steps[n - 1]?.status === "done") : steps.slice(0, index).every((item) => item.status === "done")),
     ).slice(0, parallel ? MAX_PARALLEL_STEPS : 1);
+    if (!ready.length && steps.some((step) => step.status === "pending")) {
+      for (const step of steps.filter((item) => item.status === "pending")) { step.status = "failed"; step.error = "Blocked by unresolved dependencies"; }
+      break;
+    }
     await Promise.all(ready.map(({ index }) => runStep(index)));
   }
 
   if (cancelled()) return finishCancelled(steps);
 
-  if (steps.every((step) => step.status === "failed" && step.grade !== "fail")) {
+  if (steps.every((step) => step.status === "failed" && step.grade !== "fail") && !steps.some((step) => step.blockedBy !== undefined)) {
     emit("done", steps);
     return { steps, summary: null, status: "failed" };
   }
   if (cancelled()) return finishCancelled(steps);
   let finalReview: FinalReview | undefined;
-  const deliverable = [...steps].reverse().find((step) => step.status === "done" && step.grade !== "fail" && step.output);
+  const lastStep = steps[steps.length - 1];
+  const deliverable = lastStep?.status === "done" && lastStep.grade !== "fail" && lastStep.output ? lastStep : undefined;
   if (deps.finalReview && deliverable) {
     const author = authors.get(deliverable) ?? deliverable.assignee;
     const voters = [...new Set([deps.chairName, ...(deps.extraCheckers ?? [])])].filter((name) => name !== author).slice(0, 3);
@@ -287,6 +322,22 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
         if (revision.ok && (revision.text ?? "").trim()) {
           deliverable.output = revision.text;
           finalReview.revised = true;
+          deliverable.grade = undefined;
+          deliverable.gradeNote = undefined;
+          deliverable.verification = "revised_unchecked";
+          if (!cancelled()) {
+            const recheck = await gradeStep(deliverable, author, 1);
+            if (recheck) {
+              deliverable.grade = recheck.grade;
+              deliverable.gradeNote = recheck.note;
+              deliverable.verification = recheck.grade === "pass" ? "verified" : "rejected";
+              if (recheck.grade === "fail") { deliverable.status = "failed"; deliverable.error = `Checker rejected: ${recheck.note}`; }
+            }
+          }
+        } else {
+          // The reviewers asked for a revision and it did not happen: do not leave the step marked as verified.
+          deliverable.verification = "rejected";
+          deliverable.gradeNote = note || deliverable.gradeNote;
         }
         emit("step", steps);
       }
@@ -304,8 +355,9 @@ export async function runWork(deps: RunWorkDependencies): Promise<{ steps: WorkS
     emit("done", steps, fallback);
     return { steps, summary: fallback, status: "partial", ...(finalReview ? { finalReview } : {}) };
   }
-  const summary = (summaryResult.text ?? "") + reviewSummary;
+  const blockedSummary = steps.filter((step) => step.blockedBy !== undefined).map((step) => `Step ${step.n} blocked by step ${step.blockedBy}.`).join(" ");
+  const summary = (summaryResult.text ?? "") + reviewSummary + (blockedSummary ? `\n\n${blockedSummary}` : "");
   emit("summary", steps, summary);
   emit("done", steps, summary);
-  return { steps, summary, status: steps.some((step) => step.status === "failed") ? "partial" : "done", ...(finalReview ? { finalReview } : {}) };
+  return { steps, summary, status: steps.some((step) => step.status === "failed" || step.verification === "check_unavailable" || step.verification === "revised_unchecked" || step.verification === "rejected") ? "partial" : "done", ...(finalReview ? { finalReview } : {}) };
 }

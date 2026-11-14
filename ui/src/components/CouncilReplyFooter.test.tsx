@@ -51,3 +51,14 @@ it("leaves citations inside fenced and inline code unchanged", () => {
   expect(displayCouncilCitations(text, ["brief.md"]))
     .toBe("Before `brief.md` and `[d1#1]`.\n```md\n[d1#1]\n```\nAfter `brief.md`.");
 });
+
+it("renders persisted jury and ranking as separate notices", () => {
+  const evaluation = { jury: { answerSeat: "A", verdict: "revise", judges: 1, eligible: 2, counts: { pass: 0, revise: 1, fail: 0 } }, ranking: { judges: 2, eligible: 3, order: [{ seatName: "A" }, { seatName: "B" }] } };
+  const html = renderToStaticMarkup(<CouncilReplyFooter metadata={{ sections: [{ title: "Council evaluation", rows: [{ type: "text", text: JSON.stringify(evaluation) }] }] }} />);
+  expect(html).toContain("Jury:");
+  expect(html).toContain("REVISE");
+  expect(html).toContain("Blind peer ranking:");
+  expect(html).toContain("1. A, 2. B");
+  expect(html).toContain("1/2 judges");
+  expect(html).toContain("2/3 judges");
+});

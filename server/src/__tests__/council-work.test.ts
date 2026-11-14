@@ -261,7 +261,7 @@ describe("dependency-aware work", () => {
     expect(callSeat).toHaveBeenCalledTimes(3);
   });
 
-  it("reports failed dependencies to dependent steps", async () => {
+  it("blocks failed dependencies from dependent steps", async () => {
     let dependentPrompt = "";
     const result = await runWork({
       goal: "Goal", seatNames: seats, chairName: "Chair",
@@ -272,7 +272,9 @@ describe("dependency-aware work", () => {
         return { ok: true, text: "done" };
       },
     });
-    expect(dependentPrompt).toContain("Dependency failed: unavailable");
+    expect(dependentPrompt).toBe("");
+    expect(result.steps[1]).toMatchObject({ status: "failed", blockedBy: 1, error: "Blocked by step 1" });
+    expect(result.summary).toContain("blocked by step 1");
     expect(result.status).toBe("partial");
   });
 });
@@ -329,5 +331,42 @@ describe("final deliverable review", () => {
     expect(result.finalReview).toBeUndefined();
     expect(result.summary).toBe("summary");
     expect(calls.some(([, prompt]) => prompt.includes("Review the final deliverable"))).toBe(false);
+  });
+});
+
+
+describe("work verification and resume regressions", () => {
+  it("reruns descendants of failed work while preserving independent work", async () => {
+    const calls: string[] = [];
+    const result = await runWork({ goal: "Goal", seatNames: ["Chair"], chairName: "Chair", resume: { steps: [
+      { n: 1, title: "Source", expected: "x", assignee: "Chair", status: "failed" },
+      { n: 2, title: "Dependent", expected: "x", assignee: "Chair", status: "done", after: [1], output: "stale" },
+      { n: 3, title: "Independent", expected: "x", assignee: "Chair", status: "done", after: [], output: "keep" },
+    ] }, callSeat: async (_seat, prompt) => { calls.push(prompt); return { ok: true, text: "fresh" }; } });
+    expect(result.steps[1].output).toBe("fresh");
+    expect(result.steps[2].output).toBe("keep");
+    expect(calls.some((prompt) => prompt.includes("This step: Independent"))).toBe(false);
+  });
+  it("records unavailable checks and prefers a checker other than the author", async () => {
+    const checkers: string[] = [];
+    const result = await runWork({ goal: "Goal", seatNames: ["Chair", "Judge"], chairName: "Chair", checkSteps: true, callSeat: async (seat, prompt) => {
+      if (prompt.includes("council chair")) return { ok: true, text: "1. Do | assignee: Chair | expected: x" };
+      if (prompt.includes("You are the checker")) { checkers.push(seat); return { ok: true, text: "unknown" }; }
+      return { ok: true, text: "output" };
+    } });
+    expect(checkers).toEqual(["Judge"]);
+    expect(result.steps[0]).toMatchObject({ status: "done", verification: "check_unavailable" });
+    expect(result.status).toBe("partial");
+  });
+  it("rechecks a final revision and records its verdict", async () => {
+    let checks = 0;
+    const result = await runWork({ goal: "Goal", seatNames: ["Chair", "Writer"], chairName: "Chair", checkSteps: true, finalReview: true, callSeat: async (_seat, prompt) => {
+      if (prompt.includes("council chair")) return { ok: true, text: "1. Do | assignee: Writer | expected: x" };
+      if (prompt.includes("You are the checker")) { checks++; return { ok: true, text: "GRADE: PASS\nNOTE: good" }; }
+      if (prompt.includes("Review the final deliverable")) return { ok: true, text: "VERDICT: REVISE\nNOTE: improve" };
+      return { ok: true, text: "output" };
+    } });
+    expect(checks).toBe(2);
+    expect(result.steps[0].verification).toBe("verified");
   });
 });

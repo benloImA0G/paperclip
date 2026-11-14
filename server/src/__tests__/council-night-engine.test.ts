@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { councilSeats, issues } from "@paperclipai/db";
+import { councilSeats, issueComments, issues } from "@paperclipai/db";
 
-const mocks = vi.hoisted(() => ({ generateText: vi.fn(), selectFastResponse: vi.fn(), credential: vi.fn(), addComment: vi.fn(), listComments: vi.fn(), create: vi.fn() }));
+const mocks = vi.hoisted(() => ({ generateText: vi.fn(), selectFastResponse: vi.fn(), credential: vi.fn(), addComment: vi.fn(), listComments: vi.fn(), create: vi.fn(), persistMetadata: vi.fn() }));
 vi.mock("ai", () => ({ generateText: mocks.generateText }));
 vi.mock("../services/fast-response-provider.js", () => ({ fastResponseModel: vi.fn(() => ({})) }));
 vi.mock("../services/ai-connections.js", () => ({ aiConnectionService: () => ({ selectFastResponse: mocks.selectFastResponse, credential: mocks.credential }) }));
@@ -24,7 +24,7 @@ const base = { companyId, issueId, userId };
 function dbFor(seatRows: ReturnType<typeof seat>[]) {
   const room = { id: issueId, companyId, originKind: "council", description: "Council room" };
   const query = (rows: unknown[]) => Object.assign(Promise.resolve(rows), { orderBy: async () => rows, limit: async () => rows, for: async () => rows });
-  return { select: () => ({ from: (table: unknown) => ({ where: () => query(table === issues ? [room] : table === councilSeats ? seatRows : []) }) }), transaction: async (fn: (tx: unknown) => unknown) => fn({}) } as never;
+  return { select: () => ({ from: (table: unknown) => ({ where: () => query(table === issues ? [room] : table === councilSeats ? seatRows : table === issueComments ? [{ metadata: { version: 1, sections: [] } }] : []) }) }), update: () => ({ set: (value: unknown) => ({ where: async () => { mocks.persistMetadata(value); } }) }), transaction: async (fn: (tx: unknown) => unknown) => fn({}) } as never;
 }
 
 beforeEach(() => {
@@ -79,6 +79,29 @@ describe("council night engine", () => {
     expect(judges).toHaveLength(2);
     expect(judges.map(([arg]) => arg.system)).toEqual(expect.arrayContaining([expect.stringContaining("Lyra"), expect.stringContaining("Vega")]));
     expect(judges.every(([arg]) => !arg.system.includes("Orion"))).toBe(true);
+  });
+
+  it("synthesizes after ranking and jury with their verdicts", async () => {
+    mocks.generateText.mockImplementation(async ({ prompt }: { prompt: string }) => ({ text: prompt.includes("You are a judge") ? "RANKING: A > B > C\nWHY: clear" : prompt.includes("You are a juror") ? "VERDICT: REVISE\nWHY: gap" : "A useful answer." }));
+    const result = await councilChatService(dbFor([...seats, seat("Chair", "chair", "moderator")])).runRound({ ...base, mode: "ask", message: "What should we do?", ranking: true, jury: true });
+    const prompts = mocks.generateText.mock.calls.map(([arg]) => arg.prompt as string);
+    const synthesis = prompts.findIndex((prompt) => prompt.includes("You are the orchestrator"));
+    expect(synthesis).toBeGreaterThan(prompts.reduce((last, prompt, index) => prompt.includes("You are a juror") ? index : last, -1));
+    expect(prompts[synthesis]).toContain('"verdict":"revise"');
+    expect(prompts[synthesis]).toContain('"ranking"');
+    expect(result.jury?.verdict).toBe("revise");
+    expect(prompts[synthesis]).toContain("gap");
+    const stored = JSON.stringify(mocks.persistMetadata.mock.calls);
+    expect(stored).toContain("Council evaluation");
+    expect(stored).toContain("participants");
+  });
+
+  it("synthesizes with unavailable checks when ballots are invalid", async () => {
+    mocks.generateText.mockImplementation(async ({ prompt }: { prompt: string }) => ({ text: prompt.includes("You are a judge") || prompt.includes("You are a juror") ? "invalid ballot" : "A useful answer." }));
+    await councilChatService(dbFor([...seats, seat("Chair", "chair", "moderator")])).runRound({ ...base, mode: "ask", message: "What should we do?", ranking: true, jury: true });
+    const prompt = mocks.generateText.mock.calls.map(([arg]) => arg.prompt as string).find((value) => value.includes("You are the orchestrator"));
+    expect(prompt).toContain('"ranking":{"unavailable":true}');
+    expect(prompt).toContain('"jury":{"unavailable":true}');
   });
 
   it("selects a reproducible, connection-diverse panel", async () => {

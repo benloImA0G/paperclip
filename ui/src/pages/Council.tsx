@@ -736,8 +736,6 @@ export function Council() {
         begin(targeted ? "Asking the selected seats…" : "Round 1: every seat answers in parallel…");
         const asked = await run("ask", { message: text, images: pics, clarify: targeted ? false : clarify, ranking: targeted ? false : peerRanking, jury: targeted ? false : jury });
         collect(asked);
-        if (asked.jury) setReviewNotice(`Jury on ${asked.jury.answerSeat}'s answer (${asked.jury.judges} judges): ${asked.jury.verdict.toUpperCase()} - pass ${asked.jury.counts.pass}, revise ${asked.jury.counts.revise}, fail ${asked.jury.counts.fail}`);
-        if (asked.ranking) setReviewNotice(`Blind peer ranking (${asked.ranking.judges} judges): ${asked.ranking.order.map((row, i) => `${i + 1}. ${row.seatName}`).join("  ")}`);
         if (debate) {
           const untilAgreement = depth === "agree";
           const percents: number[] = [];

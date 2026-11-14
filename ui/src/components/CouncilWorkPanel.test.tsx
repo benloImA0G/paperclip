@@ -33,6 +33,19 @@ describe("CouncilWorkPanel", () => {
     host.remove();
   });
 
+  it("distinguishes unavailable checks and blocked work", () => {
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    act(() => root.render(<CouncilWorkPanel running={false} steps={[
+      { n: 1, title: "Draft", expected: "x", assignee: "Chair", status: "done", verification: "check_unavailable" },
+      { n: 2, title: "Finish", expected: "x", assignee: "Chair", status: "failed", error: "Blocked by step 1", blockedBy: 1 },
+    ] as Parameters<typeof CouncilWorkPanel>[0]["steps"]} />));
+    expect(host.textContent).toContain("Completed, check unavailable");
+    expect(host.textContent).toContain("Blocked by step 1");
+    expect(host.textContent).toContain("0 verified, 1 not completed");
+    act(() => root.unmount());
+  });
+
   it("renders nothing without steps", () => {
     const host = document.createElement("div");
     const root = createRoot(host);
