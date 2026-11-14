@@ -3067,6 +3067,13 @@
       "when": 1794200000000,
       "tag": "0439_memory_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 440,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0440_council_run_events",
+      "breakpoints": true
     }
   ]
 }

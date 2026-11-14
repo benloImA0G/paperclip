@@ -21,7 +21,7 @@ How to update: change the Status cell and the date, add a link to the commit or 
 
 | ID | Priority | Stage | Item | Status | Updated | Notes or evidence |
 |---|---|---|---|---|---|---|
-| H1 | High | 4,6 | Durable run record: one append-only event log per run (message, status, artifact, approval request, error), so a run survives a restart and can be replayed | Not started | 2026-11-13 | Design sketch in COUNCIL-OUTPUTS-ROADMAP.md "Event contract"; largest item |
+| H1 | High | 4,6 | Durable run record: one append-only event log per run (message, status, artifact, approval request, error), so a run survives a restart and can be replayed | Built, not wired (uncommitted) | 2026-11-14 | Table council_run_events (migration 0440), service council-run-log.ts (append, list, replay), 5 tests pass, db and server typecheck clean. Not connected to any route yet; the type check is in code only (no DB CHECK). Next: wire into the Council run, then approvals and evidence on top. See doc/COUNCIL-RUN-LOG.md |
 | H2 | High | 3 | Follow-up loop: tasks created from a room report status and result back into the room | Built (not committed) | 2026-11-13 | Read path built: a room shows status, owner and latest result of its tasks (server/src/services/council-followup.ts, ui/src/components/CouncilFollowUp.tsx, shown in the Linked tasks panel). 20 tests pass. Not checked in the browser yet. Next: post a result card into the thread when a task finishes |
 | H3 | High | 4 | Risk tiers for actions: read-only runs, reversible runs with undo, external or costly waits for Ben, forbidden is blocked | Built (not committed) | 2026-11-13 | Policy module built with 18 action kinds and 6 tests (doc/COUNCIL-ACTION-POLICY.md). Nothing calls it yet. Next: Ben confirms the kinds list, then wire into task creation, exports and agent seats |
 | H4 | High | 6 | Feedback and a fixed test set: thumbs up or down on answers, plus about 20 real questions to compare before and after any change | Built (not committed) | 2026-11-13 | Test set of 20 questions and a runner built (doc/COUNCIL-EVAL.md); dry run passes, live run not done yet. Server now accepts thumbs votes on Council answers (4 new tests pass). Next: add the thumbs buttons to the reply footer, which is waiting on the other uncommitted work in that file |
@@ -43,7 +43,7 @@ How to update: change the Status cell and the date, add a link to the commit or 
 
 1. Finish the first slices of H2, H3 and H4, and wire them in.
 2. Ben's H5 decisions (about 30 minutes).
-3. H1 durable run record, then build approvals and evidence links on it.
+3. H1 durable run record (built, wire it into Council runs next), then build approvals and evidence links on it.
 4. Medium items.
 5. P1 when Ben says so.
 
@@ -51,6 +51,7 @@ How to update: change the Status cell and the date, add a link to the commit or 
 
 - 2026-11-13: tracker created after a review of the plan against the six-stage flow and outside practice; VPS2 redeploy parked; first slices of H2, H3, H4 built the same evening (committed as 3512cf2cd, not pushed).
 - 2026-11-14 (night run, stopped 1 a.m.): M1 file check and M2 minority-view module built and tested (8 server + 2 UI tests), uncommitted. H1 run record NOT built: WSL hung (load 200+, disk 100%) and restarted, which killed the Codex job; brief kept at ~/council-test/cdx/runlog.md. Research: adopt exceljs (needs Ben OK) and try promptfoo for the eval set; build the event table ourselves.
+- 2026-11-14 (afternoon): H1 run record built by Codex (table, migration 0440, service, 5 tests) and verified by Claude. Earlier Codex runs kept dying because WSL kept freezing and restarting (error 0x8007274c); a full WSL restart (12 processors applied) and running jobs in tmux fixed it for now.
 
 ## 5. Sources used in the 2026-11-13 review
 
